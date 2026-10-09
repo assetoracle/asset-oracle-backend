@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import healthRouter from "./routes/health.js";
+import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
 
@@ -40,6 +41,8 @@ app.use((_req, res) => {
     error: "Endpoint not found",
   });
 });
+
+app.use(errorHandler);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Asset Oracle API listening on port ${PORT}`);
