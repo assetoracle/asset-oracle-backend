@@ -1,74 +1,97 @@
-import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import { database } from "../config/database.js";
+import type { MarketProposalInput } from "./marketValidation.js";
 
-const resolutionRuleSchema = z.object({
-  sourceId: z.string().trim().min(1, "A data source is required"),
-  metric: z.string().trim().min(1, "A metric is required"),
-  comparison: z.enum(["ABOVE", "BELOW", "EQUALS"]),
-  targetValue: z.number().finite(),
-  currency: z.string().trim().optional(),
-  observationTime: z.string().datetime({
-    offset: true,
-    message: "Use a valid ISO 8601 observation time with timezone",
-  }),
-  description: z.string().trim().min(10, "Explain the resolution rule"),
-});
+export type StoredMarketProposal = MarketProposalInput & {
+  id: string;
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
+  submittedAt: string;
+};
 
-export const marketProposalSchema = z
-  .object({
-    question: z
-      .string()
-      .trim()
-      .min(15, "The question must contain at least 15 characters")
-      .max(240, "The question cannot exceed 240 characters"),
+type MarketProposalRow = {
+  id: string;
+  question: string;
+  description: string;
+  category: MarketProposalInput["category"];
+  closesAt: string | Date;
+  resolvesAt: string | Date;
+  resolutionRule: MarketProposalInput["resolutionRule"];
+  status: StoredMarketProposal["status"];
+  submittedAt: string | Date;
+};
 
-    description: z
-      .string()
-      .trim()
-      .min(20, "Provide at least 20 characters of description")
-      .max(2000, "The description cannot exceed 2000 characters"),
+function mapProposal(row: MarketProposalRow): StoredMarketProposal {
+  return {
+    id: row.id,
+    question: row.question,
+    description: row.description,
+    category: row.category,
+    closesAt: new Date(row.closesAt).toISOString(),
+    resolvesAt: new Date(row.resolvesAt).toISOString(),
+    resolutionRule:
+      typeof row.resolutionRule === "string"
+        ? JSON.parse(row.resolutionRule)
+        : row.resolutionRule,
+    status: row.status,
+    submittedAt: new Date(row.submittedAt).toISOString(),
+  };
+}
 
-    category: z.enum([
-      "Crypto",
-      "Sports",
-      "Economics",
-      "RWA",
-      "Regional",
-    ]),
+export async function initializeMarketStore(): Promise<void> {
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS market_proposals (
+      id UUID PRIMARY KEY,
+      question TEXT NOT NULL,
+      description TEXT NOT NULL,
+      category TEXT NOT NULL,
+      "closesAt" TIMESTAMPTZ NOT NULL,
+      "resolvesAt" TIMESTAMPTZ NOT NULL,
+      "resolutionRule" JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING_APPROVAL'
+        CHECK (status IN ('PENDING_APPROVAL', 'APPROVED', 'REJECTED')),
+      "submittedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
 
-    closesAt: z.string().datetime({
-      offset: true,
-      message: "Use a valid ISO 8601 closing date with timezone",
-    }),
+export async function createMarketProposal(
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal> {
+  const result = await database.query<MarketProposalRow>(
+    `INSERT INTO market_proposals
+      (id, question, description, category, "closesAt", "resolvesAt",
+       "resolutionRule", status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING_APPROVAL')
+     RETURNING *`,
+    [
+      randomUUID(),
+      input.question,
+      input.description,
+      input.category,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
 
-    resolvesAt: z.string().datetime({
-      offset: true,
-      message: "Use a valid ISO 8601 resolution date with timezone",
-    }),
+  return mapProposal(result.rows[0]);
+}
 
-    resolutionRule: resolutionRuleSchema,
-  })
-  .superRefine((market, context) => {
-    const now = Date.now();
-    const closingTime = Date.parse(market.closesAt);
-    const resolutionTime = Date.parse(market.resolvesAt);
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
 
-    if (closingTime <= now) {
-      context.addIssue({
-        code: "custom",
-        path: ["closesAt"],
-        message: "The closing date must be in the future",
-      });
-    }
+  return result.rows.map(mapProposal);
+}
 
-    if (resolutionTime <= closingTime) {
-      context.addIssue({
-        code: "custom",
-        path: ["resolvesAt"],
-        message: "The resolution time must be after the closing time",
-      });
-    }
-  });
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
 
-export type MarketProposalInput = z.infer<
-  typeof marketProposalSchema
->;
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
