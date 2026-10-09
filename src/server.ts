@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import marketsRouter from "./routes/markets.js";
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use(
 );
 
 app.use(express.json({ limit: "100kb" }));
+app.use("/api/markets", marketsRouter);
 
 app.get("/", (_req, res) => {
   res.json({
