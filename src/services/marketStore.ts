@@ -1,96 +1,90 @@
-import { randomUUID } from "node:crypto";
-import { database } from "../config/database.js";
-import type { MarketProposalInput } from "./marketValidation.js";
+import { Router } from "express";
+import { z } from "zod";
+import { marketProposalSchema } from "../services/marketValidation.js";
+import {
+  createMarketProposal,
+  getMarketProposal,
+  listMarketProposals,
+} from "../services/marketStore.js";
 
-export type StoredMarketProposal = MarketProposalInput & {
-  id: string;
-  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
-  submittedAt: string;
-};
+const marketsRouter = Router();
 
-type MarketProposalRow = {
-  id: string;
-  question: string;
-  description: string;
-  category: string;
-  closeAt: string | Date;
-  resolveAt: string | Date;
-  resolutionRule: string;
-  status: StoredMarketProposal["status"];
-  submittedAt: string | Date;
-};
+marketsRouter.post("/proposals/validate", (req, res) => {
+  const result = marketProposalSchema.safeParse(req.body);
 
-function mapProposal(row: MarketProposalRow): StoredMarketProposal {
-  return {
-    id: row.id,
-    question: row.question,
-    description: row.description,
-    category: row.category,
-    closeAt: new Date(row.closeAt).toISOString(),
-    resolveAt: new Date(row.resolveAt).toISOString(),
-    resolutionRule: row.resolutionRule,
-    status: row.status,
-    submittedAt: new Date(row.submittedAt).toISOString(),
-  } as StoredMarketProposal;
-}
+  if (!result.success) {
+    return res.status(400).json({
+      error: "Market proposal validation failed",
+      details: result.error.issues,
+    });
+  }
 
-export async function initializeMarketStore(): Promise<void> {
-  await database.query(`
-    CREATE TABLE IF NOT EXISTS market_proposals (
-      id UUID PRIMARY KEY,
-      question TEXT NOT NULL,
-      description TEXT NOT NULL,
-      category TEXT NOT NULL,
-      "closeAt" TIMESTAMPTZ NOT NULL,
-      "resolveAt" TIMESTAMPTZ NOT NULL,
-      "resolutionRule" TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'PENDING_APPROVAL'
-        CHECK (status IN ('PENDING_APPROVAL', 'APPROVED', 'REJECTED')),
-      "submittedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-}
+  return res.status(200).json({
+    valid: true,
+    proposal: result.data,
+  });
+});
 
-export async function createMarketProposal(
-  input: MarketProposalInput,
-): Promise<StoredMarketProposal> {
-  const id = randomUUID();
+marketsRouter.post("/proposals", async (req, res, next) => {
+  try {
+    const result = marketProposalSchema.safeParse(req.body);
 
-  const result = await database.query<MarketProposalRow>(
-    `INSERT INTO market_proposals
-      (id, question, description, category, "closeAt", "resolveAt",
-       "resolutionRule", status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING_APPROVAL')
-     RETURNING *`,
-    [
-      id,
-      input.question,
-      input.description,
-      input.category,
-      input.closeAt,
-      input.resolveAt,
-      input.resolutionRule,
-    ],
-  );
+    if (!result.success) {
+      return res.status(400).json({
+        error: "Market proposal validation failed",
+        details: result.error.issues,
+      });
+    }
 
-  return mapProposal(result.rows[0]);
-}
+    const proposal = await createMarketProposal(result.data);
 
-export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
-  const result = await database.query<MarketProposalRow>(
-    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
-  );
+    return res.status(201).json({
+      message: "Market proposal submitted successfully",
+      proposal,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
-  return result.rows.map(mapProposal);
-}
+marketsRouter.get("/proposals", async (_req, res, next) => {
+  try {
+    const proposals = await listMarketProposals();
 
-export async function getMarketProposal(
-  id: string,
-): Promise<StoredMarketProposal | undefined> {
-  const result = await database.query<MarketProposalRow>(
-    `SELECT * FROM market_proposals WHERE id = $1`,
-    [id],
-  );
+    return res.status(200).json({
+      proposals,
+      count: proposals.length,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
-  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
-}
+marketsRouter.get(
+  "/proposals/:id",
+  async (req, res, next) => {
+    try {
+      const idResult = z.string().uuid().safeParse(req.params.id);
+
+      if (!idResult.success) {
+        return res.status(400).json({
+          error: "Invalid proposal ID",
+        });
+      }
+
+      const proposal = await getMarketProposal(idResult.data);
+
+      if (!proposal) {
+        return res.status(404).json({
+          error: "Market proposal not found",
+        });
+      }
+
+      return res.status(200).json({ proposal });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+export default marketsRouter;
