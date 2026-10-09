@@ -33,13 +33,7 @@ app.get("/", (_req, res) => {
   });
 });
 
-app.get("/api/health", (_req, res) => {
-  res.status(200).json({
-    status: "healthy",
-    service: "asset-oracle-backend",
-    timestamp: new Date().toISOString(),
-  });
-});
+app.use("/api/health", healthRouter);
 
 app.use((_req, res) => {
   res.status(404).json({
