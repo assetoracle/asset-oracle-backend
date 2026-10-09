@@ -5,6 +5,7 @@ import helmet from "helmet";
 import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import marketsRouter from "./routes/markets.js";
+import { initializeMarketStore } from "./services/marketStore.js";
 
 const app = express();
 
@@ -46,6 +47,21 @@ app.use((_req, res) => {
 
 app.use(errorHandler);
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Asset Oracle API listening on port ${PORT}`);
-});
+async function startServer(): Promise<void> {
+  try {
+    await initializeMarketStore();
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Asset Oracle API listening on port ${PORT}`);
+      console.log("Market proposal database initialized");
+    });
+  } catch (error) {
+    console.error(
+      "Failed to initialize the market proposal database:",
+      error instanceof Error ? error.message : "Unknown error",
+    );
+    process.exit(1);
+  }
+}
+
+void startServer();
