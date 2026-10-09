@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import healthRouter from "./routes/health.js";
 
 const app = express();
 
