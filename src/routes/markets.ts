@@ -5,6 +5,7 @@ import {
   createMarketProposal,
   listMarketProposals,
   getMarketProposal,
+  listPublishedMarkets,
 } from "../services/marketStore.js";
 
 const marketsRouter = Router();
