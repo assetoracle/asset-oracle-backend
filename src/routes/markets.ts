@@ -149,6 +149,20 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
   }
 });
 
+
+marketsRouter.get("/public", async (_req, res, next) => {
+  try {
+    const markets = await listPublishedMarkets();
+
+    return res.status(200).json({
+      markets,
+      count: markets.length,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 marketsRouter.get("/proposals/:id", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
