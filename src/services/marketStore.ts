@@ -94,4 +94,14 @@ export async function getMarketProposal(
   );
 
   return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
 }
