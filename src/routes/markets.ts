@@ -106,4 +106,5 @@ marketsRouter.get("/public", async (_req, res, next) => {
     return next(error);
   }
 });
+
 export default marketsRouter;
