@@ -114,3 +114,15 @@ export async function getMarketProposal(
 
   return result.rows.map(mapProposal);
 }
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
