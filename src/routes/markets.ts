@@ -2,6 +2,7 @@ import { Router } from "express";
 import { isAddress } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
+import { verifyAdminWallet } from "../services/adminAuth.js";
 import {
   createMarketProposal,
   getMarketProposal,
