@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
 import {
   createMarketProposal,
@@ -30,44 +31,66 @@ marketsRouter.post("/proposals/validate", (req, res) => {
   });
 });
 
-marketsRouter.post("/proposals", (req, res) => {
-  const result = marketProposalSchema.safeParse(req.body);
+marketsRouter.post("/proposals", async (req, res, next) => {
+  try {
+    const result = marketProposalSchema.safeParse(req.body);
 
-  if (!result.success) {
-    return res.status(400).json({
-      error: "Invalid market proposal",
-      details: result.error.issues.map((issue) => ({
-        field: issue.path.join("."),
-        message: issue.message,
-      })),
+    if (!result.success) {
+      return res.status(400).json({
+        error: "Invalid market proposal",
+        details: result.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const proposal = await createMarketProposal(result.data);
+
+    return res.status(201).json({
+      message: "Market proposal submitted for approval.",
+      proposal,
     });
+  } catch (error) {
+    return next(error);
   }
-
-  const proposal = createMarketProposal(result.data);
-
-  return res.status(201).json({
-    message: "Market proposal submitted for approval.",
-    proposal,
-  });
 });
 
-marketsRouter.get("/proposals", (_req, res) => {
-  return res.status(200).json({
-    proposals: listMarketProposals(),
-    count: listMarketProposals().length,
-  });
+marketsRouter.get("/proposals", async (_req, res, next) => {
+  try {
+    const proposals = await listMarketProposals();
+
+    return res.status(200).json({
+      proposals,
+      count: proposals.length,
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
-marketsRouter.get("/proposals/:id", (req, res) => {
-  const proposal = getMarketProposal(req.params.id);
+marketsRouter.get("/proposals/:id", async (req, res, next) => {
+  try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
 
-  if (!proposal) {
-    return res.status(404).json({
-      error: "Market proposal not found",
-    });
+    if (!idResult.success) {
+      return res.status(400).json({
+        error: "Invalid proposal ID",
+      });
+    }
+
+    const proposal = await getMarketProposal(idResult.data);
+
+    if (!proposal) {
+      return res.status(404).json({
+        error: "Market proposal not found",
+      });
+    }
+
+    return res.status(200).json({ proposal });
+  } catch (error) {
+    return next(error);
   }
-
-  return res.status(200).json({ proposal });
 });
 
 export default marketsRouter;
