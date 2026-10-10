@@ -63,6 +63,7 @@ export async function initializeMarketStore(): Promise<void> {
 
 export async function createMarketProposal(
   input: MarketProposalInput,
+  walletAddress: string,
 ): Promise<StoredMarketProposal> {
   const result = await database.query<MarketProposalRow>(
     `INSERT INTO market_proposals
