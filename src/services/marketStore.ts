@@ -4,6 +4,7 @@ import type { MarketProposalInput } from "./marketValidation.js";
 
 export type StoredMarketProposal = MarketProposalInput & {
   id: string;
+  walletAddress?: string | null;
   status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED";
   submittedAt: string;
 };
