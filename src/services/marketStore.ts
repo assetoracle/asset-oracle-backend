@@ -11,6 +11,7 @@ export type StoredMarketProposal = MarketProposalInput & {
 
 type MarketProposalRow = {
   id: string;
+  walletAddress: string | null;
   question: string;
   description: string;
   category: MarketProposalInput["category"];
@@ -24,6 +25,7 @@ type MarketProposalRow = {
 function mapProposal(row: MarketProposalRow): StoredMarketProposal {
   return {
     id: row.id,
+    walletAddress: row.walletAddress,
     question: row.question,
     description: row.description,
     category: row.category,
