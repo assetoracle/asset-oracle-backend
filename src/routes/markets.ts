@@ -1,14 +1,49 @@
 import { Router } from "express";
+import { isAddress } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
 import {
   createMarketProposal,
-  listMarketProposals,
   getMarketProposal,
   listPublishedMarkets,
+  listMarketProposalsByWallet,
 } from "../services/marketStore.js";
+import {
+  createWalletNonce,
+  verifyWalletSignature,
+} from "../services/walletAuth.js";
 
 const marketsRouter = Router();
+
+const walletAuthSchema = z.object({
+  address: z.string().refine(isAddress, "Invalid wallet address"),
+  message: z.string().min(1),
+  signature: z.string().regex(/^0x[0-9a-fA-F]+$/, "Invalid signature"),
+});
+
+marketsRouter.post("/auth/nonce", async (req, res, next) => {
+  try {
+    const result = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+    }).safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({
+        error: "A valid wallet address is required",
+      });
+    }
+
+    const nonce = await createWalletNonce(result.data.address);
+    const message =
+      `Asset Oracle wallet verification\n` +
+      `Address: ${result.data.address}\n` +
+      `Nonce: ${nonce}`;
+
+    return res.status(200).json({ nonce, message });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 marketsRouter.post("/proposals/validate", (req, res) => {
   const result = marketProposalSchema.safeParse(req.body);
@@ -34,32 +69,73 @@ marketsRouter.post("/proposals/validate", (req, res) => {
 
 marketsRouter.post("/proposals", async (req, res, next) => {
   try {
-    const result = marketProposalSchema.safeParse(req.body);
+    const bodyResult = z.object({
+      proposal: marketProposalSchema,
+      walletAuth: walletAuthSchema,
+    }).safeParse(req.body);
 
-    if (!result.success) {
+    if (!bodyResult.success) {
       return res.status(400).json({
-        error: "Invalid market proposal",
-        details: result.error.issues.map((issue) => ({
+        error: "A valid proposal and wallet authentication are required",
+        details: bodyResult.error.issues.map((issue) => ({
           field: issue.path.join("."),
           message: issue.message,
         })),
       });
     }
 
-    const proposal = await createMarketProposal(result.data);
+    const { proposal: input, walletAuth } = bodyResult.data;
+
+    const verified = await verifyWalletSignature(
+      walletAuth.address,
+      walletAuth.signature as `0x${string}`,
+      walletAuth.message,
+    );
+
+    if (!verified) {
+      return res.status(401).json({
+        error: "Wallet verification failed. Request a new nonce and sign again.",
+      });
+    }
+
+    const stored = await createMarketProposal(
+      input,
+      walletAuth.address,
+    );
 
     return res.status(201).json({
       message: "Market proposal submitted for approval.",
-      proposal,
+      proposal: stored,
     });
   } catch (error) {
     return next(error);
   }
 });
 
-marketsRouter.get("/proposals", async (_req, res, next) => {
+marketsRouter.post("/proposals/mine", async (req, res, next) => {
   try {
-    const proposals = await listMarketProposals();
+    const result = walletAuthSchema.safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({
+        error: "Valid wallet authentication is required",
+      });
+    }
+
+    const { address, message, signature } = result.data;
+    const verified = await verifyWalletSignature(
+      address,
+      signature as `0x${string}`,
+      message,
+    );
+
+    if (!verified) {
+      return res.status(401).json({
+        error: "Wallet verification failed. Request a new nonce and sign again.",
+      });
+    }
+
+    const proposals = await listMarketProposalsByWallet(address);
 
     return res.status(200).json({
       proposals,
