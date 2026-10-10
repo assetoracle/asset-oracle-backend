@@ -1,30 +1,34 @@
-import {
-  createPublicClient,
-  http,
-  verifyMessage,
-} from "viem";
+import { randomBytes } from "node:crypto";
+import { verifyMessage } from "viem";
+import { database } from "../config/database.js";
 
-const NONCE_TTL_MS = 5 * 60 * 1000;
+const NONCE_TTL_MINUTES = 5;
 
-type NonceRecord = {
-  nonce: string;
-  expiresAt: number;
-};
-
-const nonces = new Map<string, NonceRecord>();
-
-function normalizeAddress(address: string): string {
-  return address.toLowerCase();
+export async function initializeWalletAuth(): Promise<void> {
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS wallet_auth_nonces (
+      address TEXT PRIMARY KEY,
+      nonce TEXT NOT NULL,
+      "expiresAt" TIMESTAMPTZ NOT NULL
+    )
+  `);
 }
 
-export function createWalletNonce(address: string): string {
-  const normalized = normalizeAddress(address);
-  const nonce = crypto.randomUUID();
+export async function createWalletNonce(
+  address: string,
+): Promise<string> {
+  const normalized = address.toLowerCase();
+  const nonce = randomBytes(32).toString("hex");
 
-  nonces.set(normalized, {
-    nonce,
-    expiresAt: Date.now() + NONCE_TTL_MS,
-  });
+  await database.query(
+    `INSERT INTO wallet_auth_nonces (address, nonce, "expiresAt")
+     VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 minute'))
+     ON CONFLICT (address)
+     DO UPDATE SET
+       nonce = EXCLUDED.nonce,
+       "expiresAt" = EXCLUDED."expiresAt"`,
+    [normalized, nonce, NONCE_TTL_MINUTES],
+  );
 
   return nonce;
 }
@@ -34,11 +38,21 @@ export async function verifyWalletSignature(
   signature: `0x${string}`,
   message: string,
 ): Promise<boolean> {
-  const normalized = normalizeAddress(address);
-  const record = nonces.get(normalized);
+  const normalized = address.toLowerCase();
 
-  if (!record || record.expiresAt < Date.now()) {
-    nonces.delete(normalized);
+  const result = await database.query<{
+    nonce: string;
+    expiresAt: string | Date;
+  }>(
+    `SELECT nonce, "expiresAt"
+     FROM wallet_auth_nonces
+     WHERE address = $1`,
+    [normalized],
+  );
+
+  const record = result.rows[0];
+
+  if (!record || new Date(record.expiresAt).getTime() <= Date.now()) {
     return false;
   }
 
@@ -51,19 +65,28 @@ export async function verifyWalletSignature(
     return false;
   }
 
+  let valid = false;
+
   try {
-    const valid = await verifyMessage({
+    valid = await verifyMessage({
       address: address as `0x${string}`,
       message,
       signature,
     });
-
-    if (valid) {
-      nonces.delete(normalized);
-    }
-
-    return valid;
   } catch {
     return false;
   }
+
+  if (!valid) {
+    return false;
+  }
+
+  // Consume only the nonce that was actually verified.
+  const consumed = await database.query(
+    `DELETE FROM wallet_auth_nonces
+     WHERE address = $1 AND nonce = $2`,
+    [normalized, record.nonce],
+  );
+
+  return (consumed.rowCount ?? 0) === 1;
 }
