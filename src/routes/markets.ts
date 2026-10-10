@@ -6,7 +6,9 @@ import {
   createMarketProposal,
   getMarketProposal,
   listPublishedMarkets,
+  listMarketProposals,
   listMarketProposalsByWallet,
+  updateMarketProposalStatus,
 } from "../services/marketStore.js";
 import {
   createWalletNonce,
