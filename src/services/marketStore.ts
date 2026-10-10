@@ -67,10 +67,10 @@ export async function createMarketProposal(
 ): Promise<StoredMarketProposal> {
   const result = await database.query<MarketProposalRow>(
     `INSERT INTO market_proposals
-      (id, question, description, category, "closesAt", "resolvesAt",
-       "resolutionRule", status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING_APPROVAL')
-     RETURNING *`,
+  (id, question, description, category, "closesAt", "resolvesAt",
+   "resolutionRule", "walletAddress", status)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING_APPROVAL')
+ RETURNING *`,
     [
       randomUUID(),
       input.question,
