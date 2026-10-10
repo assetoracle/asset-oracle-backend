@@ -6,6 +6,7 @@ import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import marketsRouter from "./routes/markets.js";
 import { initializeMarketStore } from "./services/marketStore.js";
+import { initializeWalletAuth } from "./services/walletAuth.js";
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use(errorHandler);
 async function startServer(): Promise<void> {
   try {
     await initializeMarketStore();
+    await initializeWalletAuth();
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Asset Oracle API listening on port ${PORT}`);
