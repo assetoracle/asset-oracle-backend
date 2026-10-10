@@ -72,14 +72,15 @@ export async function createMarketProposal(
  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING_APPROVAL')
  RETURNING *`,
     [
-      randomUUID(),
-      input.question,
-      input.description,
-      input.category,
-      input.closesAt,
-      input.resolvesAt,
-      JSON.stringify(input.resolutionRule),
-    ],
+  randomUUID(),
+  input.question,
+  input.description,
+  input.category,
+  input.closesAt,
+  input.resolvesAt,
+  JSON.stringify(input.resolutionRule),
+  walletAddress.toLowerCase(),
+],
   );
 
   return mapProposal(result.rows[0]);
