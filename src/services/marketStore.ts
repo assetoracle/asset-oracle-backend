@@ -126,3 +126,19 @@ export async function listMarketProposalsByWallet(
 
   return result.rows.map(mapProposal);
 }
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
