@@ -52,6 +52,10 @@ export async function initializeMarketStore(): Promise<void> {
       "submittedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await database.query(`
+    ALTER TABLE market_proposals
+    ADD COLUMN IF NOT EXISTS "walletAddress" TEXT
+  `);
 }
 
 export async function createMarketProposal(
