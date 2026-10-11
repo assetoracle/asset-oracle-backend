@@ -24,9 +24,10 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     uint256 public constant TRADING_FEE_BPS = 25; // 0.25% per stake
     uint256 public constant SETTLEMENT_FEE_BPS = 200; // 2% on eligible winning settlements
     uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of the 2% fee
+    uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
     enum Stablecoin { USDC }
     enum Outcome { UNRESOLVED, YES, NO, INVALID }
-    enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED }
+    enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED, ARBITRATION }
 
     struct StablecoinConfig {
         address token;
@@ -80,6 +81,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     event MarketClosed(uint256 indexed marketId);
     event MarketResolved(uint256 indexed marketId, Outcome outcome, bytes32 evidenceHash, address indexed resolver);
     event MarketDisputed(uint256 indexed marketId, address indexed disputant, bytes32 evidenceHash);
+    event DisputeTimedOut(uint256 indexed marketId);
     event MarketFinalized(uint256 indexed marketId, Outcome outcome);
     event Claimed(uint256 indexed marketId, address indexed user, uint256 amount);
     event Refunded(uint256 indexed marketId, address indexed user, uint256 amount);
@@ -260,8 +262,33 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         Position memory position = positions[marketId][msg.sender];
         if (position.yes == 0 && position.no == 0) revert DisputeRequiresParticipant();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
-        market.status = Status.REFUNDABLE;
+        market.status = Status.ARBITRATION;
+        market.evidenceHash = evidenceHash;
         emit MarketDisputed(marketId, msg.sender, evidenceHash);
+    }
+
+    /// @notice Owner adjudication records a replacement outcome and restarts the challenge window.
+    function resolveDispute(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external onlyOwner {
+        Market storage market = markets[marketId];
+        if (market.id == 0) revert MarketNotFound();
+        if (market.status != Status.ARBITRATION) revert InvalidStatus();
+        if (outcome != Outcome.YES && outcome != Outcome.NO && outcome != Outcome.INVALID) revert InvalidOutcome();
+        if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
+        market.outcome = outcome;
+        market.evidenceHash = evidenceHash;
+        market.resolvedAt = uint64(block.timestamp);
+        market.status = Status.DISPUTED;
+        emit MarketResolved(marketId, outcome, evidenceHash, msg.sender);
+    }
+
+    /// @notice Anyone may unlock refunds if owner adjudication does not occur within seven days.
+    function refundDisputedTimeout(uint256 marketId) external {
+        Market storage market = markets[marketId];
+        if (market.id == 0) revert MarketNotFound();
+        if (market.status != Status.ARBITRATION) revert InvalidStatus();
+        if (block.timestamp < uint256(market.resolvedAt) + DISPUTE_RESOLUTION_TIMEOUT) revert ChallengeWindowActive();
+        market.status = Status.REFUNDABLE;
+        emit DisputeTimedOut(marketId);
     }
 
     function finalizeMarket(uint256 marketId) external {
