@@ -1,0 +1,21 @@
+{
+  "name": "asset-oracle-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Asset Oracle smart contracts for Asset Chain",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:gas": "hardhat test",
+    "coverage": "hardhat coverage",
+    "deploy:enugu": "hardhat run scripts/deploy.ts --network enugu"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.4.0",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.26.3",
+    "typescript": "^5.8.3",
+    "ts-node": "^10.9.2"
+  }
+}
