@@ -71,15 +71,37 @@ async function main() {
   const manager = await Factory.deploy(owner, treasury, validatorPool);
   await manager.waitForDeployment();
 
-  await (await manager.configureStablecoin(0, usdcAddress, usdcDecimals)).wait();
-  await (await manager.setOracleResolver(resolver, true)).wait();
+  const deploymentTx = manager.deploymentTransaction();
+  if (!deploymentTx) throw new Error("Deployment transaction was not available for evidence logging.");
+  const deploymentReceipt = await deploymentTx.wait();
+  if (!deploymentReceipt) throw new Error("Deployment receipt was not available for evidence logging.");
 
+  const stablecoinTx = await manager.configureStablecoin(0, usdcAddress, usdcDecimals);
+  const stablecoinReceipt = await stablecoinTx.wait();
+  if (!stablecoinReceipt) throw new Error("USDC configuration receipt was not available.");
+  const resolverTx = await manager.setOracleResolver(resolver, true);
+  const resolverReceipt = await resolverTx.wait();
+  if (!resolverReceipt) throw new Error("Resolver configuration receipt was not available.");
+
+  const creatorReceipts: Array<{ address: string; hash: string; blockNumber: number }> = [];
   for (const address of extraCreators) {
-    await (await manager.setMarketCreator(address, true)).wait();
+    const creatorTx = await manager.setMarketCreator(address, true);
+    const creatorReceipt = await creatorTx.wait();
+    if (!creatorReceipt) throw new Error(`Creator configuration receipt was not available for ${address}.`);
+    creatorReceipts.push({ address, hash: creatorTx.hash, blockNumber: creatorReceipt.blockNumber });
   }
 
   console.log("AssetOracleMarketManager deployed on Enugu testnet");
   console.log("Contract:", await manager.getAddress());
+  console.log("Deployment transaction:", deploymentTx.hash);
+  console.log("Deployment block:", deploymentReceipt.blockNumber);
+  console.log("USDC configuration transaction:", stablecoinTx.hash);
+  console.log("USDC configuration block:", stablecoinReceipt.blockNumber);
+  console.log("Resolver configuration transaction:", resolverTx.hash);
+  console.log("Resolver configuration block:", resolverReceipt.blockNumber);
+  for (const receipt of creatorReceipts) {
+    console.log(`Creator configuration for ${receipt.address}: ${receipt.hash} (block ${receipt.blockNumber})`);
+  }
   console.log("Owner:", owner);
   console.log("Treasury:", treasury);
   console.log("Validator reward pool:", validatorPool);
