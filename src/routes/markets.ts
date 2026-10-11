@@ -408,6 +408,8 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
     }).find((event) =>
       event.args.marketId?.toString() === marketId &&
       event.args.question === proposal.question &&
+      event.args.stablecoin === 0 &&
+      event.args.closeTime === BigInt(Math.floor(Date.parse(proposal.closesAt) / 1000)) &&
       Boolean(event.args.creator) &&
       getAddress(event.args.creator as string) === getAddress(walletAuth.address)
     );
