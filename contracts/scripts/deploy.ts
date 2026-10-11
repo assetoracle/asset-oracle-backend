@@ -21,13 +21,14 @@ async function main() {
   const validatorPool = ethers.getAddress(required("VALIDATOR_REWARD_POOL_ADDRESS"));
   const resolver = ethers.getAddress(required("ORACLE_RESOLVER_ADDRESS"));
 
-  const tokenConfigs = [
-    { kind: 0, address: ethers.getAddress(required("CNGN_TOKEN_ADDRESS")), decimals: decimals("CNGN_TOKEN_DECIMALS") },
-    { kind: 1, address: ethers.getAddress(required("USDT_TOKEN_ADDRESS")), decimals: decimals("USDT_TOKEN_DECIMALS") },
-    { kind: 2, address: ethers.getAddress(required("USDC_TOKEN_ADDRESS")), decimals: decimals("USDC_TOKEN_DECIMALS") }
-  ];
-  if (new Set(tokenConfigs.map(x => x.address.toLowerCase())).size !== 3) {
-    throw new Error("cNGN, USDT and USDC must be three distinct token addresses.");
+  const expectedUsdcAddress = "0xc33741fddEBeA854d265db6F9707900Efb0211a2";
+  const usdcAddress = ethers.getAddress(required("USDC_TOKEN_ADDRESS"));
+  if (usdcAddress.toLowerCase() !== expectedUsdcAddress.toLowerCase()) {
+    throw new Error(`Refusing deployment: Enugu testnet must use the approved USDC address ${expectedUsdcAddress}.`);
+  }
+  const usdcDecimals = Number(process.env.USDC_TOKEN_DECIMALS || "6");
+  if (!Number.isInteger(usdcDecimals) || usdcDecimals < 1 || usdcDecimals > 18) {
+    throw new Error("USDC_TOKEN_DECIMALS must be an integer from 1 to 18.");
   }
 
   const network = await ethers.provider.getNetwork();
@@ -37,10 +38,7 @@ async function main() {
   const manager = await Factory.deploy(deployer.address, treasury, validatorPool);
   await manager.waitForDeployment();
 
-  for (const token of tokenConfigs) {
-    const tx = await manager.configureStablecoin(token.kind, token.address, token.decimals);
-    await tx.wait();
-  }
+  await (await manager.configureStablecoin(0, usdcAddress, usdcDecimals)).wait();
   await (await manager.setOracleResolver(resolver, true)).wait();
 
   const extraCreators = (process.env.MARKET_CREATOR_WALLET_ADDRESSES || "")
@@ -55,7 +53,7 @@ async function main() {
   console.log("Treasury:", treasury);
   console.log("Validator reward pool:", validatorPool);
   console.log("Oracle resolver:", resolver);
-  console.log("Configured stablecoins:", tokenConfigs);
+  console.log("Configured testnet token: USDC", usdcAddress, "decimals:", usdcDecimals);
   console.log("Verify all addresses and contract source before interacting with this deployment.");
 }
 
