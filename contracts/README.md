@@ -5,12 +5,12 @@ This workspace is isolated under `contracts/` so the existing frontend and API p
 ## Current scope
 
 - Solidity 0.8.28, OpenZeppelin access control, SafeERC20 and reentrancy protection.
-- Explicit token-kind allowlist: **cNGN, USDT and USDC only**. Token contracts and decimals must be configured before the first market. The allowlist locks once market creation starts.
+- **Enugu testnet accepts USDC only**, at `0xc33741fddEBeA854d265db6F9707900Efb0211a2`. The deployment script rejects other token addresses and configures only this token. USDC decimals default to 6 and must be verified against the token contract.
 - Separate market-creator and oracle-resolver roles. Creators cannot resolve outcomes; resolvers cannot change token configuration or fee recipients.
 - Binary YES/NO stakes held in contract escrow.
 - Separate 0.25% trading fee and 2% successful-settlement fee. The 2% fee is split 25% to the validator reward pool and 75% to treasury.
 - Invalid/cancelled markets have a 0% settlement fee and allow users to recover their net stake.
-- Actual no-winner outcome: 75% of each participant's net stake is refundable and 25% of the pool is retained and sent to treasury. This is distinct from invalid/cancelled/time-out refunds.
+- If a validly resolved outcome has no stake on its winning side, the first-pass implementation refunds each participant's full net stake and charges no settlement fee. No amount is retained for this case.
 - Resolution evidence hash and a challenge window are recorded before finalization.
 
 ## Critical review items before deployment
