@@ -5,7 +5,7 @@ This workspace is isolated under `contracts/` so the existing frontend and API p
 ## Current scope
 
 - Solidity 0.8.28, OpenZeppelin access control, SafeERC20 and reentrancy protection.
-- **Approved stablecoins:** USDC, cNGN, and USDT are the only supported stablecoin kinds in the contract. **Enugu testnet deployment remains USDC-only**, at `0xc33741fddEBeA854d265db6F9707900Efb0211a2`; the testnet deployment script rejects other token addresses and configures only USDC. Mainnet deployment must separately configure and verify the official Asset Chain mainnet addresses and on-chain decimals for all three tokens before any markets are created. Do not reuse testnet addresses or assume decimals.
+- **Testnet scope:** the contract and Enugu deployment are USDC-only for this phase, at `0xc33741fddEBeA854d265db6F9707900Efb0211a2`. The deployment script rejects other token addresses and configures only USDC. cNGN and USDT support will be implemented and verified in the separate mainnet phase; do not use mainnet tokens or addresses on testnet.
 - Separate market-creator and oracle-resolver roles. Creators cannot resolve outcomes; resolvers cannot change token configuration or fee recipients.
 - Binary YES/NO stakes held in contract escrow.
 - All trading-fee revenue (0.25%) goes to Treasury, including any allocation previously described as market incentives. Successful-settlement fees are 2%, split 25% to the validator reward pool and 75% to Treasury.
