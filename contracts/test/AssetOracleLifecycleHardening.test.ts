@@ -114,4 +114,79 @@ describe("AssetOracleMarketManager lifecycle hardening", function () {
       f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("late evidence")))
     ).to.be.reverted;
   });
+
+  it("honours creator and resolver role revocation", async function () {
+    const f = await fixture();
+    await f.manager.setMarketCreator(f.creator.address, false);
+    const closeTime = (await time.latest()) + 3600;
+    await expect(f.manager.connect(f.creator).createMarket(
+      0, "Will the official test event happen?", "YES only if the named official source confirms it by the market deadline.",
+      "https://official.example/result", closeTime, 3600
+    )).to.be.reverted;
+    await f.manager.setMarketCreator(f.creator.address, true);
+    const newCloseTime = await createMarket(f);
+    await time.increaseTo(newCloseTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.setOracleResolver(f.resolver.address, false);
+    await expect(f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")))).to.be.reverted;
+  });
+
+  it("allows only the owner or market creator to close after the deadline", async function () {
+    const f = await fixture();
+    const closeTime = await createMarket(f);
+    await time.increaseTo(closeTime);
+    await expect(f.manager.connect(f.outsider).closeMarket(1)).to.be.reverted;
+    await f.manager.connect(f.creator).closeMarket(1);
+  });
+
+  it("rejects staking at the close time and after the market is closed", async function () {
+    const f = await fixture();
+    const closeTime = await createMarket(f);
+    await time.increaseTo(closeTime);
+    await expect(f.manager.connect(f.alice).stake(1, true, 1_000_000n)).to.be.reverted;
+    await f.manager.connect(f.creator).closeMarket(1);
+    await expect(f.manager.connect(f.alice).stake(1, true, 1_000_000n)).to.be.reverted;
+  });
+
+  it("blocks early, duplicate, and invalid market resolution", async function () {
+    const f = await fixture();
+    const closeTime = await createMarket(f);
+    await expect(f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")))).to.be.reverted;
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await expect(f.manager.connect(f.resolver).resolveMarket(1, 0, ethers.keccak256(ethers.toUtf8Bytes("evidence")))).to.be.reverted;
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await expect(f.manager.connect(f.resolver).resolveMarket(1, 2, ethers.keccak256(ethers.toUtf8Bytes("second evidence")))).to.be.reverted;
+  });
+
+  it("does not permit timeout refunds before the timeout and rejects duplicate refunds", async function () {
+    const f = await fixture();
+    const closeTime = await createMarket(f);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await expect(f.manager.connect(f.outsider).refundTimedOutMarket(1)).to.be.reverted;
+    await time.increase(3600);
+    await f.manager.connect(f.outsider).refundTimedOutMarket(1);
+    const before = await f.token.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).refundCancelled(1);
+    expect((await f.token.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    await expect(f.manager.connect(f.alice).refundCancelled(1)).to.be.reverted;
+  });
+
+  it("rejects duplicate claims after an INVALID outcome refund", async function () {
+    const f = await fixture();
+    const closeTime = await createMarket(f);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid outcome evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+    const before = await f.token.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).claim(1);
+    expect((await f.token.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    await expect(f.manager.connect(f.alice).claim(1)).to.be.reverted;
+  });
+
 });
