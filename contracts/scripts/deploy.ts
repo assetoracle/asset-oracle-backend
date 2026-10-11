@@ -11,7 +11,7 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   if (!deployer) throw new Error("No deployer configured. Set DEPLOYER_PRIVATE_KEY in contracts/.env.");
 
-  const expectedOwner = "0xa785ceba7db4ec6326d63783a896f15824009b17";
+  const expectedOwner = "0x3d3724d20d9d5db5a40819869057b37465a0c67d";
   const expectedTreasury = "0x650fBE31b1710b27Ea9eBe03862BC93145Fb3d77";
   const expectedValidatorPool = "0xb86e97b85e816ed0fe170a2dc3b5558232792553";
   const expectedUsdcAddress = "0xc33741fddEBeA854d265db6F9707900Efb0211a2";
