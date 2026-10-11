@@ -153,8 +153,11 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
     await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("initial evidence")));
+    await time.increase(3500); // File the dispute near the end of the original one-hour challenge window.
     await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")));
-    await time.increase(7 * 24 * 60 * 60);
+    await time.increase(7 * 24 * 60 * 60 - 100);
+    await expect(f.manager.connect(f.outsider).refundDisputedTimeout(1)).to.be.reverted;
+    await time.increase(100);
     await f.manager.connect(f.outsider).refundDisputedTimeout(1);
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).refundCancelled(1);
