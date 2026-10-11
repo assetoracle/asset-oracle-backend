@@ -67,6 +67,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     mapping(uint256 => uint256) public participantCountByMarket;
     mapping(uint256 => uint256) public claimCountByMarket;
     mapping(uint256 => uint256) public claimedPayoutsByMarket;
+    mapping(uint256 => uint256) public retainedNoWinnerByMarket;
     mapping(address => bool) public hasCreatedMarket;
 
     uint256 public marketCount;
@@ -343,6 +344,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             if (!feesPaid[marketId]) {
                 feesPaid[marketId] = true;
                 uint256 retainedAmount = (market.totalStaked * 2_500) / BPS;
+                retainedNoWinnerByMarket[marketId] = retainedAmount;
                 if (retainedAmount > 0) token.safeTransfer(treasury, retainedAmount);
                 emit FeesDistributed(marketId, 0, retainedAmount);
             }
@@ -383,10 +385,15 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (market.outcome == Outcome.INVALID) return;
 
         uint256 winningPool = market.outcome == Outcome.YES ? market.totalYes : market.totalNo;
-        if (winningPool == 0) return; // The no-winner policy remains separately defined.
-
-        uint256 settlementFee = (market.totalStaked * SETTLEMENT_FEE_BPS) / BPS;
-        uint256 accounted = claimedPayoutsByMarket[marketId] + settlementFee;
+        uint256 accounted;
+        if (winningPool == 0) {
+            // No-winner policy: participants receive 75% of their individual net stake;
+            // Treasury retains 25% of total net stake plus any unclaimable rounding remainder.
+            accounted = claimedPayoutsByMarket[marketId] + retainedNoWinnerByMarket[marketId];
+        } else {
+            uint256 settlementFee = (market.totalStaked * SETTLEMENT_FEE_BPS) / BPS;
+            accounted = claimedPayoutsByMarket[marketId] + settlementFee;
+        }
         if (accounted > market.totalStaked) revert InvalidMarketParameters();
         uint256 dust = market.totalStaked - accounted;
         if (dust > 0) {
