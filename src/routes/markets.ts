@@ -16,6 +16,7 @@ import {
   createWalletNonce,
   verifyWalletSignature,
 } from "../services/walletAuth.js";
+import { verifyPublicationEvidence } from "../services/publicationVerification.js";
 
 const marketsRouter = Router();
 
@@ -386,35 +387,37 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
     }
 
     const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` });
-    if (receipt.status !== "success") {
-      return res.status(400).json({ error: "The submitted transaction did not succeed on-chain." });
-    }
     const transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
-    if (!transaction.to || getAddress(transaction.to) !== getAddress(manager)) {
-      return res.status(400).json({ error: "Transaction target does not match the configured market manager." });
-    }
-
-    // The authenticated signer must also be the actual transaction sender.
-    // Event fields alone are not a substitute for checking the transaction origin.
-    if (getAddress(transaction.from) !== getAddress(walletAuth.address)) {
-      return res.status(403).json({ error: "Transaction sender does not match the authenticated market-creator wallet." });
-    }
 
     const matching = parseEventLogs({
       abi: marketCreatedAbi,
       logs: receipt.logs.filter((log) => getAddress(log.address) === getAddress(manager)),
       eventName: "MarketCreated",
       strict: false,
-    }).find((event) =>
-      event.args.marketId?.toString() === marketId &&
-      event.args.question === proposal.question &&
-      event.args.stablecoin === 0 &&
-      event.args.closeTime === BigInt(Math.floor(Date.parse(proposal.closesAt) / 1000)) &&
-      Boolean(event.args.creator) &&
-      getAddress(event.args.creator as string) === getAddress(walletAuth.address)
-    );
-    if (!matching) {
-      return res.status(400).json({ error: "Receipt does not contain a matching MarketCreated event for this approved proposal and creator wallet." });
+    }).find((event) => event.args.marketId?.toString() === marketId);
+
+    const evidenceError = verifyPublicationEvidence({
+      expectedChainId,
+      actualChainId,
+      receiptStatus: receipt.status,
+      transactionTo: transaction.to,
+      transactionFrom: transaction.from,
+      managerAddress: getAddress(manager),
+      authenticatedWallet: walletAuth.address,
+      marketId,
+      eventMarketId: matching?.args.marketId?.toString() ?? null,
+      expectedQuestion: proposal.question,
+      eventQuestion: matching?.args.question ?? null,
+      eventStablecoin: matching?.args.stablecoin === undefined ? null : Number(matching.args.stablecoin),
+      eventCloseTime: matching?.args.closeTime ?? null,
+      expectedCloseTime: BigInt(Math.floor(Date.parse(proposal.closesAt) / 1000)),
+      eventCreator: matching?.args.creator ?? null,
+    });
+    if (evidenceError) {
+      const status = evidenceError.startsWith("Configured RPC") ? 503
+        : evidenceError.startsWith("Transaction sender") ? 403
+        : 400;
+      return res.status(status).json({ error: evidenceError });
     }
 
     const stored = await recordOnchainPublication({
