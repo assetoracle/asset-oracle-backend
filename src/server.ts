@@ -6,6 +6,7 @@ import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import marketsRouter from "./routes/markets.js";
 import referralsRouter from "./routes/referrals.js";
+import statsRouter from "./routes/stats.js";
 import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
@@ -32,6 +33,7 @@ app.use(
 app.use(express.json({ limit: "100kb" }));
 app.use("/api/markets", marketsRouter);
 app.use("/api/referrals", referralsRouter);
+app.use("/api/stats", statsRouter);
 
 app.get("/", (_req, res) => {
   res.json({
