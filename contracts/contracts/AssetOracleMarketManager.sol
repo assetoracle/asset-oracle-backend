@@ -293,12 +293,19 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
 
         uint256 winningPool = market.outcome == Outcome.YES ? market.totalYes : market.totalNo;
         if (winningPool == 0) {
-            // No winning-side position: refund each participant's full net stake.
-            // No settlement fee or retained amount is applied to this exceptional outcome.
-            amount = position.yes + position.no;
-            if (amount == 0) revert NothingToClaim();
+            // No winning-side position: refund 75% of each participant's net stake.
+            // Retain 25% of the market's net stake for Treasury, once.
+            uint256 userNetStake = position.yes + position.no;
+            if (userNetStake == 0) revert NothingToClaim();
+            amount = (userNetStake * 7_500) / BPS;
             position.claimed = true;
-            token.safeTransfer(msg.sender, amount);
+            if (!feesPaid[marketId]) {
+                feesPaid[marketId] = true;
+                uint256 retainedAmount = (market.totalStaked * 2_500) / BPS;
+                if (retainedAmount > 0) token.safeTransfer(treasury, retainedAmount);
+                emit FeesDistributed(marketId, 0, retainedAmount);
+            }
+            if (amount > 0) token.safeTransfer(msg.sender, amount);
             emit Refunded(marketId, msg.sender, amount);
             return;
         }
