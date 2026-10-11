@@ -198,6 +198,9 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     await expect(f.manager.connect(f.outsider).resolveDispute(1, 2, ethers.keccak256(ethers.toUtf8Bytes("decision")))).to.be.reverted;
     await f.manager.resolveDispute(1, 2, ethers.keccak256(ethers.toUtf8Bytes("decision")));
     expect((await f.manager.getMarket(1)).status).to.equal(2); // DISPUTED; challenge window restarts
+    await expect(
+      f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("second challenge")))
+    ).to.be.revertedWithCustomError(f.manager, "AlreadyDisputed");
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
     expect((await f.manager.getMarket(1)).status).to.equal(3); // SETTLED
