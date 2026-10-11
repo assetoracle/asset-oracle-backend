@@ -167,16 +167,25 @@ export async function recordOnchainPublication(input: {
     throw new Error("Proposal already has a recorded on-chain publication.");
   }
 
-  const result = await database.query<MarketProposalRow>(
-    `UPDATE market_proposals
-     SET onchain_market_id = $2,
-         onchain_tx_hash = $3,
-         onchain_manager_address = $4,
-         onchain_chain_id = $5
-     WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
-     RETURNING *`,
-    [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
-  );
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
   if (result.rows[0]) return mapProposal(result.rows[0]);
 
   const latest = await database.query<MarketProposalRow>(
