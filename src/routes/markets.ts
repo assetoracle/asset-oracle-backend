@@ -394,11 +394,17 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
       return res.status(400).json({ error: "Transaction target does not match the configured market manager." });
     }
 
+    // The authenticated signer must also be the actual transaction sender.
+    // Event fields alone are not a substitute for checking the transaction origin.
+    if (getAddress(transaction.from) !== getAddress(walletAuth.address)) {
+      return res.status(403).json({ error: "Transaction sender does not match the authenticated market-creator wallet." });
+    }
+
     const matching = parseEventLogs({
       abi: marketCreatedAbi,
       logs: receipt.logs.filter((log) => getAddress(log.address) === getAddress(manager)),
       eventName: "MarketCreated",
-      strict: true,
+      strict: false,
     }).find((event) =>
       event.args.marketId?.toString() === marketId &&
       event.args.question === proposal.question &&
