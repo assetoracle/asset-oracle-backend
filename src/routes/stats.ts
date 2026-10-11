@@ -1,37 +1,28 @@
 import { Router } from "express";
-import { database } from "../config/database.js";
 
 const statsRouter = Router();
 
 /**
- * Only reports metrics supported by verified data sources.
- * Published proposal counts are database-backed. Wallet totals and trading
- * volume/settlement metrics remain null until an on-chain event indexer and
- * verified market-manager deployment are configured.
+ * Only returns verified metrics. Approved proposals are off-chain submissions,
+ * not deployed/on-chain markets, so they must never be presented as market count.
+ * Trading volume and settlement counts stay null until a verified manager and
+ * an indexed on-chain data source are configured.
  */
-statsRouter.get("/dashboard", async (_req, res, next) => {
-  try {
-    const markets = await database.query<{ total: string }>(
-      "SELECT COUNT(*)::text AS total FROM market_proposals WHERE status = 'APPROVED'",
-    );
-
-    return res.status(200).json({
-      totalUsers: null,
-      tradingVolume24h: null,
-      totalMarkets: Number(markets.rows[0]?.total ?? 0),
-      totalSettled: null,
-      totalTradingVolume: null,
-      dataStatus: {
-        totalUsers: "UNAVAILABLE",
-        tradingVolume24h: "AWAITING_VERIFIED_ONCHAIN_INDEX",
-        totalMarkets: "APPROVED_DATABASE_MARKETS",
-        totalSettled: "AWAITING_VERIFIED_ONCHAIN_INDEX",
-        totalTradingVolume: "AWAITING_VERIFIED_ONCHAIN_INDEX",
-      },
-    });
-  } catch (error) {
-    return next(error);
-  }
+statsRouter.get("/dashboard", async (_req, res) => {
+  return res.status(200).json({
+    totalUsers: null,
+    tradingVolume24h: null,
+    totalMarkets: null,
+    totalSettled: null,
+    totalTradingVolume: null,
+    dataStatus: {
+      totalUsers: "AWAITING_VERIFIED_WALLET_ACTIVITY_INDEX",
+      tradingVolume24h: "AWAITING_VERIFIED_ONCHAIN_INDEX",
+      totalMarkets: "AWAITING_VERIFIED_ONCHAIN_MARKET_MANAGER",
+      totalSettled: "AWAITING_VERIFIED_ONCHAIN_INDEX",
+      totalTradingVolume: "AWAITING_VERIFIED_ONCHAIN_INDEX",
+    },
+  });
 });
 
 export default statsRouter;
