@@ -63,6 +63,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     mapping(uint256 => mapping(address => Position)) public positions;
     mapping(uint256 => mapping(address => uint256)) public refunds;
     mapping(uint256 => bool) public disputeRaised;
+    mapping(uint256 => bool) public disputeSubmitted;
     mapping(address => bool) public hasCreatedMarket;
 
     uint256 public marketCount;
@@ -262,7 +263,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         Position memory position = positions[marketId][msg.sender];
         if (position.yes == 0 && position.no == 0) revert DisputeRequiresParticipant();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
-        if (disputeRaised[marketId]) revert AlreadyDisputed();
+        if (disputeSubmitted[marketId]) revert AlreadyDisputed();
+        disputeSubmitted[marketId] = true;
         disputeRaised[marketId] = true;
         emit MarketDisputed(marketId, msg.sender, evidenceHash);
     }
