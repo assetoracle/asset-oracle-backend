@@ -125,4 +125,47 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     await createAndClose(f);
     await expect(f.manager.connect(f.outsider).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")))).to.be.reverted;
   });
+
+  it("refunds net stake for INVALID outcomes and prevents a second claim", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if the official source confirms the event by the deadline.", "official source", closeTime, 3600);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.connect(f.bob).stake(1, false, 2_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid outcome")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+    const beforeAlice = await f.usdc.balanceOf(f.alice.address);
+    const beforeBob = await f.usdc.balanceOf(f.bob.address);
+    await f.manager.connect(f.alice).claim(1);
+    await f.manager.connect(f.bob).claim(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - beforeAlice).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.bob.address)) - beforeBob).to.equal(1_995_000n);
+    await expect(f.manager.connect(f.alice).claim(1)).to.be.reverted;
+    await expect(f.manager.connect(f.bob).claim(1)).to.be.reverted;
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
+  it("pays multiple winners proportionally and leaves only documented integer-division dust", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if the official source confirms the event by the deadline.", "official source", closeTime, 3600);
+    for (const user of [f.alice, f.bob, f.creator]) await f.manager.connect(user).stake(1, true, 10_001n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+    const before = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
+    for (const user of [f.alice, f.bob, f.creator]) await f.manager.connect(user).claim(1);
+    const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
+    expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(29_328n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(149n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(524n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(2n);
+    for (const user of [f.alice, f.bob, f.creator]) await expect(f.manager.connect(user).claim(1)).to.be.reverted;
+  });
+
 });
