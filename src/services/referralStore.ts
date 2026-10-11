@@ -1,4 +1,5 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createReferralCodeValue, fingerprintIp } from "./referralUtils.js";
+export { createReferralCodeValue, fingerprintIp } from "./referralUtils.js";
 import { database } from "../config/database.js";
 
 export async function initializeReferralStore(): Promise<void> {
@@ -29,12 +30,3 @@ export async function initializeReferralStore(): Promise<void> {
   `);
 }
 
-export function createReferralCodeValue(): string {
-  return randomBytes(8).toString("hex").toUpperCase();
-}
-
-export function fingerprintIp(ip: string | undefined): string | null {
-  const secret = process.env.IP_FINGERPRINT_SECRET;
-  if (!secret || !ip) return null;
-  return createHmac("sha256", secret).update(ip).digest("hex");
-}
