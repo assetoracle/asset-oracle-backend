@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createReferralCodeValue, fingerprintIp } from "./referralStore.js";
+import { createReferralCodeValue, fingerprintIp } from "./referralUtils.js";
 
 test("referral codes are uppercase hex and 16 characters", () => {
   const code = createReferralCodeValue();
