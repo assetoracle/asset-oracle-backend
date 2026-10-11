@@ -33,8 +33,8 @@ const config: HardhatUserConfig = {
       network: "enugu",
       chainId: 42421,
       urls: {
-        apiURL: process.env.ASSET_CHAIN_EXPLORER_API_URL || "https://scan.assetchain.org/api",
-        browserURL: "https://scan.assetchain.org"
+        apiURL: process.env.ASSET_CHAIN_EXPLORER_API_URL || "https://scan-testnet.assetchain.org/api",
+        browserURL: "https://scan-testnet.assetchain.org"
       }
     }]
   }
