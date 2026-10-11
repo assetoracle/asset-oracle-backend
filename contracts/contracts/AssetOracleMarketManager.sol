@@ -300,8 +300,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
 
         uint256 winningPool = market.outcome == Outcome.YES ? market.totalYes : market.totalNo;
         if (winningPool == 0) {
-            amount = ((position.yes + position.no) * market.totalStaked * NO_WINNER_REFUND_BPS)
-                / (market.totalStaked * BPS);
             // All participants receive 75% of their net stake; retained 25% is sent once.
             amount = ((position.yes + position.no) * NO_WINNER_REFUND_BPS) / BPS;
             if (amount == 0) revert NothingToClaim();
@@ -355,6 +353,16 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         market.status = Status.CANCELLED;
         market.evidenceHash = reasonHash;
         emit MarketCancelled(marketId, reasonHash);
+    }
+
+    /// @notice Allows users to recover their net stake if a closed market is never resolved.
+    /// @dev This path charges no settlement fee and cannot be used before the resolution timeout.
+    function refundTimedOutMarket(uint256 marketId) external {
+        Market storage market = markets[marketId];
+        if (market.id == 0) revert MarketNotFound();
+        if (market.status != Status.CLOSED) revert InvalidStatus();
+        if (block.timestamp < uint256(market.closeTime) + market.challengePeriod) revert ChallengeWindowActive();
+        market.status = Status.REFUNDABLE;
     }
 
     function refundCancelled(uint256 marketId) external nonReentrant {
