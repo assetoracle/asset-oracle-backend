@@ -2,7 +2,7 @@ import { Router } from "express";
 import { isAddress } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
-import { getWalletRole, verifyAdminWallet } from "../services/adminAuth.js";
+import { getWalletRole, isMarketCreatorWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import {
   createMarketProposal,
   getMarketProposal,
@@ -137,6 +137,14 @@ marketsRouter.post("/proposals", async (req, res, next) => {
     if (!verified) {
       return res.status(401).json({
         error: "Wallet verification failed. Request a new nonce and sign again.",
+      });
+    }
+
+    // Submission is restricted server-side to the owner and configured market
+    // creators. Frontend navigation is not an authorization boundary.
+    if (!isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({
+        error: "Only the owner or an authorized market creator can submit proposals.",
       });
     }
 
