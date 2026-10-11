@@ -10,7 +10,7 @@ This workspace is isolated under `contracts/` so the existing frontend and API p
 - Binary YES/NO stakes held in contract escrow.
 - All trading-fee revenue (0.25%) goes to Treasury, including any allocation previously described as market incentives. Successful-settlement fees are 2%, split 25% to the validator reward pool and 75% to Treasury.
 - Invalid/cancelled markets have a 0% settlement fee and allow users to recover their net stake.
-- **No-winner policy is not approved yet.** The inherited contract currently refunds 75% of each participant's net stake and retains 25% of the market's net stake for Treasury; confirm whether this policy or a full 0%-fee refund is intended before treating it as final.
+- **Confirmed no-winner policy:** refund 75% of each participant's net stake and retain 25% of the market's total net stake for Treasury. The Validator Reward Pool receives nothing from a no-winner market. After every participant claims, any leftover token-unit rounding remainder is also sent to Treasury.
 - Resolution evidence hash and a challenge window are recorded before finalization.
 - A valid participant dispute enters an arbitration state; it does not immediately unlock refunds. The owner must record a replacement outcome and evidence, which restarts the challenge window. If arbitration is not completed within seven days, anyone can unlock participant refunds.
 - Successful settlements count unique participants and their claims. Once every participant claims, any rounding remainder after user payouts and the 2% settlement fee is sent to Treasury and emitted as `SettlementDustSwept`. Non-participants cannot call `claim` to affect this accounting.
@@ -18,7 +18,7 @@ This workspace is isolated under `contracts/` so the existing frontend and API p
 
 ## Critical review items before deployment
 
-This is an initial implementation, not audited or production-ready. Remaining review items include broader insolvency/accounting invariants, the unresolved no-winner policy and its rounding behavior, reentrancy, and role coverage. Dispute adjudication is owner-controlled and therefore centralized; define an independent arbitration/governance model before any real-value deployment.
+This is an initial implementation, not audited or production-ready. Remaining review items include broader insolvency/accounting invariants, no-winner edge cases across larger participant sets, reentrancy, and role coverage. Dispute adjudication is owner-controlled and therefore centralized; define an independent arbitration/governance model before any real-value deployment.
 
 **Never deploy with real funds.** Confirm the official Asset Chain Enugu testnet USDC contract and its decimals before deployment. Do not guess token addresses or use mainnet tokens. Do not commit private keys. Network defaults: Enugu RPC `https://enugu-rpc.assetchain.org`, chain ID `42421`.
 
