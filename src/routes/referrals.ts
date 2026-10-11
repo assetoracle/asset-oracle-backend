@@ -88,8 +88,22 @@ referralsRouter.post("/qualify", async (req, res, next) => {
     if (!managerAddress || !isAddress(managerAddress)) return res.status(503).json({ error: "Referral prediction verification is not enabled until the verified market manager address is configured." });
 
     const client = createPublicClient({ transport: http(rpcUrl) });
+    const actualChainId = await client.getChainId();
+    const expectedChainId = Number(process.env.ASSET_CHAIN_ID || "42421");
+    if (expectedChainId !== 42421 || actualChainId !== expectedChainId) {
+      return res.status(503).json({ error: "Referral verification requires the configured Asset Chain Enugu testnet (chain ID 42421)." });
+    }
+
     const receipt = await client.getTransactionReceipt({ hash: transactionHash as `0x${string}` });
     if (receipt.status !== "success") return res.status(400).json({ error: "Prediction transaction did not succeed" });
+    const transaction = await client.getTransaction({ hash: transactionHash as `0x${string}` });
+    if (!transaction.to || getAddress(transaction.to) !== getAddress(managerAddress)) {
+      return res.status(400).json({ error: "Prediction transaction target does not match the configured market manager" });
+    }
+    if (getAddress(transaction.from) !== getAddress(address)) {
+      return res.status(403).json({ error: "Prediction transaction sender does not match the authenticated invited wallet" });
+    }
+
     const matchingLogs = receipt.logs.filter((log) => log.address.toLowerCase() === managerAddress.toLowerCase()).flatMap((log) => {
       try {
         const decoded = decodeEventLog({ abi: [stakedEvent], data: log.data, topics: log.topics });
