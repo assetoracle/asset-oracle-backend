@@ -102,7 +102,7 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
   });
 
-  it("fully refunds net stakes when a resolved outcome has no winning-side stakes", async function () {
+  it("refunds 75% and retains 25% to Treasury when a resolved outcome has no winning-side stakes", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
     await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
@@ -114,7 +114,10 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     await f.manager.finalizeMarket(1);
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(748_125n);
+    // Treasury already received the 2,500-unit trading fee, then receives 25% of net stake.
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(251_875n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
   });
 
   it("prevents non-resolvers from resolving markets", async function () {
