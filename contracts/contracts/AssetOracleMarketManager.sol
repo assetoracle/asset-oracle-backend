@@ -73,7 +73,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
 
     address public treasury;
     address public validatorRewardPool;
-    uint16 public minimumStakeBps = 1; // 0.01% is not used as a cap; see createMarket's minStake.
     uint64 public defaultChallengePeriod = 1 days;
 
     event StablecoinConfigured(Stablecoin indexed kind, address indexed token, uint8 decimals);
@@ -155,6 +154,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     function setFeeRecipients(address treasury_, address validatorPool_) external onlyOwner {
+        if (marketCreationStarted) revert StablecoinConfigurationLocked();
         if (treasury_ == address(0) || validatorPool_ == address(0)) revert InvalidAddress();
         treasury = treasury_;
         validatorRewardPool = validatorPool_;
