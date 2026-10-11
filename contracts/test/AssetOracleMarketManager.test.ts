@@ -263,4 +263,70 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
 
+
+  it("honours creator and resolver role revocation", async function () {
+    const f = await deployFixture();
+    await f.manager.setMarketCreator(f.creator.address, false);
+    const closeTime = (await time.latest()) + 3600;
+    await expect(f.manager.connect(f.creator).createMarket(
+      0,
+      "Will the test event happen?",
+      "YES if the official source confirms the event by the deadline.",
+      "https://official.example/result",
+      closeTime,
+      3600
+    )).to.be.reverted;
+
+    await f.manager.setMarketCreator(f.creator.address, true);
+    await createAndClose(f);
+    await f.manager.setOracleResolver(f.resolver.address, false);
+    await expect(
+      f.manager.connect(f.resolver).resolveMarket(
+        1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence"))
+      )
+    ).to.be.reverted;
+  });
+
+  it("allows only the owner or market creator to close and rejects staking at or after close", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0,
+      "Will the test event happen?",
+      "YES if the official source confirms the event by the deadline.",
+      "https://official.example/result",
+      closeTime,
+      3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await expect(f.manager.connect(f.outsider).closeMarket(1)).to.be.reverted;
+    await f.manager.connect(f.creator).closeMarket(1);
+    await expect(f.manager.connect(f.alice).stake(1, true, 1_000_000n)).to.be.reverted;
+  });
+
+  it("blocks early, invalid, and duplicate market resolution", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0,
+      "Will the test event happen?",
+      "YES if the official source confirms the event by the deadline.",
+      "https://official.example/result",
+      closeTime,
+      3600
+    );
+    const evidence = ethers.keccak256(ethers.toUtf8Bytes("evidence"));
+    await expect(f.manager.connect(f.resolver).resolveMarket(1, 1, evidence)).to.be.reverted;
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await expect(f.manager.connect(f.resolver).resolveMarket(1, 0, evidence)).to.be.reverted;
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, evidence);
+    await expect(
+      f.manager.connect(f.resolver).resolveMarket(
+        1, 2, ethers.keccak256(ethers.toUtf8Bytes("second evidence"))
+      )
+    ).to.be.reverted;
+  });
+
 });
