@@ -1,0 +1,37 @@
+name: Contract Verification
+
+on:
+  push:
+    branches:
+      - test/contract-lifecycle-hardening
+      - main
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contracts-verify.yml"
+  pull_request:
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contracts-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Run contract tests
+        run: npm test
+      - name: Compile contracts
+        run: npm run compile

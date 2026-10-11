@@ -62,6 +62,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     mapping(uint256 => Market) private markets;
     mapping(uint256 => mapping(address => Position)) public positions;
     mapping(uint256 => mapping(address => uint256)) public refunds;
+    mapping(uint256 => bool) public disputeRaised;
+    mapping(uint256 => bool) public disputeSubmitted;
     mapping(address => bool) public hasCreatedMarket;
 
     uint256 public marketCount;
@@ -80,6 +82,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     event MarketClosed(uint256 indexed marketId);
     event MarketResolved(uint256 indexed marketId, Outcome outcome, bytes32 evidenceHash, address indexed resolver);
     event MarketDisputed(uint256 indexed marketId, address indexed disputant, bytes32 evidenceHash);
+    event DisputeAdjudicated(uint256 indexed marketId, address indexed adjudicator, bool upheld);
     event MarketFinalized(uint256 indexed marketId, Outcome outcome);
     event Claimed(uint256 indexed marketId, address indexed user, uint256 amount);
     event Refunded(uint256 indexed marketId, address indexed user, uint256 amount);
@@ -260,14 +263,28 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         Position memory position = positions[marketId][msg.sender];
         if (position.yes == 0 && position.no == 0) revert DisputeRequiresParticipant();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
-        market.status = Status.REFUNDABLE;
+        if (disputeSubmitted[marketId]) revert AlreadyDisputed();
+        disputeSubmitted[marketId] = true;
+        disputeRaised[marketId] = true;
         emit MarketDisputed(marketId, msg.sender, evidenceHash);
+    }
+
+    /// @notice Owner adjudicates a participant dispute. An upheld dispute enables net-stake refunds;
+    /// @dev A dismissed dispute preserves the resolver's outcome and permits finalization after the challenge window.
+    function resolveDispute(uint256 marketId, bool upheld) external onlyOwner {
+        Market storage market = markets[marketId];
+        if (market.id == 0) revert MarketNotFound();
+        if (market.status != Status.DISPUTED || !disputeRaised[marketId]) revert InvalidStatus();
+        disputeRaised[marketId] = false;
+        if (upheld) market.status = Status.REFUNDABLE;
+        emit DisputeAdjudicated(marketId, msg.sender, upheld);
     }
 
     function finalizeMarket(uint256 marketId) external {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
         if (market.status != Status.DISPUTED) revert InvalidStatus();
+        if (disputeRaised[marketId]) revert AlreadyDisputed();
         if (block.timestamp < uint256(market.resolvedAt) + market.challengePeriod) revert ChallengeWindowActive();
         market.status = Status.SETTLED;
         emit MarketFinalized(marketId, market.outcome);
