@@ -14,7 +14,7 @@ This workspace is isolated under `contracts/` so the existing frontend and API p
 - Resolution evidence hash and a challenge window are recorded before finalization.
 - A valid participant dispute enters an arbitration state; it does not immediately unlock refunds. The owner must record a replacement outcome and evidence, which restarts the challenge window. If arbitration is not completed within seven days, anyone can unlock participant refunds.
 - Successful settlements count unique participants and their claims. Once every participant claims, any rounding remainder after user payouts and the 2% settlement fee is sent to Treasury and emitted as `SettlementDustSwept`. Non-participants cannot call `claim` to affect this accounting.
-- Deployment guards require the confirmed owner wallet `0x3d3724d20d9d5db5a40819869057b37465a0c67d` as both configured owner and deployer signer, enforce the confirmed Treasury and validator pool addresses, and verify USDC decimals on-chain before deployment.
+- For the initial testnet phase, the confirmed owner wallet `0x3d3724d20d9d5db5a40819869057b37465a0c67d` also serves as the oracle resolver; no separate resolver wallet is required. Deployment guards require that owner wallet as both configured owner and deployer signer, enforce the confirmed Treasury and validator pool addresses, and verify USDC decimals on-chain before deployment.
 
 ## Critical review items before deployment
 
