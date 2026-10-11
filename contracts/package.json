@@ -6,8 +6,6 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "test:gas": "hardhat test",
-    "coverage": "hardhat coverage",
     "deploy:enugu": "hardhat run scripts/deploy.ts --network enugu"
   },
   "devDependencies": {
