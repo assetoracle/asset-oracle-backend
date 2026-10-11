@@ -268,10 +268,12 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
         if (market.status != Status.DISPUTED) revert InvalidStatus();
+        if (disputeFiledByMarket[marketId]) revert AlreadyDisputed();
         if (block.timestamp >= uint256(market.resolvedAt) + market.challengePeriod) revert ChallengeWindowClosed();
         Position memory position = positions[marketId][msg.sender];
         if (position.yes == 0 && position.no == 0) revert DisputeRequiresParticipant();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
+        disputeFiledByMarket[marketId] = true;
         market.status = Status.ARBITRATION;
         market.resolvedAt = uint64(block.timestamp); // Start the seven-day arbitration timeout when the dispute is filed.
         market.evidenceHash = evidenceHash;
@@ -403,6 +405,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     mapping(uint256 => bool) public feesPaid;
+    mapping(uint256 => bool) public disputeFiledByMarket;
     function cancelMarket(uint256 marketId, bytes32 reasonHash) external onlyOwner {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
