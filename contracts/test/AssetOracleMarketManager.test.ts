@@ -33,18 +33,11 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.creator).closeMarket(1);
   }
 
-  it("supports the three approved stablecoin kinds and validates each configured token's decimals", async function () {
+  it("allows only USDC on the testnet contract and validates its token decimals", async function () {
     const f = await deployFixture();
-    const Token = await ethers.getContractFactory("MockStablecoin");
-    const cngn = await Token.deploy("Compliant Naira", "cNGN", 6);
-    const usdt = await Token.deploy("Tether USD", "USDT", 6);
-    await f.manager.configureStablecoin(1, await cngn.getAddress(), 6);
-    await f.manager.configureStablecoin(2, await usdt.getAddress(), 6);
-    expect((await f.manager.stablecoins(0)).enabled).to.equal(true);
-    expect((await f.manager.stablecoins(1)).enabled).to.equal(true);
-    expect((await f.manager.stablecoins(2)).enabled).to.equal(true);
     await expect(f.manager.configureStablecoin(0, ethers.ZeroAddress, 6)).to.be.reverted;
-    await expect(f.manager.configureStablecoin(1, await cngn.getAddress(), 18)).to.be.reverted;
+    await expect(f.manager.configureStablecoin(0, await f.usdc.getAddress(), 18)).to.be.reverted;
+    await expect(f.manager.configureStablecoin(1, await f.usdc.getAddress(), 6)).to.be.reverted;
   });
 
   it("limits market creation to approved creators", async function () {
