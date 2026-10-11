@@ -5,6 +5,8 @@ import helmet from "helmet";
 import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import marketsRouter from "./routes/markets.js";
+import referralsRouter from "./routes/referrals.js";
+import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
 
@@ -29,6 +31,7 @@ app.use(
 
 app.use(express.json({ limit: "100kb" }));
 app.use("/api/markets", marketsRouter);
+app.use("/api/referrals", referralsRouter);
 
 app.get("/", (_req, res) => {
   res.json({
@@ -52,6 +55,7 @@ async function startServer(): Promise<void> {
   try {
     await initializeMarketStore();
     await initializeWalletAuth();
+    await initializeReferralStore();
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Asset Oracle API listening on port ${PORT}`);
