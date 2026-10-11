@@ -38,16 +38,34 @@ async function main() {
     throw new Error(`Refusing deployment: Enugu testnet must use the approved USDC address ${expectedUsdcAddress}.`);
   }
 
+  if (resolver === ethers.ZeroAddress) {
+    throw new Error("Refusing deployment: ORACLE_RESOLVER_ADDRESS must not be the zero address.");
+  }
+
+  const extraCreators = (process.env.MARKET_CREATOR_WALLET_ADDRESSES || "")
+    .split(",").map(x => x.trim()).filter(Boolean)
+    .map(value => ethers.getAddress(value));
+  if (extraCreators.some(address => address === ethers.ZeroAddress)) {
+    throw new Error("Refusing deployment: MARKET_CREATOR_WALLET_ADDRESSES cannot contain the zero address.");
+  }
+
+  // Check the target network before making any token-specific RPC calls.
+  const network = await ethers.provider.getNetwork();
+  if (network.chainId !== 42421n) {
+    throw new Error(`Refusing deployment: expected Enugu testnet chain ID 42421, got ${network.chainId}.`);
+  }
+
   const usdcDecimals = Number(process.env.USDC_TOKEN_DECIMALS || "6");
   if (usdcDecimals !== 6) throw new Error("Refusing deployment: Enugu testnet USDC must verify as 6 decimals.");
+  const tokenCode = await ethers.provider.getCode(usdcAddress);
+  if (tokenCode === "0x") {
+    throw new Error("Refusing deployment: no contract code found at the approved USDC address on Enugu testnet.");
+  }
   const usdc = new ethers.Contract(usdcAddress, ["function decimals() view returns (uint8)"], ethers.provider);
   const actualDecimals = Number(await usdc.decimals());
   if (actualDecimals !== 6 || actualDecimals !== usdcDecimals) {
     throw new Error(`Refusing deployment: USDC decimals must be 6 on-chain; token reports ${actualDecimals}.`);
   }
-
-  const network = await ethers.provider.getNetwork();
-  if (network.chainId !== 42421n) throw new Error(`Refusing deployment: expected Enugu testnet chain ID 42421, got ${network.chainId}.`);
 
   const Factory = await ethers.getContractFactory("AssetOracleMarketManager");
   const manager = await Factory.deploy(owner, treasury, validatorPool);
@@ -56,10 +74,8 @@ async function main() {
   await (await manager.configureStablecoin(0, usdcAddress, usdcDecimals)).wait();
   await (await manager.setOracleResolver(resolver, true)).wait();
 
-  const extraCreators = (process.env.MARKET_CREATOR_WALLET_ADDRESSES || "")
-    .split(",").map(x => x.trim()).filter(Boolean);
   for (const address of extraCreators) {
-    await (await manager.setMarketCreator(ethers.getAddress(address), true)).wait();
+    await (await manager.setMarketCreator(address, true)).wait();
   }
 
   console.log("AssetOracleMarketManager deployed on Enugu testnet");
