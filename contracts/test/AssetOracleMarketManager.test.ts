@@ -224,4 +224,43 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     await f.manager.connect(f.alice).refundCancelled(1);
     expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
   });
+
+  it("returns the full net stake for an INVALID outcome without settlement fees", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "INVALID if official evidence is unavailable.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.connect(f.bob).stake(1, false, 2_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+
+    const aliceBefore = await f.usdc.balanceOf(f.alice.address);
+    const bobBefore = await f.usdc.balanceOf(f.bob.address);
+    await f.manager.connect(f.alice).claim(1);
+    await f.manager.connect(f.bob).claim(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(1_995_000n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(7_500n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
+  it("prevents participants from claiming a cancelled-market refund twice", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.cancelMarket(1, ethers.keccak256(ethers.toUtf8Bytes("cancelled")));
+    await f.manager.connect(f.alice).refundCancelled(1);
+    await expect(f.manager.connect(f.alice).refundCancelled(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
 });
