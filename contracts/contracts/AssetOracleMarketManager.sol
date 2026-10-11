@@ -24,9 +24,10 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     uint256 public constant TRADING_FEE_BPS = 25; // 0.25% per stake
     uint256 public constant SETTLEMENT_FEE_BPS = 200; // 2% on eligible winning settlements
     uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of the 2% fee
+    uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
     enum Stablecoin { USDC }
     enum Outcome { UNRESOLVED, YES, NO, INVALID }
-    enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED }
+    enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED, ARBITRATION }
 
     struct StablecoinConfig {
         address token;
@@ -62,6 +63,11 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     mapping(uint256 => Market) private markets;
     mapping(uint256 => mapping(address => Position)) public positions;
     mapping(uint256 => mapping(address => uint256)) public refunds;
+    mapping(uint256 => mapping(address => bool)) public participantRegistered;
+    mapping(uint256 => uint256) public participantCountByMarket;
+    mapping(uint256 => uint256) public claimCountByMarket;
+    mapping(uint256 => uint256) public claimedPayoutsByMarket;
+    mapping(uint256 => uint256) public retainedNoWinnerByMarket;
     mapping(address => bool) public hasCreatedMarket;
 
     uint256 public marketCount;
@@ -80,6 +86,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     event MarketClosed(uint256 indexed marketId);
     event MarketResolved(uint256 indexed marketId, Outcome outcome, bytes32 evidenceHash, address indexed resolver);
     event MarketDisputed(uint256 indexed marketId, address indexed disputant, bytes32 evidenceHash);
+    event DisputeTimedOut(uint256 indexed marketId);
+    event SettlementDustSwept(uint256 indexed marketId, uint256 amount);
     event MarketFinalized(uint256 indexed marketId, Outcome outcome);
     event Claimed(uint256 indexed marketId, address indexed user, uint256 amount);
     event Refunded(uint256 indexed marketId, address indexed user, uint256 amount);
@@ -216,6 +224,10 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (netAmount == 0) revert InvalidMarketParameters();
 
         Position storage position = positions[marketId][msg.sender];
+        if (!participantRegistered[marketId][msg.sender]) {
+            participantRegistered[marketId][msg.sender] = true;
+            participantCountByMarket[marketId]++;
+        }
         if (yesSide) {
             position.yes += netAmount;
             market.totalYes += netAmount;
@@ -256,12 +268,40 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
         if (market.status != Status.DISPUTED) revert InvalidStatus();
+        if (disputeFiledByMarket[marketId]) revert AlreadyDisputed();
         if (block.timestamp >= uint256(market.resolvedAt) + market.challengePeriod) revert ChallengeWindowClosed();
         Position memory position = positions[marketId][msg.sender];
         if (position.yes == 0 && position.no == 0) revert DisputeRequiresParticipant();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
-        market.status = Status.REFUNDABLE;
+        disputeFiledByMarket[marketId] = true;
+        market.status = Status.ARBITRATION;
+        market.resolvedAt = uint64(block.timestamp); // Start the seven-day arbitration timeout when the dispute is filed.
+        market.evidenceHash = evidenceHash;
         emit MarketDisputed(marketId, msg.sender, evidenceHash);
+    }
+
+    /// @notice Owner adjudication records a replacement outcome and restarts the challenge window.
+    function resolveDispute(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external onlyOwner {
+        Market storage market = markets[marketId];
+        if (market.id == 0) revert MarketNotFound();
+        if (market.status != Status.ARBITRATION) revert InvalidStatus();
+        if (outcome != Outcome.YES && outcome != Outcome.NO && outcome != Outcome.INVALID) revert InvalidOutcome();
+        if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
+        market.outcome = outcome;
+        market.evidenceHash = evidenceHash;
+        market.resolvedAt = uint64(block.timestamp);
+        market.status = Status.DISPUTED;
+        emit MarketResolved(marketId, outcome, evidenceHash, msg.sender);
+    }
+
+    /// @notice Anyone may unlock refunds if owner adjudication does not occur within seven days.
+    function refundDisputedTimeout(uint256 marketId) external {
+        Market storage market = markets[marketId];
+        if (market.id == 0) revert MarketNotFound();
+        if (market.status != Status.ARBITRATION) revert InvalidStatus();
+        if (block.timestamp < uint256(market.resolvedAt) + DISPUTE_RESOLUTION_TIMEOUT) revert ChallengeWindowActive();
+        market.status = Status.REFUNDABLE;
+        emit DisputeTimedOut(marketId);
     }
 
     function finalizeMarket(uint256 marketId) external {
@@ -279,6 +319,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (market.status != Status.SETTLED) revert InvalidStatus();
         Position storage position = positions[marketId][msg.sender];
         if (position.claimed) revert AlreadyClaimed();
+        if (position.yes == 0 && position.no == 0) revert NothingToClaim();
         uint256 amount;
         IERC20 token = IERC20(stablecoins[market.stablecoin].token);
 
@@ -286,8 +327,10 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             amount = position.yes + position.no;
             if (amount == 0) revert NothingToClaim();
             position.claimed = true;
+            claimedPayoutsByMarket[marketId] += amount;
             token.safeTransfer(msg.sender, amount);
             emit Refunded(marketId, msg.sender, amount);
+            _recordSettlementClaim(marketId, market, token);
             return;
         }
 
@@ -299,14 +342,17 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             if (userNetStake == 0) revert NothingToClaim();
             amount = (userNetStake * 7_500) / BPS;
             position.claimed = true;
+            claimedPayoutsByMarket[marketId] += amount;
             if (!feesPaid[marketId]) {
                 feesPaid[marketId] = true;
                 uint256 retainedAmount = (market.totalStaked * 2_500) / BPS;
+                retainedNoWinnerByMarket[marketId] = retainedAmount;
                 if (retainedAmount > 0) token.safeTransfer(treasury, retainedAmount);
                 emit FeesDistributed(marketId, 0, retainedAmount);
             }
             if (amount > 0) token.safeTransfer(msg.sender, amount);
             emit Refunded(marketId, msg.sender, amount);
+            _recordSettlementClaim(marketId, market, token);
             return;
         }
 
@@ -316,11 +362,13 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         uint256 userWinningStake = market.outcome == Outcome.YES ? position.yes : position.no;
         if (userWinningStake == 0) {
             position.claimed = true;
+            _recordSettlementClaim(marketId, market, token);
             return;
         }
 
         amount = (userWinningStake * (market.totalStaked - fee)) / winningPool;
         position.claimed = true;
+        claimedPayoutsByMarket[marketId] += amount;
         // Fees are disbursed once, on the first winning claim; no arbitrary admin withdrawal exists.
         if (market.totalStaked > 0 && !feesPaid[marketId]) {
             feesPaid[marketId] = true;
@@ -330,9 +378,34 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         }
         token.safeTransfer(msg.sender, amount);
         emit Claimed(marketId, msg.sender, amount);
+        _recordSettlementClaim(marketId, market, token);
+    }
+
+    function _recordSettlementClaim(uint256 marketId, Market storage market, IERC20 token) internal {
+        claimCountByMarket[marketId]++;
+        if (claimCountByMarket[marketId] != participantCountByMarket[marketId]) return;
+        if (market.outcome == Outcome.INVALID) return;
+
+        uint256 winningPool = market.outcome == Outcome.YES ? market.totalYes : market.totalNo;
+        uint256 accounted;
+        if (winningPool == 0) {
+            // No-winner policy: participants receive 75% of their individual net stake;
+            // Treasury retains 25% of total net stake plus any unclaimable rounding remainder.
+            accounted = claimedPayoutsByMarket[marketId] + retainedNoWinnerByMarket[marketId];
+        } else {
+            uint256 settlementFee = (market.totalStaked * SETTLEMENT_FEE_BPS) / BPS;
+            accounted = claimedPayoutsByMarket[marketId] + settlementFee;
+        }
+        if (accounted > market.totalStaked) revert InvalidMarketParameters();
+        uint256 dust = market.totalStaked - accounted;
+        if (dust > 0) {
+            token.safeTransfer(treasury, dust);
+            emit SettlementDustSwept(marketId, dust);
+        }
     }
 
     mapping(uint256 => bool) public feesPaid;
+    mapping(uint256 => bool) public disputeFiledByMarket;
     function cancelMarket(uint256 marketId, bytes32 reasonHash) external onlyOwner {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();

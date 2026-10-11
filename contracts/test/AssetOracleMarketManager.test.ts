@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 
-describe("AssetOracleMarketManager (USDC-only testnet)", function () {
+describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testnet config)", function () {
   async function deployFixture() {
     const [owner, creator, resolver, treasury, validatorPool, alice, bob, outsider] = await ethers.getSigners();
     const Token = await ethers.getContractFactory("MockStablecoin");
@@ -33,7 +33,7 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     await f.manager.connect(f.creator).closeMarket(1);
   }
 
-  it("allows only the single USDC enum value and validates its token decimals", async function () {
+  it("allows only USDC on the testnet contract and validates its token decimals", async function () {
     const f = await deployFixture();
     await expect(f.manager.configureStablecoin(0, ethers.ZeroAddress, 6)).to.be.reverted;
     await expect(f.manager.configureStablecoin(0, await f.usdc.getAddress(), 18)).to.be.reverted;
@@ -120,9 +120,147 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
   });
 
+  it("applies the confirmed no-winner policy and sweeps residual rounding dust to Treasury after all claims", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, false, 2n);
+    await f.manager.connect(f.bob).stake(1, false, 2n);
+    await f.manager.connect(f.creator).stake(1, false, 2n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+
+    const aliceBefore = await f.usdc.balanceOf(f.alice.address);
+    const bobBefore = await f.usdc.balanceOf(f.bob.address);
+    const creatorBefore = await f.usdc.balanceOf(f.creator.address);
+    await f.manager.connect(f.alice).claim(1);
+    await f.manager.connect(f.bob).claim(1);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(1n);
+    await f.manager.connect(f.creator).claim(1);
+
+    expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(1n);
+    expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(1n);
+    expect((await f.usdc.balanceOf(f.creator.address)) - creatorBefore).to.equal(1n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(3n); // 1 retained + 2 rounding dust
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
   it("prevents non-resolvers from resolving markets", async function () {
     const f = await deployFixture();
     await createAndClose(f);
     await expect(f.manager.connect(f.outsider).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")))).to.be.reverted;
   });
+
+  it("rejects claims from nonparticipants and sends final settlement rounding dust to Treasury", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1n);
+    await f.manager.connect(f.bob).stake(1, true, 1n);
+    await f.manager.connect(f.creator).stake(1, false, 1n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+
+    await expect(f.manager.connect(f.outsider).claim(1)).to.be.reverted;
+    await f.manager.connect(f.alice).claim(1);
+    await f.manager.connect(f.bob).claim(1);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(0n);
+
+    await f.manager.connect(f.creator).claim(1);
+    expect(await f.manager.claimCountByMarket(1)).to.equal(3n);
+    expect(await f.manager.claimedPayoutsByMarket(1)).to.equal(2n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(1n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
+  it("routes disputes to owner adjudication instead of immediately enabling refunds", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("initial evidence")));
+    await expect(f.manager.connect(f.outsider).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")))).to.be.reverted;
+    await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")));
+    expect((await f.manager.getMarket(1)).status).to.equal(6); // ARBITRATION
+    await expect(f.manager.connect(f.outsider).resolveDispute(1, 2, ethers.keccak256(ethers.toUtf8Bytes("decision")))).to.be.reverted;
+    await f.manager.resolveDispute(1, 2, ethers.keccak256(ethers.toUtf8Bytes("decision")));
+    expect((await f.manager.getMarket(1)).status).to.equal(2); // DISPUTED; challenge window restarts
+    await expect(
+      f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("second challenge")))
+    ).to.be.revertedWithCustomError(f.manager, "AlreadyDisputed");
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(3); // SETTLED
+  });
+
+  it("allows refunds after seven days if a dispute is not adjudicated", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("initial evidence")));
+    await time.increase(3500); // File the dispute near the end of the original one-hour challenge window.
+    await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")));
+    await time.increase(7 * 24 * 60 * 60 - 100);
+    await expect(f.manager.connect(f.outsider).refundDisputedTimeout(1)).to.be.reverted;
+    await time.increase(100);
+    await f.manager.connect(f.outsider).refundDisputedTimeout(1);
+    const before = await f.usdc.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).refundCancelled(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+  });
+
+  it("returns the full net stake for an INVALID outcome without settlement fees", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "INVALID if official evidence is unavailable.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.connect(f.bob).stake(1, false, 2_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+
+    const aliceBefore = await f.usdc.balanceOf(f.alice.address);
+    const bobBefore = await f.usdc.balanceOf(f.bob.address);
+    await f.manager.connect(f.alice).claim(1);
+    await f.manager.connect(f.bob).claim(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(1_995_000n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(7_500n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
+  it("prevents participants from claiming a cancelled-market refund twice", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.cancelMarket(1, ethers.keccak256(ethers.toUtf8Bytes("cancelled")));
+    await f.manager.connect(f.alice).refundCancelled(1);
+    await expect(f.manager.connect(f.alice).refundCancelled(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
 });
