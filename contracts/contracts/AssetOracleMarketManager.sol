@@ -25,7 +25,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     uint256 public constant SETTLEMENT_FEE_BPS = 200; // 2% on eligible winning settlements
     uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of the 2% fee
     uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
-    enum Stablecoin { USDC }
+    enum Stablecoin { USDC, cNGN, USDT }
     enum Outcome { UNRESOLVED, YES, NO, INVALID }
     enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED, ARBITRATION }
 
