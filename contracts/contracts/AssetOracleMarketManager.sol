@@ -24,10 +24,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     uint256 public constant TRADING_FEE_BPS = 25; // 0.25% per stake
     uint256 public constant SETTLEMENT_FEE_BPS = 200; // 2% on eligible winning settlements
     uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of the 2% fee
-    uint256 public constant NO_WINNER_REFUND_BPS = 7_500; // 75% returned pro rata; 25% retained
-    uint256 public constant NO_WINNER_RETAINED_BPS = 2_500;
-
-    enum Stablecoin { CNGN, USDT, USDC }
+    enum Stablecoin { USDC }
     enum Outcome { UNRESOLVED, YES, NO, INVALID }
     enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED }
 
@@ -130,10 +127,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             if (actualDecimals != expectedDecimals) revert TokenDecimalsMismatch();
         } catch {
             revert InvalidToken();
-        }
-        for (uint8 i = 0; i < 3; i++) {
-            StablecoinConfig memory existing = stablecoins[Stablecoin(i)];
-            if (existing.enabled && existing.token == token && Stablecoin(i) != kind) revert InvalidToken();
         }
         stablecoins[kind] = StablecoinConfig(token, expectedDecimals, true);
         emit StablecoinConfigured(kind, token, expectedDecimals);
@@ -300,8 +293,9 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
 
         uint256 winningPool = market.outcome == Outcome.YES ? market.totalYes : market.totalNo;
         if (winningPool == 0) {
-            // All participants receive 75% of their net stake; retained 25% is sent once.
-            amount = ((position.yes + position.no) * NO_WINNER_REFUND_BPS) / BPS;
+            // No winning-side position: refund each participant's full net stake.
+            // No settlement fee or retained amount is applied to this exceptional outcome.
+            amount = position.yes + position.no;
             if (amount == 0) revert NothingToClaim();
             position.claimed = true;
             token.safeTransfer(msg.sender, amount);
@@ -332,20 +326,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     mapping(uint256 => bool) public feesPaid;
-    mapping(uint256 => bool) public noWinnerRetentionPaid;
-
-    function payNoWinnerRetention(uint256 marketId) external nonReentrant {
-        Market storage market = markets[marketId];
-        if (market.id == 0) revert MarketNotFound();
-        if (market.status != Status.SETTLED || market.outcome == Outcome.INVALID) revert InvalidStatus();
-        uint256 winningPool = market.outcome == Outcome.YES ? market.totalYes : market.totalNo;
-        if (winningPool != 0) revert InvalidOutcome();
-        if (noWinnerRetentionPaid[marketId]) revert AlreadyClaimed();
-        uint256 retained = (market.totalStaked * NO_WINNER_RETAINED_BPS) / BPS;
-        noWinnerRetentionPaid[marketId] = true;
-        if (retained > 0) IERC20(stablecoins[market.stablecoin].token).safeTransfer(treasury, retained);
-    }
-
     function cancelMarket(uint256 marketId, bytes32 reasonHash) external onlyOwner {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
