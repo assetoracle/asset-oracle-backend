@@ -77,16 +77,50 @@ describe("AssetOracleMarketManager", function () {
     const after = await f.cngn.balanceOf(f.alice.address);
     expect(after - before).to.equal(1_955_100n); // 98% of the 1,995,000 net pool
     expect(await f.cngn.balanceOf(f.validatorPool.address)).to.equal(9_975n);
-    expect(await f.cngn.balanceOf(f.treasury.address)).to.equal(32_425n); // trade fees + 1.5% settlement fee
+    expect(await f.cngn.balanceOf(f.treasury.address)).to.equal(34_925n); // 5,000 trading fees + 29,925 settlement fee
     await expect(f.manager.connect(f.alice).claim(1)).to.be.reverted;
   });
 
-  it("refunds invalid markets without settlement fees", async function () {
+  it("refunds cancelled markets without a settlement fee", async function () {
     const f = await deployFixture();
-    await createAndClose(f);
-    await f.manager.connect(f.alice).stake(1, true, 1_000_000n).catch(() => undefined);
-    // Market is closed, so stake must be rejected and no extra amount may enter.
-    await expect(f.manager.connect(f.alice).stake(1, true, 100_000n)).to.be.reverted;
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.cancelMarket(1, ethers.keccak256(ethers.toUtf8Bytes("cancelled")));
+    const before = await f.cngn.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).refundCancelled(1);
+    expect((await f.cngn.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+  });
+
+  it("allows permissionless full refunds when a closed market times out unresolved", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await time.increase(3600);
+    await f.manager.connect(f.outsider).refundTimedOutMarket(1);
+    const before = await f.cngn.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).refundCancelled(1);
+    expect((await f.cngn.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+  });
+
+  it("refunds 75% of net stakes for a resolved outcome with no winning-side stakes", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
+    await f.manager.connect(f.alice).stake(1, false, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+    const before = await f.cngn.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).claim(1);
+    expect((await f.cngn.balanceOf(f.alice.address)) - before).to.equal(748_125n);
+    await f.manager.payNoWinnerRetention(1);
+    expect(await f.cngn.balanceOf(f.treasury.address)).to.equal(254_375n); // 2,500 trading fee + 249,375 retained pool
   });
 
   it("prevents non-resolvers from resolving markets", async function () {
