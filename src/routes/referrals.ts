@@ -3,6 +3,7 @@ import { isAddress, createPublicClient, http, parseAbiItem, getAddress, decodeEv
 import { z } from "zod";
 import { database } from "../config/database.js";
 import { verifyWalletSignature } from "../services/walletAuth.js";
+import { verifyAdminWallet } from "../services/adminAuth.js";
 import { createReferralCodeValue, fingerprintIp } from "../services/referralStore.js";
 
 const referralsRouter = Router();
@@ -118,6 +119,64 @@ referralsRouter.post("/qualify", async (req, res, next) => {
     if (error instanceof Error && /TransactionReceiptNotFound|could not be found/i.test(error.message)) return res.status(409).json({ error: "Prediction transaction is not confirmed yet" });
     return next(error);
   }
+});
+
+
+const adminReviewSchema = walletAuthSchema.extend({
+  invitedWallet: z.string().refine(isAddress, "Invalid invited wallet address"),
+  decision: z.enum(["APPROVE", "KEEP_FLAGGED"]),
+});
+
+referralsRouter.post("/review/queue", async (req, res, next) => {
+  try {
+    const parsed = walletAuthSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Valid owner wallet authentication is required" });
+    const { address, message, signature } = parsed.data;
+    if (!await verifyAdminWallet(address, signature as `0x${string}`, message)) {
+      return res.status(403).json({ error: "Only the configured owner wallet can review flagged referrals" });
+    }
+    const result = await database.query<{
+      invited_wallet: string; referrer_wallet: string; first_prediction_tx: string; qualified_at: string | null;
+    }>(
+      `SELECT invited_wallet, referrer_wallet, first_prediction_tx, qualified_at
+       FROM referral_attributions
+       WHERE status = 'FLAGGED' AND first_prediction_tx IS NOT NULL
+       ORDER BY qualified_at ASC NULLS LAST LIMIT 200`,
+    );
+    return res.json({ flaggedReferrals: result.rows.map((row) => ({
+      invitedWallet: row.invited_wallet,
+      referrerWallet: row.referrer_wallet,
+      firstPredictionTransaction: row.first_prediction_tx,
+      flaggedAt: row.qualified_at,
+    })) });
+  } catch (error) { return next(error); }
+});
+
+referralsRouter.post("/review", async (req, res, next) => {
+  try {
+    const parsed = adminReviewSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Valid owner authentication, invited wallet, and review decision are required" });
+    const { address, message, signature, invitedWallet, decision } = parsed.data;
+    if (!await verifyAdminWallet(address, signature as `0x${string}`, message)) {
+      return res.status(403).json({ error: "Only the configured owner wallet can review flagged referrals" });
+    }
+    if (decision === "KEEP_FLAGGED") {
+      const stillFlagged = await database.query(
+        "SELECT 1 FROM referral_attributions WHERE invited_wallet = $1 AND status = 'FLAGGED' AND first_prediction_tx IS NOT NULL",
+        [invitedWallet.toLowerCase()],
+      );
+      if (!stillFlagged.rowCount) return res.status(409).json({ error: "No stake-verified flagged referral is awaiting review" });
+      return res.json({ status: "FLAGGED", message: "Referral remains flagged and excluded from the leaderboard." });
+    }
+    const updated = await database.query(
+      `UPDATE referral_attributions SET status = 'QUALIFIED'
+       WHERE invited_wallet = $1 AND status = 'FLAGGED' AND first_prediction_tx IS NOT NULL
+       RETURNING invited_wallet`,
+      [invitedWallet.toLowerCase()],
+    );
+    if (!updated.rowCount) return res.status(409).json({ error: "No stake-verified flagged referral is awaiting approval" });
+    return res.json({ status: "QUALIFIED", message: "Referral approved and included in the all-time leaderboard." });
+  } catch (error) { return next(error); }
 });
 
 referralsRouter.get("/leaderboard", async (_req, res, next) => {
