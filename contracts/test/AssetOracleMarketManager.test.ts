@@ -120,7 +120,7 @@ describe("AssetOracleMarketManager", function () {
     await f.manager.connect(f.alice).claim(1);
     expect((await f.cngn.balanceOf(f.alice.address)) - before).to.equal(748_125n);
     await f.manager.payNoWinnerRetention(1);
-    expect(await f.cngn.balanceOf(f.treasury.address)).to.equal(254_375n); // 2,500 trading fee + 249,375 retained pool
+    expect(await f.cngn.balanceOf(f.treasury.address)).to.equal(251_875n); // 2,500 trading fee + 249,375 retained pool
   });
 
   it("prevents non-resolvers from resolving markets", async function () {
