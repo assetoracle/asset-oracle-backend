@@ -263,6 +263,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (position.yes == 0 && position.no == 0) revert DisputeRequiresParticipant();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
         market.status = Status.ARBITRATION;
+        market.resolvedAt = uint64(block.timestamp); // Start the seven-day arbitration timeout when the dispute is filed.
         market.evidenceHash = evidenceHash;
         emit MarketDisputed(marketId, msg.sender, evidenceHash);
     }
