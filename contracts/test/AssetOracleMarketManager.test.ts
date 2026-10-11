@@ -120,6 +120,37 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
   });
 
+  it("applies the confirmed no-winner policy and sweeps residual rounding dust to Treasury after all claims", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, false, 2n);
+    await f.manager.connect(f.bob).stake(1, false, 2n);
+    await f.manager.connect(f.creator).stake(1, false, 2n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+
+    const aliceBefore = await f.usdc.balanceOf(f.alice.address);
+    const bobBefore = await f.usdc.balanceOf(f.bob.address);
+    const creatorBefore = await f.usdc.balanceOf(f.creator.address);
+    await f.manager.connect(f.alice).claim(1);
+    await f.manager.connect(f.bob).claim(1);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(1n);
+    await f.manager.connect(f.creator).claim(1);
+
+    expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(1n);
+    expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(1n);
+    expect((await f.usdc.balanceOf(f.creator.address)) - creatorBefore).to.equal(1n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(3n); // 1 retained + 2 rounding dust
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
   it("prevents non-resolvers from resolving markets", async function () {
     const f = await deployFixture();
     await createAndClose(f);
