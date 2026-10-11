@@ -3,19 +3,24 @@ import { getAddress, isAddress } from "viem";
 import { verifyWalletSignature } from "./walletAuth.js";
 
 export function isAdminWallet(address: string): boolean {
-  const configuredAddress =
-    process.env.ADMIN_WALLET_ADDRESS?.trim();
-
-  if (
-    !configuredAddress ||
-    !isAddress(configuredAddress) ||
-    !isAddress(address)
-  ) {
+  if (!isAddress(address)) {
     return false;
   }
 
-  return (
-    getAddress(configuredAddress) === getAddress(address)
+  // Support multiple designated admins while retaining compatibility with
+  // the existing single-wallet Render setting during migration.
+  const configuredAddresses = [
+    process.env.ADMIN_WALLET_ADDRESSES,
+    process.env.ADMIN_WALLET_ADDRESS,
+  ]
+    .filter(Boolean)
+    .flatMap((value) => value!.split(","))
+    .map((value) => value.trim())
+    .filter((value) => isAddress(value));
+
+  const normalizedAddress = getAddress(address);
+  return configuredAddresses.some(
+    (configuredAddress) => getAddress(configuredAddress) === normalizedAddress,
   );
 }
 
