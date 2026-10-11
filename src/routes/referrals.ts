@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { isAddress, createPublicClient, http, parseAbiItem, getAddress } from "viem";
+import { isAddress, createPublicClient, http, parseAbiItem, getAddress, decodeEventLog } from "viem";
 import { z } from "zod";
 import { database } from "../config/database.js";
 import { verifyWalletSignature } from "../services/walletAuth.js";
@@ -91,7 +91,7 @@ referralsRouter.post("/qualify", async (req, res, next) => {
     if (receipt.status !== "success") return res.status(400).json({ error: "Prediction transaction did not succeed" });
     const matchingLogs = receipt.logs.filter((log) => log.address.toLowerCase() === managerAddress.toLowerCase()).flatMap((log) => {
       try {
-        const decoded = client.decodeEventLog({ abi: [stakedEvent], data: log.data, topics: log.topics });
+        const decoded = decodeEventLog({ abi: [stakedEvent], data: log.data, topics: log.topics });
         return decoded.eventName === "Staked" ? [decoded.args] : [];
       } catch { return []; }
     });
