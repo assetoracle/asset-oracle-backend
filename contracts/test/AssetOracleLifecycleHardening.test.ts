@@ -76,6 +76,20 @@ describe("AssetOracleMarketManager lifecycle hardening", function () {
     expect((await f.token.balanceOf(f.alice.address)) - before).to.equal(997_500n);
   });
 
+  it("accepts only one dispute submission per market, even after dismissal", async function () {
+    const f = await fixture();
+    const closeTime = await createMarket(f);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("official evidence")));
+    await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("counter evidence")));
+    await f.manager.resolveDispute(1, false);
+    await expect(
+      f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("another challenge")))
+    ).to.be.reverted;
+  });
+
   it("rejects a dispute from a wallet with no position", async function () {
     const f = await fixture();
     const closeTime = await createMarket(f);
