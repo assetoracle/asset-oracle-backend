@@ -45,7 +45,7 @@ describe("AssetOracleMarketManager lifecycle hardening", function () {
     await expect(f.manager.setFeeRecipients(f.bob.address, f.alice.address)).to.be.reverted;
   });
 
-  it("lets an eligible participant dispute a resolution and recover their net stake", async function () {
+  it("blocks finalization while a participant dispute awaits owner adjudication", async function () {
     const f = await fixture();
     const closeTime = await createMarket(f);
     await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
@@ -53,10 +53,27 @@ describe("AssetOracleMarketManager lifecycle hardening", function () {
     await f.manager.connect(f.creator).closeMarket(1);
     await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("official evidence")));
     await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("counter evidence")));
+    await time.increase(3600);
+    await expect(f.manager.finalizeMarket(1)).to.be.reverted;
+    await expect(f.manager.connect(f.outsider).resolveDispute(1, true)).to.be.reverted;
+    await f.manager.resolveDispute(1, false);
+    await f.manager.finalizeMarket(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(3);
+  });
+
+  it("only makes a disputed market refundable after owner upholds the dispute", async function () {
+    const f = await fixture();
+    const closeTime = await createMarket(f);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("official evidence")));
+    await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("counter evidence")));
+    await expect(f.manager.connect(f.alice).refundCancelled(1)).to.be.reverted;
+    await f.manager.resolveDispute(1, true);
     const before = await f.token.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).refundCancelled(1);
     expect((await f.token.balanceOf(f.alice.address)) - before).to.equal(997_500n);
-    await expect(f.manager.finalizeMarket(1)).to.be.reverted;
   });
 
   it("rejects a dispute from a wallet with no position", async function () {
