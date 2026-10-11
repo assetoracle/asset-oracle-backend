@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 
-describe("AssetOracleMarketManager (USDC-only testnet)", function () {
+describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testnet config)", function () {
   async function deployFixture() {
     const [owner, creator, resolver, treasury, validatorPool, alice, bob, outsider] = await ethers.getSigners();
     const Token = await ethers.getContractFactory("MockStablecoin");
@@ -33,11 +33,18 @@ describe("AssetOracleMarketManager (USDC-only testnet)", function () {
     await f.manager.connect(f.creator).closeMarket(1);
   }
 
-  it("allows only the single USDC enum value and validates its token decimals", async function () {
+  it("supports the three approved stablecoin kinds and validates each configured token's decimals", async function () {
     const f = await deployFixture();
+    const Token = await ethers.getContractFactory("MockStablecoin");
+    const cngn = await Token.deploy("Compliant Naira", "cNGN", 6);
+    const usdt = await Token.deploy("Tether USD", "USDT", 6);
+    await f.manager.configureStablecoin(1, await cngn.getAddress(), 6);
+    await f.manager.configureStablecoin(2, await usdt.getAddress(), 6);
+    expect((await f.manager.stablecoins(0)).enabled).to.equal(true);
+    expect((await f.manager.stablecoins(1)).enabled).to.equal(true);
+    expect((await f.manager.stablecoins(2)).enabled).to.equal(true);
     await expect(f.manager.configureStablecoin(0, ethers.ZeroAddress, 6)).to.be.reverted;
-    await expect(f.manager.configureStablecoin(0, await f.usdc.getAddress(), 18)).to.be.reverted;
-    await expect(f.manager.configureStablecoin(1, await f.usdc.getAddress(), 6)).to.be.reverted;
+    await expect(f.manager.configureStablecoin(1, await cngn.getAddress(), 18)).to.be.reverted;
   });
 
   it("limits market creation to approved creators", async function () {
