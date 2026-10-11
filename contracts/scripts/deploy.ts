@@ -27,8 +27,8 @@ async function main() {
     throw new Error(`Refusing deployment: Enugu testnet must use the approved USDC address ${expectedUsdcAddress}.`);
   }
   const usdcDecimals = Number(process.env.USDC_TOKEN_DECIMALS || "6");
-  if (!Number.isInteger(usdcDecimals) || usdcDecimals < 1 || usdcDecimals > 18) {
-    throw new Error("USDC_TOKEN_DECIMALS must be an integer from 1 to 18.");
+  if (usdcDecimals !== 6) {
+    throw new Error("Refusing deployment: approved Enugu testnet USDC must use exactly 6 decimals.");
   }
 
   const network = await ethers.provider.getNetwork();
