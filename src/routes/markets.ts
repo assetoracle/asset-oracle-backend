@@ -2,7 +2,7 @@ import { Router } from "express";
 import { isAddress } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
-import { verifyAdminWallet } from "../services/adminAuth.js";
+import { getWalletRole, verifyAdminWallet } from "../services/adminAuth.js";
 import {
   createMarketProposal,
   getMarketProposal,
@@ -43,6 +43,45 @@ marketsRouter.post("/auth/nonce", async (req, res, next) => {
       `Nonce: ${nonce}`;
 
     return res.status(200).json({ nonce, message });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+
+marketsRouter.post("/auth/role", async (req, res, next) => {
+  try {
+    const result = walletAuthSchema.safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({
+        error: "Valid wallet authentication is required",
+      });
+    }
+
+    const { address, message, signature } = result.data;
+    const verified = await verifyWalletSignature(
+      address,
+      signature as `0x${string}`,
+      message,
+    );
+
+    if (!verified) {
+      return res.status(401).json({
+        error: "Wallet verification failed. Request a new nonce and sign again.",
+      });
+    }
+
+    return res.status(200).json({
+      address,
+      role: getWalletRole(address),
+      permissions: {
+        createMarketProposal: true,
+        viewOwnProposals: true,
+        reviewAllProposals: getWalletRole(address) === "OWNER",
+        approveOrRejectProposals: getWalletRole(address) === "OWNER",
+      },
+    });
   } catch (error) {
     return next(error);
   }
