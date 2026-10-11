@@ -443,7 +443,10 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
       },
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("already has a recorded on-chain publication")) {
+    if (error instanceof Error && (
+      error.message.includes("already has a recorded on-chain publication") ||
+      error.message.includes("already recorded for another proposal")
+    )) {
       return res.status(409).json({ error: error.message });
     }
     return next(error);
