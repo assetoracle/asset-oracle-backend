@@ -126,7 +126,14 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
       if (!cursorResult.rows[0]) throw new Error("Indexer cursor is missing.");
       const lastScanned = BigInt(cursorResult.rows[0].last_scanned_block);
       const head = await client.getBlockNumber();
-      if (head <= CONFIRMATION_DEPTH || lastScanned >= head - CONFIRMATION_DEPTH) return;
+      if (head <= CONFIRMATION_DEPTH || lastScanned >= head - CONFIRMATION_DEPTH) {
+        await database.query(
+          `UPDATE onchain_stats_cursors SET updated_at = NOW()
+           WHERE chain_id = $1 AND manager_address = $2`,
+          [EXPECTED_CHAIN_ID, managerAddress.toLowerCase()],
+        );
+        return;
+      }
       const batchSize = BigInt(safeIntegerEnv("ASSET_ORACLE_INDEXER_BATCH_SIZE", Number(DEFAULT_BATCH_SIZE), 100, 2_000));
       const fromBlock = lastScanned + 1n;
       const toBlock = fromBlock + batchSize - 1n < head - CONFIRMATION_DEPTH
