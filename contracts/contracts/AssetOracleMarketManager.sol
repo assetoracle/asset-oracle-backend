@@ -102,7 +102,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     error InvalidMarketParameters();
     error MarketNotOpen();
     error MarketNotClosable();
-    error UnauthorizedMarketCreator();
     error UnauthorizedResolver();
     error InvalidOutcome();
     error ChallengeWindowActive();
