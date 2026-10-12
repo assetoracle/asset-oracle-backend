@@ -127,6 +127,14 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         _grantRole(ORACLE_RESOLVER_ROLE, initialOwner);
     }
 
+    /// @notice Keep AccessControl administration aligned with Ownable after ownership transfer.
+    function transferOwnership(address newOwner) public override onlyOwner {
+        address previousOwner = owner();
+        super.transferOwnership(newOwner);
+        _grantRole(DEFAULT_ADMIN_ROLE, newOwner);
+        _revokeRole(DEFAULT_ADMIN_ROLE, previousOwner);
+    }
+
     function configureStablecoin(Stablecoin kind, address token, uint8 expectedDecimals) external onlyOwner {
         if (marketCreationStarted) revert StablecoinConfigurationLocked();
         if (token == address(0) || token.code.length == 0) revert InvalidToken();
