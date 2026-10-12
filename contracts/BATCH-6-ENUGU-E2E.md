@@ -2,23 +2,39 @@
 
 **Purpose:** Verify the deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
 
+## Current deployment record
+
+- Network: Asset Chain Enugu testnet, chain ID `42421`
+- RPC: `https://enugu-rpc.assetchain.org`
+- Explorer: `https://scan-testnet.assetchain.org`
+- Market manager: `0xf41fc574765175A59a9d064F7f2719EB7380a452`
+- Deployment transaction: `0x01445c8093ae92e108418cec3e411388d8533cf746935aa53a32682a972103e1`
+- Deployment block: `4502688`
+- Configured USDC: `0xc33741fddEBeA854d265db6F9707900Efb0211a2` (6 decimals)
+- Treasury: `0x650fBE31b1710b27Ea9eBe03862BC93145Fb3d77`
+- Validator reward pool: `0xb86e97b85e816ed0fe170a2dc3b5558232792553`
+- Owner/resolver: `0x3d3724d20d9d5db5a40819869057b37465a0c67d`
+- Deployment, USDC configuration, and resolver configuration transactions were reported successful. The read-only preflight passed for chain ID, manager bytecode, owner, Treasury, validator pool, USDC configuration, and creator/resolver roles.
+- The preflight reported zero markets at the time it was run. Re-read the live count before any market test.
+- Frontend and backend environment variables were reported updated by the operator; confirm live configuration after the backend deployment finishes.
+
 ## Current gate
 
-- [ ] Contract hardening PR reviewed and merged by the repository owner.
-- [ ] Contract tests and compile pass on the exact commit selected for deployment.
+- [x] Deployment transaction hash and manager address recorded.
+- [x] Read-only Enugu preflight passed.
+- [x] Approved testnet USDC configuration and six decimals verified by preflight.
+- [x] Owner creator/resolver roles verified by preflight.
+- [ ] Latest contract tests and compile pass on the exact deployed source commit.
 - [ ] Ownership-transfer regression test confirms admin, creator, and resolver roles move to the new owner and are revoked from the former owner.
-- [ ] Deployment transaction hash and manager address are available.
-- [ ] Manager address is independently verified on the Enugu explorer and contract code exists at that address.
-- [ ] Backend `ASSET_ORACLE_MARKET_MANAGER_ADDRESS` and frontend `VITE_ASSET_ORACLE_MARKET_MANAGER` are set to that same verified address.
-- [ ] Backend RPC reports chain ID `42421`.
+- [ ] Confirm live backend and frontend both use the same manager address and Enugu RPC.
 - [ ] Owner wallet has testnet gas and only test USDC for this rehearsal.
 - [ ] No private key is committed, pasted into chat, or placed in frontend environment variables.
 
-**Stop condition:** The manager address is currently unverified/unconfigured. Do not publish a market or submit any lifecycle transaction until the gate above is satisfied.
+**Stop condition:** Do not submit lifecycle transactions until all remaining gate items are checked, the latest contract code is reviewed against the deployed bytecode/source, and the frontend/backend configuration is confirmed. This deployment is testnet-only and unaudited.
 
 ## Step 1 — Read-only preflight
 
-From `contracts/` on branch `test/batch-6-enugu-e2e-rehearsal`:
+From `contracts/` in the backend repository:
 
 ```sh
 npm install
@@ -27,14 +43,14 @@ npm run compile
 npm run preflight:enugu
 ```
 
-The preflight reads the RPC only. It checks chain ID, the approved USDC contract and 6 decimals, manager code, owner, Treasury, validator pool, USDC configuration, and owner creator/resolver roles. It sends **no transactions**. A missing manager address should report BLOCKED and exit with code 2; that is expected until a deployment is independently verified.
+The preflight reads the RPC only. It checks chain ID, approved USDC contract and six decimals, manager code, owner, Treasury, validator pool, USDC configuration, and owner creator/resolver roles. It sends **no transactions**. A missing manager address should report BLOCKED and exit with code 2.
 
 ## Step 2 — Wallet and network
 
 - [ ] Connect the test wallet to Asset Chain Enugu (chain ID `42421`).
 - [ ] Confirm the connected address is the intended test participant.
 - [ ] Confirm the frontend and backend use the same verified manager address and Enugu RPC.
-- [ ] Confirm only approved Enugu testnet USDC is shown as stake currency (6 decimals). No cNGN or USDT on this testnet contract.
+- [ ] Confirm only approved Enugu testnet USDC is shown as stake currency (6 decimals). This deployed contract currently configures USDC only; do not show cNGN or USDT as usable on this deployment.
 
 ## Step 3 — Create and publish a test market
 
@@ -83,7 +99,7 @@ Do not reuse the same market to test mutually exclusive settlement paths.
 
 ## Step 7 — Dashboard, referrals, and persistence
 
-- [ ] Confirm the dashboard reads only verified market/transaction sources; unavailable stats remain null rather than fabricated zeroes.
+- [ ] Confirm the dashboard reads on-chain market count from the configured manager; unavailable metrics remain null rather than fabricated.
 - [ ] Confirm market history shows the same market ID, status, outcome, stakes, and settlement state as chain.
 - [ ] Confirm referral attribution requires a valid wallet-authenticated flow.
 - [ ] Confirm referral qualification occurs only after a verified first stake, not on wallet connect or referral-code visit.
