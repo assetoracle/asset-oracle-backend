@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCoinGeckoObservation } from "./coinGeckoPriceMonitor.js";
+import { parseCoinGeckoObservation } from "./coinGeckoPricing.js";
 
 test("parses fresh BTC price and timestamp", () => {
   const checkedAt = new Date("2026-10-12T12:00:00.000Z");
