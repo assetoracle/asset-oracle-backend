@@ -35,11 +35,33 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
 
   it("transfers role administration with contract ownership", async function () {
     const f = await deployFixture();
+    // A no-op ownership transfer must not accidentally revoke the current owner's roles.
+    await f.manager.transferOwnership(f.owner.address);
+    expect(await f.manager.hasRole(await f.manager.DEFAULT_ADMIN_ROLE(), f.owner.address)).to.equal(true);
+    expect(await f.manager.hasRole(await f.manager.MARKET_CREATOR_ROLE(), f.owner.address)).to.equal(true);
+    expect(await f.manager.hasRole(await f.manager.ORACLE_RESOLVER_ROLE(), f.owner.address)).to.equal(true);
+
     await f.manager.transferOwnership(f.creator.address);
 
     expect(await f.manager.owner()).to.equal(f.creator.address);
     expect(await f.manager.hasRole(await f.manager.DEFAULT_ADMIN_ROLE(), f.creator.address)).to.equal(true);
     expect(await f.manager.hasRole(await f.manager.DEFAULT_ADMIN_ROLE(), f.owner.address)).to.equal(false);
+    expect(await f.manager.hasRole(await f.manager.MARKET_CREATOR_ROLE(), f.creator.address)).to.equal(true);
+    expect(await f.manager.hasRole(await f.manager.ORACLE_RESOLVER_ROLE(), f.creator.address)).to.equal(true);
+    expect(await f.manager.hasRole(await f.manager.MARKET_CREATOR_ROLE(), f.owner.address)).to.equal(false);
+    expect(await f.manager.hasRole(await f.manager.ORACLE_RESOLVER_ROLE(), f.owner.address)).to.equal(false);
+
+    // The new owner inherits owner-operated roles and the former owner loses them.
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.creator).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await expect(
+      f.manager.connect(f.owner).resolveMarket(1, 2, ethers.keccak256(ethers.toUtf8Bytes("former owner")))
+    ).to.be.reverted;
 
     await f.manager.connect(f.creator).setMarketCreator(f.outsider.address, true);
     expect(await f.manager.hasRole(await f.manager.MARKET_CREATOR_ROLE(), f.outsider.address)).to.equal(true);
