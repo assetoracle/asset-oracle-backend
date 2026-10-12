@@ -1,55 +1,83 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { verifyPublicationEvidence, type PublicationEvidence } from "./publicationVerification.js";
 
-const wallet = "0x1111111111111111111111111111111111111111";
-const manager = "0x2222222222222222222222222222222222222222";
-
-const validEvidence: PublicationEvidence = {
+const validEvidence = (): PublicationEvidence => ({
   expectedChainId: 42421,
   actualChainId: 42421,
   receiptStatus: "success",
-  transactionTo: manager,
-  transactionFrom: wallet,
-  managerAddress: manager,
-  authenticatedWallet: wallet,
-  marketId: "12",
-  eventMarketId: "12",
-  expectedQuestion: "Will the test pass?",
-  eventQuestion: "Will the test pass?",
+  transactionTo: "0xf41fc574765175A59a9d064F7f2719EB7380a452",
+  transactionFrom: "0x3d3724d20d9d5db5a40819869057b37465a0c67d",
+  managerAddress: "0xf41fc574765175A59a9d064F7f2719EB7380a452",
+  authenticatedWallet: "0x3d3724d20d9d5db5a40819869057b37465a0c67d",
+  marketId: "7",
+  eventMarketId: "7",
+  expectedQuestion: "Will the test event happen?",
+  eventQuestion: "Will the test event happen?",
   eventStablecoin: 0,
   eventCloseTime: 1_800_000_000n,
   expectedCloseTime: 1_800_000_000n,
-  eventCreator: wallet,
-};
-
-test("accepts matching Enugu publication evidence", () => {
-  assert.equal(verifyPublicationEvidence(validEvidence), null);
+  eventCreator: "0x3d3724d20d9d5db5a40819869057b37465a0c67d",
 });
 
-test("rejects wrong chain configuration or RPC chain", () => {
-  assert.match(verifyPublicationEvidence({ ...validEvidence, actualChainId: 1 }) ?? "", /chain ID/i);
-  assert.match(verifyPublicationEvidence({ ...validEvidence, expectedChainId: 1 }) ?? "", /chain ID/i);
+test("accepts complete matching Enugu publication evidence", () => {
+  assert.equal(verifyPublicationEvidence(validEvidence()), null);
 });
 
-test("rejects failed transaction receipts", () => {
-  assert.match(verifyPublicationEvidence({ ...validEvidence, receiptStatus: "reverted" }) ?? "", /did not succeed/i);
+test("rejects an RPC on the wrong chain", () => {
+  const evidence = validEvidence();
+  evidence.actualChainId = 1;
+  assert.match(verifyPublicationEvidence(evidence) ?? "", /expected Asset Chain Enugu testnet chain ID/);
 });
 
-test("rejects transaction sent to a different contract", () => {
-  assert.match(verifyPublicationEvidence({ ...validEvidence, transactionTo: wallet }) ?? "", /target/i);
-  assert.match(verifyPublicationEvidence({ ...validEvidence, transactionTo: null }) ?? "", /target/i);
+test("rejects a reverted transaction", () => {
+  const evidence = validEvidence();
+  evidence.receiptStatus = "reverted";
+  assert.match(verifyPublicationEvidence(evidence) ?? "", /transaction did not succeed/);
 });
 
-test("rejects transaction sender that differs from authenticated wallet", () => {
-  assert.match(verifyPublicationEvidence({ ...validEvidence, transactionFrom: manager }) ?? "", /sender/i);
+test("rejects a transaction sent to a different contract", () => {
+  const evidence = validEvidence();
+  evidence.transactionTo = "0x0000000000000000000000000000000000000001";
+  assert.match(verifyPublicationEvidence(evidence) ?? "", /target does not match/);
 });
 
-test("rejects mismatched MarketCreated event fields", () => {
-  assert.match(verifyPublicationEvidence({ ...validEvidence, eventMarketId: "13" }) ?? "", /MarketCreated/i);
-  assert.match(verifyPublicationEvidence({ ...validEvidence, eventQuestion: "Different question" }) ?? "", /MarketCreated/i);
-  assert.match(verifyPublicationEvidence({ ...validEvidence, eventStablecoin: 1 }) ?? "", /MarketCreated/i);
-  assert.match(verifyPublicationEvidence({ ...validEvidence, eventCloseTime: 1n }) ?? "", /MarketCreated/i);
-  assert.match(verifyPublicationEvidence({ ...validEvidence, eventCreator: manager }) ?? "", /MarketCreated/i);
-  assert.match(verifyPublicationEvidence({ ...validEvidence, eventCreator: null }) ?? "", /MarketCreated/i);
+test("rejects a sender different from the authenticated creator", () => {
+  const evidence = validEvidence();
+  evidence.transactionFrom = "0x0000000000000000000000000000000000000001";
+  assert.match(verifyPublicationEvidence(evidence) ?? "", /sender does not match/);
+});
+
+test("rejects an event for a different market ID or question", () => {
+  const wrongId = validEvidence();
+  wrongId.eventMarketId = "8";
+  assert.match(verifyPublicationEvidence(wrongId) ?? "", /matching MarketCreated event/);
+
+  const wrongQuestion = validEvidence();
+  wrongQuestion.eventQuestion = "A different question";
+  assert.match(verifyPublicationEvidence(wrongQuestion) ?? "", /matching MarketCreated event/);
+});
+
+test("rejects an unapproved stablecoin, wrong close time, or wrong creator", () => {
+  const wrongStablecoin = validEvidence();
+  wrongStablecoin.eventStablecoin = 1;
+  assert.match(verifyPublicationEvidence(wrongStablecoin) ?? "", /matching MarketCreated event/);
+
+  const wrongCloseTime = validEvidence();
+  wrongCloseTime.eventCloseTime = 1_800_000_001n;
+  assert.match(verifyPublicationEvidence(wrongCloseTime) ?? "", /matching MarketCreated event/);
+
+  const wrongCreator = validEvidence();
+  wrongCreator.eventCreator = "0x0000000000000000000000000000000000000001";
+  assert.match(verifyPublicationEvidence(wrongCreator) ?? "", /matching MarketCreated event/);
+});
+
+test("rejects missing MarketCreated evidence", () => {
+  const evidence = validEvidence();
+  evidence.eventMarketId = null;
+  evidence.eventQuestion = null;
+  evidence.eventStablecoin = null;
+  evidence.eventCloseTime = null;
+  evidence.eventCreator = null;
+  assert.match(verifyPublicationEvidence(evidence) ?? "", /matching MarketCreated event/);
 });
