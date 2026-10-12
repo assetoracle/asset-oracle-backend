@@ -6,6 +6,7 @@
 
 - [ ] Contract hardening PR reviewed and merged by the repository owner.
 - [ ] Contract tests and compile pass on the exact commit selected for deployment.
+- [ ] Ownership-transfer regression test confirms admin, creator, and resolver roles move to the new owner and are revoked from the former owner.
 - [ ] Deployment transaction hash and manager address are available.
 - [ ] Manager address is independently verified on the Enugu explorer and contract code exists at that address.
 - [ ] Backend `ASSET_ORACLE_MARKET_MANAGER_ADDRESS` and frontend `VITE_ASSET_ORACLE_MARKET_MANAGER` are set to that same verified address.
@@ -76,6 +77,7 @@ Record market ID, transaction hash, block number, creator, question, close time,
 - [ ] Exercise cancellation/unresolved timeout on separate markets and verify eligible net-stake refunds.
 - [ ] Exercise no-winner outcome on a separate market: each participant receives 75% of their net stake, Treasury retains 25% of total net stake plus rounding dust, and validators receive no no-winner fee.
 - [ ] After all claims, verify no unintended token balance remains in the manager contract.
+- [ ] On a separate market, leave one participant unclaimed and confirm their payout remains escrowed and dust is not swept early; then claim for that participant and confirm only the true rounding remainder is swept. Never treat unclaimed user principal as dust.
 
 Do not reuse the same market to test mutually exclusive settlement paths.
 
