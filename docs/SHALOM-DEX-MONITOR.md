@@ -8,7 +8,7 @@ This monitor collects evidence only. It does not submit blockchain transactions 
 - SHALOM/USD is derived from a 5-minute Uniswap-V3-style time-weighted average tick for SHALOM/xRWA multiplied by the xRWA/USDT TWAP.
 - The USDT/USD conversion is fetched from CoinGecko's Tether reference endpoint. The response must include a valid timestamp no older than five minutes.
 - A snapshot is recorded every 60 seconds in PostgreSQL, with pool addresses, TWAP ticks, block number, both pool liquidity values, the USDT/USD response, and a SHA-256 evidence hash.
-- The read-only endpoint is GET /api/oracles/shalom/latest. It reports recent observations only; it must not be treated as proof of uninterrupted coverage over an entire market window.
+- Read-only endpoints are GET /api/oracles/shalom/latest (latest 100 observations) and GET /api/oracles/shalom/window?from=<ISO>&to=<ISO> (full-window aggregate, threshold-touch flag, first/last observation, and maximum recorded gap). The window endpoint uses 180-second initial/final delay and max-gap checks as a monitoring signal, not as an automatic settlement verdict.
 - A threshold crossing is evidence for validator review, not an automatic on-chain YES outcome. Missing/stale observations must never be interpreted as NO.
 
 ## Required backend environment
@@ -30,6 +30,6 @@ The factory defaults to the official Asset Chain Swap mainnet deployment at 0xa9
 1. Configure the correct token addresses and minimum liquidity values before enabling the monitor. It fails closed on missing configuration, wrong chain, token-symbol mismatch, missing pool, low liquidity, stale USDT/USD data, or insufficient TWAP history.
 2. A process restart or service outage creates a monitoring gap. Review observation timestamps and service logs; do not resolve NO unless complete, sufficient coverage exists for the full market window.
 3. A 5-minute TWAP is intentionally harder to manipulate than a single spot quote, but it may not record a brief price spike. Market wording must explicitly define the threshold as a qualifying 5-minute TWAP at or above $1.00, rather than an instantaneous spot wick.
-4. Pool liquidity and manipulation safeguards require review before publication. The monitor checks configured raw active liquidity; it does not itself enforce a USD TVL minimum.
-5. CoinGecko rate limits or outages can interrupt observations. Failures are logged and do not create NO evidence.
-6. Evidence is stored in the backend PostgreSQL database; this is not an immutable public archive. For production settlement, export evidence to durable storage and retain audit access.
+5. Pool liquidity and manipulation safeguards require review before publication. The monitor checks configured raw active liquidity; it does not itself enforce a USD TVL minimum.
+6. CoinGecko rate limits or outages can interrupt observations. Failures are logged and do not create NO evidence.
+7. Evidence is stored in the backend PostgreSQL database; this is not an immutable public archive. For production settlement, export evidence to durable storage and retain audit access.
