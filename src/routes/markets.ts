@@ -16,6 +16,28 @@ import {
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 
+type MarketRouteDependencies = {
+  getWalletRole: typeof getWalletRole;
+  isMarketCreatorWallet: typeof isMarketCreatorWallet;
+  verifyAdminWallet: typeof verifyAdminWallet;
+  createMarketProposal: typeof createMarketProposal;
+  getMarketProposal: typeof getMarketProposal;
+  listPublishedMarkets: typeof listPublishedMarkets;
+  listMarketProposals: typeof listMarketProposals;
+  listMarketProposalsByWallet: typeof listMarketProposalsByWallet;
+  updateMarketProposalStatus: typeof updateMarketProposalStatus;
+  createWalletNonce: typeof createWalletNonce;
+  verifyWalletSignature: typeof verifyWalletSignature;
+};
+
+const defaultDependencies: MarketRouteDependencies = {
+  getWalletRole, isMarketCreatorWallet, verifyAdminWallet,
+  createMarketProposal, getMarketProposal, listPublishedMarkets,
+  listMarketProposals, listMarketProposalsByWallet, updateMarketProposalStatus,
+  createWalletNonce, verifyWalletSignature,
+};
+
+export function createMarketsRouter(dependencies: MarketRouteDependencies = defaultDependencies) {
 const marketsRouter = Router();
 
 const walletAuthSchema = z.object({
@@ -36,7 +58,7 @@ marketsRouter.post("/auth/nonce", async (req, res, next) => {
       });
     }
 
-    const nonce = await createWalletNonce(result.data.address);
+    const nonce = await dependencies.createWalletNonce(result.data.address);
     const message =
       `Asset Oracle wallet verification\n` +
       `Address: ${result.data.address}\n` +
@@ -60,7 +82,7 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
     }
 
     const { address, message, signature } = result.data;
-    const verified = await verifyWalletSignature(
+    const verified = await dependencies.verifyWalletSignature(
       address,
       signature as `0x${string}`,
       message,
@@ -74,12 +96,12 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
 
     return res.status(200).json({
       address,
-      role: getWalletRole(address),
+      role: dependencies.getWalletRole(address),
       permissions: {
-        createMarketProposal: isMarketCreatorWallet(address),
+        createMarketProposal: dependencies.isMarketCreatorWallet(address),
         viewOwnProposals: true,
-        reviewAllProposals: getWalletRole(address) === "OWNER",
-        approveOrRejectProposals: getWalletRole(address) === "OWNER",
+        reviewAllProposals: dependencies.getWalletRole(address) === "OWNER",
+        approveOrRejectProposals: dependencies.getWalletRole(address) === "OWNER",
       },
     });
   } catch (error) {
@@ -128,7 +150,7 @@ marketsRouter.post("/proposals", async (req, res, next) => {
 
     const { proposal: input, walletAuth } = bodyResult.data;
 
-    const verified = await verifyWalletSignature(
+    const verified = await dependencies.verifyWalletSignature(
       walletAuth.address,
       walletAuth.signature as `0x${string}`,
       walletAuth.message,
@@ -142,13 +164,13 @@ marketsRouter.post("/proposals", async (req, res, next) => {
 
     // Submission is restricted server-side to the owner and configured market
     // creators. Frontend navigation is not an authorization boundary.
-    if (!isMarketCreatorWallet(walletAuth.address)) {
+    if (!dependencies.isMarketCreatorWallet(walletAuth.address)) {
       return res.status(403).json({
         error: "Only the owner or an authorized market creator can submit proposals.",
       });
     }
 
-    const stored = await createMarketProposal(
+    const stored = await dependencies.createMarketProposal(
       input,
       walletAuth.address,
     );
@@ -173,7 +195,7 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
     }
 
     const { address, message, signature } = result.data;
-    const verified = await verifyWalletSignature(
+    const verified = await dependencies.verifyWalletSignature(
       address,
       signature as `0x${string}`,
       message,
@@ -185,7 +207,7 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
       });
     }
 
-    const proposals = await listMarketProposalsByWallet(address);
+    const proposals = await dependencies.listMarketProposalsByWallet(address);
 
     return res.status(200).json({
       proposals,
@@ -199,7 +221,7 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
 
 marketsRouter.get("/public", async (_req, res, next) => {
   try {
-    const markets = await listPublishedMarkets();
+    const markets = await dependencies.listPublishedMarkets();
 
     return res.status(200).json({
       markets,
@@ -220,7 +242,7 @@ marketsRouter.get("/proposals/:id", async (req, res, next) => {
       });
     }
 
-    const proposal = await getMarketProposal(idResult.data);
+    const proposal = await dependencies.getMarketProposal(idResult.data);
 
     if (!proposal) {
       return res.status(404).json({
@@ -247,7 +269,7 @@ marketsRouter.post("/admin/proposals/list", async (req, res, next) => {
 
     const { address, message, signature } = result.data;
 
-    const verified = await verifyAdminWallet(
+    const verified = await dependencies.verifyAdminWallet(
       address,
       signature as `0x${string}`,
       message,
@@ -259,7 +281,7 @@ marketsRouter.post("/admin/proposals/list", async (req, res, next) => {
       });
     }
 
-    const proposals = await listMarketProposals();
+    const proposals = await dependencies.listMarketProposals();
 
     return res.status(200).json({
       proposals,
@@ -295,7 +317,7 @@ marketsRouter.post(
 
       const { status, walletAuth } = bodyResult.data;
 
-      const verified = await verifyAdminWallet(
+      const verified = await dependencies.verifyAdminWallet(
         walletAuth.address,
         walletAuth.signature as `0x${string}`,
         walletAuth.message,
@@ -307,13 +329,13 @@ marketsRouter.post(
         });
       }
 
-      const proposal = await updateMarketProposalStatus(
+      const proposal = await dependencies.updateMarketProposalStatus(
         idResult.data,
         status,
       );
 
       if (!proposal) {
-        const existing = await getMarketProposal(idResult.data);
+        const existing = await dependencies.getMarketProposal(idResult.data);
 
         if (!existing) {
           return res.status(404).json({
@@ -337,4 +359,7 @@ marketsRouter.post(
   },
 );
 
-export default marketsRouter;
+return marketsRouter;
+}
+
+export default createMarketsRouter();
