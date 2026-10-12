@@ -48,7 +48,7 @@ oraclesRouter.get("/shalom/latest", async (_req, res) => {
   } catch (error) {
     return res.status(503).json({
       error: "SHALOM DEX evidence is unavailable. The monitor may not be configured or initialized.",
-      details: error instanceof Error ? error.message : "Unknown database error",
+      details: "No observation table or recent evidence is available yet.",
     });
   }
 });
