@@ -9,6 +9,7 @@ const user = "0x1111111111111111111111111111111111111111";
 const proposalId = "00000000-0000-4000-8000-000000000001";
 let persisted = 0;
 let decisions = 0;
+let publications = 0;
 
 const proposal = {
   question: "Will Asset Oracle launch before December?",
@@ -30,6 +31,7 @@ const walletAuth = (address: string, signature = "0x1234") => ({
 function makeApp() {
   persisted = 0;
   decisions = 0;
+  publications = 0;
   const router = createMarketsRouter({
     getWalletRole: ((address: string) =>
       address.toLowerCase() === owner.toLowerCase() ? "OWNER" :
@@ -49,6 +51,10 @@ function makeApp() {
     updateMarketProposalStatus: (async (_id: string, status: "APPROVED" | "REJECTED") => {
       decisions++;
       return { ...proposal, id: proposalId, status };
+    }) as never,
+    recordOnchainPublication: (async () => {
+      publications++;
+      return { ...proposal, id: proposalId, status: "APPROVED" } as never;
     }) as never,
   });
   const app = express();
@@ -148,5 +154,21 @@ test("creator cannot list or decide admin proposals; owner can decide", async ()
     });
     assert.equal(ownerDecision.status, 200);
     assert.equal(decisions, 1);
+  });
+});
+
+
+test("ordinary wallet cannot publish an approved proposal or record publication", async () => {
+  await withServer(async (base) => {
+    const response = await fetch(`${base}/api/markets/admin/proposals/${proposalId}/publish`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        txHash: `0x${"1".repeat(64)}`,
+        marketId: "1",
+        walletAuth: walletAuth(user),
+      }),
+    });
+    assert.equal(response.status, 403);
+    assert.equal(publications, 0);
   });
 });
