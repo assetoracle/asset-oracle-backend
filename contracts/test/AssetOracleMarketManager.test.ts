@@ -535,10 +535,15 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
 
   it("requires two matching validator votes to resolve a disputed result", async function () {
     const f = await deployFixture();
-    await createAndClose(f);
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
     const initialEvidence = ethers.keccak256(ethers.toUtf8Bytes("initial evidence"));
     await resolveByConsensus(f, 1, 1, initialEvidence);
-    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
     await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")));
     const arbitrationEvidence = ethers.keccak256(ethers.toUtf8Bytes("arbitration evidence"));
     await f.manager.connect(f.owner).resolveDispute(1, 2, arbitrationEvidence);
