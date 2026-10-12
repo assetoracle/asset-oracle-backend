@@ -3,7 +3,7 @@ import { z } from "zod";
 const resolutionRuleSchema = z.object({
   sourceId: z.string().trim().min(1, "A data source is required"),
   metric: z.string().trim().min(1, "A metric is required"),
-  comparison: z.enum(["ABOVE", "BELOW", "EQUALS"]),
+  comparison: z.enum(["ABOVE", "AT_LEAST", "BELOW", "EQUALS"]),
   targetValue: z.number().finite(),
   currency: z.string().trim().optional(),
   observationTime: z.string().datetime({
