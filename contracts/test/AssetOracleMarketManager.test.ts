@@ -494,4 +494,60 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
 
+
+  it("requires exactly three distinct validators before markets can be created", async function () {
+    const [owner, creator, resolver, treasury, validatorPool, , bob] = await ethers.getSigners();
+    const Token = await ethers.getContractFactory("MockStablecoin");
+    const usdc = await Token.deploy("USD Coin Test", "USDC", 6);
+    const Manager = await ethers.getContractFactory("AssetOracleMarketManager");
+    const manager = await Manager.deploy(owner.address, treasury.address, validatorPool.address);
+    await manager.configureStablecoin(0, await usdc.getAddress(), 6);
+    await manager.setMarketCreator(creator.address, true);
+    const closeTime = (await time.latest()) + 3600;
+    await expect(manager.connect(creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    )).to.be.reverted;
+    await expect(manager.configureValidators([owner.address, owner.address, resolver.address])).to.be.reverted;
+    await manager.configureValidators([owner.address, resolver.address, bob.address]);
+    await expect(manager.configureValidators([owner.address, resolver.address, bob.address])).to.be.reverted;
+    await manager.connect(creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await expect(manager.configureValidators([owner.address, resolver.address, bob.address])).to.be.reverted;
+  });
+
+  it("requires two matching validator votes and prevents duplicate and unauthorized votes", async function () {
+    const f = await deployFixture();
+    await createAndClose(f);
+    const evidence = ethers.keccak256(ethers.toUtf8Bytes("confirmed evidence"));
+    await expect(f.manager.connect(f.outsider).resolveMarket(1, 1, evidence)).to.be.reverted;
+    await f.manager.connect(f.owner).resolveMarket(1, 1, evidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(1); // Still CLOSED after one vote.
+    await expect(f.manager.connect(f.owner).resolveMarket(1, 1, evidence)).to.be.reverted;
+    await f.manager.connect(f.resolver).resolveMarket(1, 2, evidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(1); // Conflicting outcome does not reach consensus.
+    await f.manager.connect(f.bob).resolveMarket(1, 1, evidence);
+    const market = await f.manager.getMarket(1);
+    expect(market.status).to.equal(2); // DISPUTED after two matching votes.
+    expect(market.outcome).to.equal(1); // YES
+    expect(market.evidenceHash).to.equal(evidence);
+  });
+
+  it("requires two matching validator votes to resolve a disputed result", async function () {
+    const f = await deployFixture();
+    await createAndClose(f);
+    const initialEvidence = ethers.keccak256(ethers.toUtf8Bytes("initial evidence"));
+    await resolveByConsensus(f, 1, 1, initialEvidence);
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")));
+    const arbitrationEvidence = ethers.keccak256(ethers.toUtf8Bytes("arbitration evidence"));
+    await f.manager.connect(f.owner).resolveDispute(1, 2, arbitrationEvidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(6); // Still ARBITRATION after one vote.
+    await f.manager.connect(f.resolver).resolveDispute(1, 2, arbitrationEvidence);
+    const market = await f.manager.getMarket(1);
+    expect(market.status).to.equal(2); // DISPUTED after 2-of-3 arbitration consensus.
+    expect(market.outcome).to.equal(2); // NO
+    expect(market.evidenceHash).to.equal(arbitrationEvidence);
+  });
+
 });
