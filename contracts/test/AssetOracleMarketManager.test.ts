@@ -220,6 +220,35 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
 
+
+  it("does not sweep settlement dust while a participant payout remains unclaimed", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    // Tiny stakes intentionally produce one token unit of rounding dust.
+    await f.manager.connect(f.alice).stake(1, true, 1n);
+    await f.manager.connect(f.bob).stake(1, true, 1n);
+    await f.manager.connect(f.creator).stake(1, false, 1n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+
+    await f.manager.connect(f.alice).claim(1);
+    await f.manager.connect(f.creator).claim(1); // Losing participant claims zero.
+    expect(await f.manager.claimCountByMarket(1)).to.equal(2n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(0n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(2n);
+
+    await f.manager.connect(f.bob).claim(1);
+    expect(await f.manager.claimCountByMarket(1)).to.equal(3n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(1n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
   it("routes disputes to owner adjudication instead of immediately enabling refunds", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
