@@ -417,4 +417,62 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     ).to.be.reverted;
   });
 
+
+  it("locks stablecoin and fee-recipient configuration after the first market is created", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if official evidence confirms it.", "https://official.example/result", closeTime, 3600
+    );
+    await expect(f.manager.configureStablecoin(0, await f.usdc.getAddress(), 6))
+      .to.be.revertedWithCustomError(f.manager, "StablecoinConfigurationLocked");
+    await expect(f.manager.setFeeRecipients(f.bob.address, f.alice.address))
+      .to.be.revertedWithCustomError(f.manager, "StablecoinConfigurationLocked");
+  });
+
+  it("pays multiple winning participants proportionally and accounts for rounding dust", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if official evidence confirms it.", "https://official.example/result", closeTime, 3600
+    );
+    for (const user of [f.alice, f.bob, f.creator]) {
+      await f.manager.connect(user).stake(1, true, 10_001n);
+    }
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+    const before = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
+    for (const user of [f.alice, f.bob, f.creator]) await f.manager.connect(user).claim(1);
+    const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
+    expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(29_328n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(149n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(524n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(2n);
+    for (const user of [f.alice, f.bob, f.creator]) {
+      await expect(f.manager.connect(user).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
+    }
+  });
+
+  it("rejects a second claim after an INVALID outcome has refunded a participant", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "INVALID if official evidence is unavailable.", "https://official.example/result", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.resolver).resolveMarket(1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
+    await time.increase(3600);
+    await f.manager.finalizeMarket(1);
+    const before = await f.usdc.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).claim(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    await expect(f.manager.connect(f.alice).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
 });
