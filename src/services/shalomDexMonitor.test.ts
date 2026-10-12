@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { meanTickFromCumulatives, priceAtTick } from "./shalomDexMonitor.js";
+import { meanTickFromCumulatives, priceAtTick } from "./shalomDexPricing.js";
 
 test("meanTickFromCumulatives computes the arithmetic mean tick", () => {
   assert.equal(meanTickFromCumulatives(100n, 700n, 300), 2);
