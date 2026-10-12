@@ -9,7 +9,7 @@ This workspace is isolated under `contracts/` so the existing frontend and API p
 - Separate market-creator and oracle-resolver roles. Creators cannot resolve outcomes; resolvers cannot change token configuration or fee recipients. Ownership transfer grants the new owner the admin, creator, and resolver roles and revokes those roles from the former owner; transferring ownership to the current owner leaves roles unchanged.
 - Binary YES/NO stakes held in contract escrow.
 - All trading-fee revenue (0.25%) goes to Treasury, including any allocation previously described as market incentives. Successful-settlement fees are 2%, split 25% to the validator reward pool and 75% to Treasury.
-- Invalid/cancelled markets have a 0% settlement fee and allow users to recover their net stake.
+- Invalid/cancelled markets have a 0% settlement fee and allow users to recover their net stake. Anyone can close a market once its staking deadline has passed, preventing abandoned open markets from trapping participant funds; before the deadline, closure is rejected.
 - **Confirmed no-winner policy:** refund 75% of each participant's net stake and retain 25% of the market's total net stake for Treasury. The Validator Reward Pool receives nothing from a no-winner market. After every participant claims, any leftover token-unit rounding remainder is also sent to Treasury.
 - Resolution evidence hash and a challenge window are recorded before finalization.
 - A valid participant dispute enters an arbitration state; it does not immediately unlock refunds. The owner must record a replacement outcome and evidence, which restarts the challenge window. If arbitration is not completed within seven days, anyone can unlock participant refunds.
