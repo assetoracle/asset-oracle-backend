@@ -78,6 +78,21 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     address public validatorRewardPool;
     uint64 public defaultChallengePeriod = 1 days;
 
+    // The validator roster is fixed before the first market. Resolution requires
+    // two of these three wallets to submit the same outcome and evidence hash.
+    address[3] public validators;
+    mapping(address => bool) public isValidator;
+    mapping(uint256 => mapping(address => bool)) public hasVoted;
+    mapping(uint256 => mapping(bytes32 => uint8)) public voteCountByKey;
+    mapping(uint256 => mapping(address => bool)) public hasVotedOnDispute;
+    mapping(uint256 => mapping(bytes32 => uint8)) public disputeVoteCountByKey;
+    mapping(uint256 => bool) public disputeConsensusReached;
+    bool public validatorRosterConfigured;
+
+    event ValidatorRosterConfigured(address validator1, address validator2, address validator3);
+    event ValidatorVoteSubmitted(uint256 indexed marketId, address indexed validator, Outcome outcome, bytes32 evidenceHash, uint8 matchingVotes);
+    event DisputeVoteSubmitted(uint256 indexed marketId, address indexed validator, Outcome outcome, bytes32 evidenceHash, uint8 matchingVotes);
+
     event StablecoinConfigured(Stablecoin indexed kind, address indexed token, uint8 decimals);
     event MarketCreatorUpdated(address indexed account, bool enabled);
     event OracleResolverUpdated(address indexed account, bool enabled);
@@ -112,6 +127,11 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     error ExactTransferRequired();
     error DisputeRequiresParticipant();
     error AlreadyDisputed();
+    error ValidatorRosterNotConfigured();
+    error ValidatorRosterLocked();
+    error UnauthorizedValidator();
+    error DuplicateValidator();
+    error DuplicateVote();
 
     constructor(address initialOwner, address treasury_, address validatorRewardPool_)
         Ownable(initialOwner)
@@ -141,6 +161,22 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             _revokeRole(MARKET_CREATOR_ROLE, previousOwner);
             _revokeRole(ORACLE_RESOLVER_ROLE, previousOwner);
         }
+    }
+
+    function configureValidators(address[3] calldata accounts) external onlyOwner {
+        if (marketCreationStarted || validatorRosterConfigured) revert ValidatorRosterLocked();
+        for (uint256 i = 0; i < 3; i++) {
+            if (accounts[i] == address(0)) revert InvalidAddress();
+            for (uint256 j = 0; j < i; j++) {
+                if (accounts[i] == accounts[j]) revert DuplicateValidator();
+            }
+        }
+        for (uint256 i = 0; i < 3; i++) {
+            validators[i] = accounts[i];
+            isValidator[accounts[i]] = true;
+        }
+        validatorRosterConfigured = true;
+        emit ValidatorRosterConfigured(accounts[0], accounts[1], accounts[2]);
     }
 
     function configureStablecoin(Stablecoin kind, address token, uint8 expectedDecimals) external onlyOwner {
@@ -190,6 +226,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         uint64 closeTime,
         uint64 challengePeriod
     ) external onlyRole(MARKET_CREATOR_ROLE) returns (uint256 marketId) {
+        if (!validatorRosterConfigured) revert ValidatorRosterNotConfigured();
         StablecoinConfig memory tokenConfig = stablecoins[stablecoin];
         if (!tokenConfig.enabled) revert InvalidToken();
         if (
@@ -268,12 +305,22 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         emit MarketClosed(marketId);
     }
 
-    function resolveMarket(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external onlyRole(ORACLE_RESOLVER_ROLE) {
+    /// @notice Each configured validator may vote once; matching 2-of-3 votes resolve the market.
+    function resolveMarket(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
+        if (!isValidator[msg.sender]) revert UnauthorizedValidator();
         if (market.status != Status.CLOSED) revert InvalidStatus();
         if (outcome != Outcome.YES && outcome != Outcome.NO && outcome != Outcome.INVALID) revert InvalidOutcome();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
+        if (hasVoted[marketId][msg.sender]) revert DuplicateVote();
+
+        hasVoted[marketId][msg.sender] = true;
+        bytes32 voteKey = keccak256(abi.encode(outcome, evidenceHash));
+        uint8 matchingVotes = ++voteCountByKey[marketId][voteKey];
+        emit ValidatorVoteSubmitted(marketId, msg.sender, outcome, evidenceHash, matchingVotes);
+
+        if (matchingVotes < 2) return;
         market.outcome = outcome;
         market.evidenceHash = evidenceHash;
         market.resolvedAt = uint64(block.timestamp);
@@ -297,13 +344,23 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         emit MarketDisputed(marketId, msg.sender, evidenceHash);
     }
 
-    /// @notice Owner adjudication records a replacement outcome and restarts the challenge window.
-    function resolveDispute(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external onlyOwner {
+    /// @notice A disputed result is adjudicated by the same 2-of-3 validator consensus.
+    function resolveDispute(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
+        if (!isValidator[msg.sender]) revert UnauthorizedValidator();
         if (market.status != Status.ARBITRATION) revert InvalidStatus();
         if (outcome != Outcome.YES && outcome != Outcome.NO && outcome != Outcome.INVALID) revert InvalidOutcome();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
+        if (hasVotedOnDispute[marketId][msg.sender]) revert DuplicateVote();
+
+        hasVotedOnDispute[marketId][msg.sender] = true;
+        bytes32 voteKey = keccak256(abi.encode(outcome, evidenceHash));
+        uint8 matchingVotes = ++disputeVoteCountByKey[marketId][voteKey];
+        emit DisputeVoteSubmitted(marketId, msg.sender, outcome, evidenceHash, matchingVotes);
+        if (matchingVotes < 2) return;
+
+        disputeConsensusReached[marketId] = true;
         market.outcome = outcome;
         market.evidenceHash = evidenceHash;
         market.resolvedAt = uint64(block.timestamp);
@@ -317,6 +374,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (market.id == 0) revert MarketNotFound();
         if (market.status != Status.ARBITRATION) revert InvalidStatus();
         if (block.timestamp < uint256(market.resolvedAt) + DISPUTE_RESOLUTION_TIMEOUT) revert ChallengeWindowActive();
+        if (disputeConsensusReached[marketId]) revert InvalidStatus();
         market.status = Status.REFUNDABLE;
         emit DisputeTimedOut(marketId);
     }
