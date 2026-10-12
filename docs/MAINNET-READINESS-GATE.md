@@ -25,19 +25,20 @@ This is a pre-deployment checklist, not authorization to deploy or publish marke
 
 - [ ] Configure exactly three authorized validator wallets after the project owner confirms all addresses.
 - [ ] Enforce 2-of-3 matching votes in the smart contract; backend-only checks are insufficient.
-- [ ] Specify vote-change, conflicting-vote, INVALID, timeout, and dispute rules before deployment.
-- [ ] Add tests for unauthorized wallets, duplicate votes, disagreement, consensus, dispute handling, and settlement/refunds.
+- [x] Specify the current vote policy: each validator may vote once per market; conflicting votes do not resolve it; 2-of-3 must match outcome and evidence hash; INVALID is supported; unresolved closed markets and uncompleted disputes use the contract timeout/refund paths.
+- [x] Add tests for unauthorized wallets, duplicate votes, disagreement, consensus, dispute handling, and settlement/refunds.
 - [ ] Add off-chain notifications for markets awaiting validator review; notifications must not themselves authorize settlement.
-- [ ] Keep CRE integration as a later phase; it must not be required for current human-led resolution.
+- [ ] Design safe validator roster rotation/governance before real-value deployment; the current roster is fixed once configured.
+- [x] Keep CRE integration as a later phase; it is not required for current human-led resolution.
 
-## Required before publishing the November markets
+## Required before publishing the proposed November markets
 
-- [ ] Approve the exact wording and provider-snapshot/TWAP sampling rules.
-- [ ] Confirm BTC, ETH, and BNB source IDs and the one-minute sampled-observation rule.
-- [ ] Confirm WKC token/project, contract address, CoinGecko asset ID, and circulating-market-cap methodology.
-- [ ] Confirm SHALOM token identity, pool route, minimum liquidity, slippage/manipulation policy, and source-failure handling.
-- [ ] Ensure the monitoring window begins before the market opens and the monitor is demonstrably healthy.
-- [ ] Publish each market only after owner authorization, mainnet deployment/configuration, and a confirmed on-chain creation receipt.
+- [ ] Approve exact question wording, deadline, timezone, resolution methodology, and acceptable public evidence for each market.
+- [ ] Define how validators establish BTC, ETH, and BNB prices at the deadline using independent, timestamped public sources; do not rely on the removed CoinGecko polling monitor.
+- [ ] Confirm the exact WKC project/token identity, official contract address, market-cap methodology, and public evidence sources.
+- [ ] Confirm the exact SHALOM token identity and define the price evidence methodology without restoring the removed DEX monitor.
+- [ ] Ensure all three validators can independently access and archive the evidence; document what happens if sources disagree or are unavailable.
+- [ ] Publish each market only after owner authorization, approved contract deployment/configuration, and a confirmed on-chain creation receipt.
 
 ## Explicit approval gates
 
