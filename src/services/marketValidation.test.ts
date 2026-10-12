@@ -26,6 +26,10 @@ function validProposal(comparison: string = "AT_LEAST") {
 test("market proposal schema accepts inclusive AT_LEAST comparison", () => {
   const parsed = marketProposalSchema.safeParse(validProposal("AT_LEAST"));
   assert.equal(parsed.success, true);
+  if (parsed.success) {
+    assert.equal(parsed.data.resolutionRule.comparison, "AT_LEAST");
+    assert.equal(parsed.data.resolutionRule.targetValue, 100000);
+  }
 });
 
 test("market proposal schema rejects unsupported comparison values", () => {
