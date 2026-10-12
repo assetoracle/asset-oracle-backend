@@ -97,12 +97,6 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
 
   const startBlock = BigInt(process.env.ASSET_ORACLE_INDEXER_START_BLOCK || DEFAULT_START_BLOCK.toString());
   if (startBlock < 0n) throw new Error("Indexer start block must not be negative.");
-  await database.query(
-    `INSERT INTO onchain_stats_cursors (chain_id, manager_address, last_scanned_block)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (chain_id, manager_address) DO NOTHING`,
-    [EXPECTED_CHAIN_ID, managerAddress.toLowerCase(), (startBlock - 1n).toString()],
-  );
 
   const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || "https://enugu-rpc.assetchain.org";
   const client = createPublicClient({ transport: http(rpcUrl, { timeout: 15_000 }) });
@@ -112,6 +106,13 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
   }
   const code = await client.getCode({ address: managerAddress as `0x${string}` });
   if (!code || code === "0x") throw new Error("Indexer manager address has no contract bytecode.");
+
+  await database.query(
+    `INSERT INTO onchain_stats_cursors (chain_id, manager_address, last_scanned_block)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (chain_id, manager_address) DO NOTHING`,
+    [EXPECTED_CHAIN_ID, managerAddress.toLowerCase(), (startBlock - 1n).toString()],
+  );
 
   let busy = false;
   const pollOnce = async () => {
