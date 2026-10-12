@@ -53,3 +53,18 @@ test("rejects mismatched MarketCreated event fields", () => {
   assert.match(verifyPublicationEvidence({ ...validEvidence, eventCreator: manager }) ?? "", /MarketCreated/i);
   assert.match(verifyPublicationEvidence({ ...validEvidence, eventCreator: null }) ?? "", /MarketCreated/i);
 });
+
+test("rejects missing market ID, question, stablecoin, close time, or creator evidence", () => {
+  assert.match(verifyPublicationEvidence({ ...validEvidence, eventMarketId: null }) ?? "", /MarketCreated/i);
+  assert.match(verifyPublicationEvidence({ ...validEvidence, eventQuestion: null }) ?? "", /MarketCreated/i);
+  assert.match(verifyPublicationEvidence({ ...validEvidence, eventStablecoin: null }) ?? "", /MarketCreated/i);
+  assert.match(verifyPublicationEvidence({ ...validEvidence, eventCloseTime: null }) ?? "", /MarketCreated/i);
+  assert.match(verifyPublicationEvidence({ ...validEvidence, eventCreator: null }) ?? "", /MarketCreated/i);
+});
+
+test("rejects a creator address that differs only by identity", () => {
+  assert.match(
+    verifyPublicationEvidence({ ...validEvidence, eventCreator: "0x3333333333333333333333333333333333333333" }) ?? "",
+    /MarketCreated/i,
+  );
+});
