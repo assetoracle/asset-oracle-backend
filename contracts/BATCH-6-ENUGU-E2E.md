@@ -59,8 +59,8 @@ Record market ID, transaction hash, block number, creator, question, close time,
 
 ## Step 5 — Close, resolve, and challenge
 
-- [ ] Verify stakes stop at the configured close time and unauthorized early close fails.
-- [ ] Close the market using its creator or owner wallet.
+- [ ] Verify stakes stop at the configured close time, any wallet can close after the deadline, and early closure fails.
+- [ ] Close the market after the deadline; any wallet may call `closeMarket`, while early closure must fail. Record the caller and transaction receipt.
 - [ ] Resolve only from the configured resolver role, with YES or NO and a non-zero evidence hash.
 - [ ] Verify the challenge window blocks early finalization.
 - [ ] In a separate test market, submit a valid participant dispute and confirm it enters arbitration rather than enabling immediate refunds.
