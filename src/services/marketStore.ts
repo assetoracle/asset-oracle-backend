@@ -136,7 +136,11 @@ export async function getMarketProposal(
 > {
   const result = await database.query<MarketProposalRow>(
     `SELECT * FROM market_proposals
-     WHERE status = 'APPROVED' AND onchain_tx_hash IS NOT NULL
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
      ORDER BY "submittedAt" DESC`,
   );
 
