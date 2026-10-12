@@ -190,6 +190,7 @@ function priceOfBaseInQuote(
 async function getTwapPoolPrice(
   client: ReturnType<typeof createPublicClient>,
   config: DexMonitorConfig,
+  blockNumber: bigint,
   tokenA: Address,
   tokenB: Address,
   fee: number,
@@ -202,23 +203,25 @@ async function getTwapPoolPrice(
     abi: factoryAbi,
     functionName: "getPool",
     args: [tokenA, tokenB, fee],
+    blockNumber,
   }) as Address;
 
   if (!isAddress(pool) || pool.toLowerCase() === "0x0000000000000000000000000000000000000000") {
     throw new Error(`No DEX pool exists for the configured token pair and fee ${fee}`);
   }
-  const code = await client.getCode({ address: pool });
+  const code = await client.getCode({ address: pool, blockNumber });
   if (!code || code === "0x") throw new Error("Configured pool has no deployed contract code");
 
   const [token0, token1, liquidity, cumulative] = await Promise.all([
-    client.readContract({ address: pool, abi: poolAbi, functionName: "token0" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "token1" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "liquidity" }),
+    client.readContract({ address: pool, abi: poolAbi, functionName: "token0", blockNumber }),
+    client.readContract({ address: pool, abi: poolAbi, functionName: "token1", blockNumber }),
+    client.readContract({ address: pool, abi: poolAbi, functionName: "liquidity", blockNumber }),
     client.readContract({
       address: pool,
       abi: poolAbi,
       functionName: "observe",
       args: [[TWAP_WINDOW_SECONDS, 0]],
+      blockNumber,
     }),
   ]);
 
@@ -235,7 +238,7 @@ async function getTwapPoolPrice(
   const token0Address = token0 as Address;
   const token1Address = token1 as Address;
   const [decimals0, decimals1] = await Promise.all([
-    client.readContract({ address: token0Address, abi: erc20Abi, functionName: "decimals" }),
+    client.readContract({ address: token0Address, abi: erc20Abi, functionName: "decimals", blockNumber }),
     client.readContract({ address: token1Address, abi: erc20Abi, functionName: "decimals" }),
   ]);
 
@@ -305,8 +308,9 @@ export async function collectShalomDexObservation(): Promise<ShalomDexObservatio
   const chainId = await client.getChainId();
   if (chainId !== MAINNET_CHAIN_ID) throw new Error(`Wrong RPC chain ID: expected ${MAINNET_CHAIN_ID}, got ${chainId}`);
 
+  const blockNumber = await client.getBlockNumber();
   const [shalomSymbol, xrwaSymbol, usdtSymbol] = await Promise.all([
-    client.readContract({ address: config.shalom, abi: erc20Abi, functionName: "symbol" }),
+    client.readContract({ address: config.shalom, abi: erc20Abi, functionName: "symbol", blockNumber }),
     client.readContract({ address: config.xrwa, abi: erc20Abi, functionName: "symbol" }),
     client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "symbol" }),
   ]);
@@ -314,16 +318,15 @@ export async function collectShalomDexObservation(): Promise<ShalomDexObservatio
   if (String(xrwaSymbol).toUpperCase() !== "XRWA") throw new Error("Configured xRWA contract symbol did not match xRWA");
   if (String(usdtSymbol).toUpperCase() !== "USDT") throw new Error("Configured bridged USDT contract symbol did not match USDT");
 
-  const [shalomXrwa, xrwaUsdt, blockNumber, usdtUsd] = await Promise.all([
+  const [shalomXrwa, xrwaUsdt, usdtUsd] = await Promise.all([
     getTwapPoolPrice(
-      client, config, config.shalom, config.xrwa, config.shalomXrwaFee,
+      client, config, blockNumber, config.shalom, config.xrwa, config.shalomXrwaFee,
       config.shalomXrwaMinLiquidity, config.shalom, config.xrwa,
     ),
     getTwapPoolPrice(
-      client, config, config.xrwa, config.usdt, config.xrwaUsdtFee,
+      client, config, blockNumber, config.xrwa, config.usdt, config.xrwaUsdtFee,
       config.xrwaUsdtMinLiquidity, config.xrwa, config.usdt,
     ),
-    client.getBlockNumber(),
     fetchUsdtUsdPrice(),
   ]);
 
