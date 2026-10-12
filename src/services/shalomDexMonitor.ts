@@ -11,7 +11,6 @@ import {
 const MAINNET_CHAIN_ID = 42420;
 const DEFAULT_RPC_URL = "https://mainnet-rpc.assetchain.org";
 const DEFAULT_FACTORY = "0xa9d53862d01190e78ddaf924a8f497b4f8bb5163";
-const SHALOM_ADDRESS = "0xf20f989CAf263C513f9183B4Fed88F14Fc04c8dB";
 const TWAP_WINDOW_SECONDS = 300;
 const POLL_INTERVAL_MS = 60_000;
 
@@ -90,7 +89,7 @@ type DexMonitorConfig = {
   xrwaUsdtMinLiquidity: bigint;
 };
 
-function positiveNumber(name: string, raw: string | undefined): number | null {
+function positiveNumber(_name: string, raw: string | undefined): number | null {
   if (!raw?.trim()) return null;
   const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -109,7 +108,7 @@ function addressEnv(name: string, fallback?: string): Address | null {
 
 function loadConfig(): DexMonitorConfig | null {
   const factory = addressEnv("SHALOM_DEX_FACTORY_ADDRESS", DEFAULT_FACTORY);
-  const shalom = addressEnv("SHALOM_TOKEN_ADDRESS", SHALOM_ADDRESS);
+  const shalom = addressEnv("SHALOM_TOKEN_ADDRESS");
   const xrwa = addressEnv("ASSET_CHAIN_XRWA_TOKEN_ADDRESS");
   const usdt = addressEnv("ASSET_CHAIN_USDT_TOKEN_ADDRESS");
   const shalomXrwaFee = positiveNumber("SHALOM_XRWA_POOL_FEE", process.env.SHALOM_XRWA_POOL_FEE || "10000");
@@ -287,8 +286,8 @@ export async function collectShalomDexObservation(): Promise<ShalomDexObservatio
   const blockNumber = await client.getBlockNumber();
   const [shalomSymbol, xrwaSymbol, usdtSymbol] = await Promise.all([
     client.readContract({ address: config.shalom, abi: erc20Abi, functionName: "symbol", blockNumber }),
-    client.readContract({ address: config.xrwa, abi: erc20Abi, functionName: "symbol" }),
-    client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "symbol" }),
+    client.readContract({ address: config.xrwa, abi: erc20Abi, functionName: "symbol", blockNumber }),
+    client.readContract({ address: config.usdt, abi: erc20Abi, functionName: "symbol", blockNumber }),
   ]);
   if (String(shalomSymbol).toUpperCase() !== "SHALOM") throw new Error("Configured SHALOM contract symbol did not match SHALOM");
   if (String(xrwaSymbol).toUpperCase() !== "XRWA") throw new Error("Configured xRWA contract symbol did not match xRWA");
