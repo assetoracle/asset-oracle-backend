@@ -263,7 +263,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (market.id == 0) revert MarketNotFound();
         if (market.status != Status.OPEN) revert InvalidStatus();
         if (block.timestamp < market.closeTime) revert MarketNotClosable();
-        if (msg.sender != market.creator && msg.sender != owner()) revert UnauthorizedMarketCreator();
+        // Once staking has closed by time, anyone may close the market so abandoned
+        // markets can enter the unresolved-refund path without creator/owner intervention.
         market.status = Status.CLOSED;
         emit MarketClosed(marketId);
     }
