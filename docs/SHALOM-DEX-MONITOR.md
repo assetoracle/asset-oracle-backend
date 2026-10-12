@@ -17,7 +17,7 @@ Set these only after verifying the token addresses and live pool parameters on A
 
 - SHALOM_DEX_MONITOR_ENABLED=true to enable background polling.
 - ASSET_CHAIN_MAINNET_RPC_URL=https://mainnet-rpc.assetchain.org (default).
-- SHALOM_TOKEN_ADDRESS=0xf20f989CAf263C513f9183B4Fed88F14Fc04c8dB (defaults to the address supplied by the project owner).
+- SHALOM_TOKEN_ADDRESS — explicitly verified SHALOM token address. Do not rely on a default: the public documentation and explorer search results have shown conflicting token addresses, so confirm which contract the live SHALOM pool uses.
 - ASSET_CHAIN_XRWA_TOKEN_ADDRESS — verified xRWA token address on Asset Chain mainnet.
 - ASSET_CHAIN_USDT_TOKEN_ADDRESS — verified bridged USDT token address on Asset Chain mainnet.
 - SHALOM_XRWA_POOL_FEE=10000 and XRWA_USDT_POOL_FEE=3000 — initial fee tiers based on the public pool listing; the factory must resolve these to the expected token pairs before data is accepted.
