@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { createPublicClient, http, isAddress } from "viem";
-import { readOnchainDashboardMetrics } from "../services/onchainStatsIndexer.js";
 
 const statsRouter = Router();
 const DEFAULT_RPC_URL = "https://enugu-rpc.assetchain.org";
@@ -53,6 +52,7 @@ statsRouter.get("/dashboard", async (_req, res) => {
 
     if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
       try {
+        const { readOnchainDashboardMetrics } = await import("../services/onchainStatsIndexer.js");
         const metrics = await readOnchainDashboardMetrics(managerAddress);
         indexerStatus = metrics.indexerStatus;
         lastIndexedBlock = metrics.lastIndexedBlock;
