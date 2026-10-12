@@ -87,7 +87,6 @@ type DexMonitorConfig = {
   xrwaUsdtFee: number;
   shalomXrwaMinLiquidity: bigint;
   xrwaUsdtMinLiquidity: bigint;
-  usdtUsdPrice: number;
 };
 
 function positiveNumber(name: string, raw: string | undefined): number | null {
@@ -112,8 +111,8 @@ function loadConfig(): DexMonitorConfig | null {
   const shalom = addressEnv("SHALOM_TOKEN_ADDRESS", SHALOM_ADDRESS);
   const xrwa = addressEnv("ASSET_CHAIN_XRWA_TOKEN_ADDRESS");
   const usdt = addressEnv("ASSET_CHAIN_USDT_TOKEN_ADDRESS");
-  const shalomXrwaFee = positiveNumber("SHALOM_XRWA_POOL_FEE", undefined);
-  const xrwaUsdtFee = positiveNumber("XRWA_USDT_POOL_FEE", undefined);
+  const shalomXrwaFee = positiveNumber("SHALOM_XRWA_POOL_FEE", process.env.SHALOM_XRWA_POOL_FEE || "10000");
+  const xrwaUsdtFee = positiveNumber("XRWA_USDT_POOL_FEE", process.env.XRWA_USDT_POOL_FEE || "3000");
   const shalomXrwaMinLiquidity = positiveBigInt(
     "SHALOM_XRWA_MIN_LIQUIDITY",
     process.env.SHALOM_XRWA_MIN_LIQUIDITY,
@@ -122,14 +121,13 @@ function loadConfig(): DexMonitorConfig | null {
     "XRWA_USDT_MIN_LIQUIDITY",
     process.env.XRWA_USDT_MIN_LIQUIDITY,
   );
-  const usdtUsdPrice = positiveNumber("ASSET_CHAIN_USDT_USD_PRICE", process.env.ASSET_CHAIN_USDT_USD_PRICE);
 
   if (
     !factory || !shalom || !xrwa || !usdt ||
     shalomXrwaFee === null || xrwaUsdtFee === null ||
     !Number.isInteger(shalomXrwaFee) || !Number.isInteger(xrwaUsdtFee) ||
     shalomXrwaFee > 1_000_000 || xrwaUsdtFee > 1_000_000 ||
-    !shalomXrwaMinLiquidity || !xrwaUsdtMinLiquidity || !usdtUsdPrice
+    !shalomXrwaMinLiquidity || !xrwaUsdtMinLiquidity
   ) return null;
 
   return {
@@ -142,7 +140,6 @@ function loadConfig(): DexMonitorConfig | null {
     xrwaUsdtFee,
     shalomXrwaMinLiquidity,
     xrwaUsdtMinLiquidity,
-    usdtUsdPrice,
   };
 }
 
@@ -269,17 +266,36 @@ export type ShalomDexObservation = {
   xrwaUsdtTwapTick: number;
   shalomPriceUsdt: number;
   usdtUsdPrice: number;
+  usdtUsdObservedAt: string;
   shalomPriceUsd: number;
   observedAt: string;
   blockNumber: string;
   evidenceHash: string;
 };
 
+async function fetchUsdtUsdPrice(): Promise<{ price: number; observedAt: string; raw: unknown }> {
+  const response = await fetch(
+    "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd&include_last_updated_at=true",
+    { signal: AbortSignal.timeout(10_000), headers: { accept: "application/json" } },
+  );
+  if (!response.ok) throw new Error("USDT/USD reference returned HTTP " + response.status);
+  const raw = await response.json() as { tether?: { usd?: number; last_updated_at?: number } };
+  const price = raw.tether?.usd;
+  const updatedAt = raw.tether?.last_updated_at;
+  if (!Number.isFinite(price) || Number(price) <= 0 || !Number.isFinite(updatedAt)) {
+    throw new Error("USDT/USD reference response is missing a valid price or timestamp");
+  }
+  const observedAt = new Date(Number(updatedAt) * 1000).toISOString();
+  if (Date.now() - Number(updatedAt) * 1000 > 5 * 60 * 1000) throw new Error("USDT/USD reference data is stale");
+  if (Number(updatedAt) * 1000 > Date.now() + 60_000) throw new Error("USDT/USD reference timestamp is in the future");
+  return { price: Number(price), observedAt, raw };
+}
+
 export async function collectShalomDexObservation(): Promise<ShalomDexObservation> {
   const config = loadConfig();
   if (!config) {
     throw new Error(
-      "SHALOM DEX monitor is not configured. Set XRWA/USDT token addresses, both pool fee tiers, both minimum liquidity values, and the USDT/USD reference price.",
+      "SHALOM DEX monitor is not configured. Set verified xRWA/USDT token addresses and minimum liquidity values.",
     );
   }
 
@@ -298,7 +314,7 @@ export async function collectShalomDexObservation(): Promise<ShalomDexObservatio
   if (String(xrwaSymbol).toUpperCase() !== "XRWA") throw new Error("Configured xRWA contract symbol did not match xRWA");
   if (String(usdtSymbol).toUpperCase() !== "USDT") throw new Error("Configured bridged USDT contract symbol did not match USDT");
 
-  const [shalomXrwa, xrwaUsdt, blockNumber] = await Promise.all([
+  const [shalomXrwa, xrwaUsdt, blockNumber, usdtUsd] = await Promise.all([
     getTwapPoolPrice(
       client, config, config.shalom, config.xrwa, config.shalomXrwaFee,
       config.shalomXrwaMinLiquidity, config.shalom, config.xrwa,
@@ -308,10 +324,11 @@ export async function collectShalomDexObservation(): Promise<ShalomDexObservatio
       config.xrwaUsdtMinLiquidity, config.xrwa, config.usdt,
     ),
     client.getBlockNumber(),
+    fetchUsdtUsdPrice(),
   ]);
 
   const shalomPriceUsdt = shalomXrwa.price * xrwaUsdt.price;
-  const shalomPriceUsd = shalomPriceUsdt * config.usdtUsdPrice;
+  const shalomPriceUsd = shalomPriceUsdt * usdtUsd.price;
   if (!Number.isFinite(shalomPriceUsd) || shalomPriceUsd <= 0) throw new Error("Calculated SHALOM USD price is invalid");
 
   const block = await client.getBlock({ blockNumber });
@@ -326,12 +343,14 @@ export async function collectShalomDexObservation(): Promise<ShalomDexObservatio
     shalomXrwaTwapTick: shalomXrwa.tick,
     xrwaUsdtTwapTick: xrwaUsdt.tick,
     shalomPriceUsdt,
-    usdtUsdPrice: config.usdtUsdPrice,
+    usdtUsdPrice: usdtUsd.price,
+    usdtUsdObservedAt: usdtUsd.observedAt,
     shalomPriceUsd,
     observedAt,
     blockNumber: String(blockNumber),
     shalomXrwaLiquidity: shalomXrwa.liquidity,
     xrwaUsdtLiquidity: xrwaUsdt.liquidity,
+    usdtUsdReference: usdtUsd.raw,
   };
   const evidenceHash = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
 
