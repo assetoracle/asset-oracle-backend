@@ -1,0 +1,53 @@
+name: Enugu USDC Read-only Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify Enugu chain and approved USDC contract
+        run: |
+          node <<'NODE'
+          const rpc = "https://enugu-rpc.assetchain.org";
+          const token = "0xc33741fddEBeA854d265db6F9707900Efb0211a2";
+
+          async function call(method, params = []) {
+            const response = await fetch(rpc, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+            });
+            if (!response.ok) throw new Error(`RPC HTTP ${response.status}`);
+            const data = await response.json();
+            if (data.error) throw new Error(`${method} failed: ${JSON.stringify(data.error)}`);
+            return data.result;
+          }
+
+          function pass(message) { console.log(`PASS ${message}`); }
+          async function main() {
+            const chainId = await call("eth_chainId");
+            if (BigInt(chainId) !== 42421n) throw new Error(`Expected chain ID 42421, got ${BigInt(chainId)}`);
+            pass(`Chain ID is 42421 (${BigInt(chainId)})`);
+
+            const code = await call("eth_getCode", [token, "latest"]);
+            if (!code || code === "0x") throw new Error(`No contract bytecode at approved USDC address ${token}`);
+            pass(`Contract bytecode exists at ${token}`);
+
+            // decimals() selector = 0x313ce567. eth_call is read-only.
+            const raw = await call("eth_call", [{ to: token, data: "0x313ce567" }, "latest"]);
+            if (!raw || raw === "0x" || raw.length < 66) {
+              throw new Error(`decimals() returned unusable data: ${raw}`);
+            }
+            const decimals = Number(BigInt(raw));
+            if (decimals !== 6) throw new Error(`Expected 6 decimals, token returned ${decimals}`);
+            pass(`decimals() returned 6 for ${token}`);
+            console.log("RESULT: Token read-only checks passed. No wallet, private key, or transaction was used.");
+          }
+          main().catch(error => { console.error("FAILED:", error.message); process.exit(1); });
+          NODE
