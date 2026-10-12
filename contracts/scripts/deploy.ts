@@ -37,9 +37,8 @@ async function main() {
   if (usdcAddress.toLowerCase() !== expectedUsdcAddress.toLowerCase()) {
     throw new Error(`Refusing deployment: Enugu testnet must use the approved USDC address ${expectedUsdcAddress}.`);
   }
-
-  if (resolver === ethers.ZeroAddress) {
-    throw new Error("Refusing deployment: ORACLE_RESOLVER_ADDRESS must not be the zero address.");
+  if (resolver.toLowerCase() !== owner.toLowerCase()) {
+    throw new Error("Refusing deployment: the initial Enugu testnet oracle resolver must be the confirmed owner wallet.");
   }
 
   const extraCreators = (process.env.MARKET_CREATOR_WALLET_ADDRESSES || "")
