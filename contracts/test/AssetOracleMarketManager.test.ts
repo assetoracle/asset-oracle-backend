@@ -449,8 +449,8 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
     expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(29_328n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(149n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(524n);
-    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(2n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(526n); // Includes 2 units of rounding dust swept after all claims.
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
     for (const user of [f.alice, f.bob, f.creator]) {
       await expect(f.manager.connect(user).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
     }
