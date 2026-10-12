@@ -23,14 +23,16 @@
 - [x] Deployment transaction hash and manager address recorded.
 - [x] Read-only Enugu preflight passed.
 - [x] Approved testnet USDC configuration and six decimals verified by preflight.
-- [x] Owner creator/resolver roles verified by preflight.
-- [ ] Latest contract tests and compile pass on the exact deployed source commit.
+- [x] Owner creator/resolver roles verified by preflight (legacy deployment only).
+- [ ] Deploy a new manager from the validator-consensus contract source; the existing deployed manager does not enforce 2-of-3 voting.
+- [ ] Configure and read back this fixed roster before creating any markets: primary `0x3d3724d20d9d5db5a40819869057b37465a0c67d`, validator 2 `0xb94185491c78e7331c5d53e9b0df74970b3c9b8a`, validator 3 `0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01`.
+- [ ] Latest contract tests and compile pass on the exact source commit.
 - [ ] Ownership-transfer regression test confirms admin, creator, and resolver roles move to the new owner and are revoked from the former owner.
 - [ ] Confirm live backend and frontend both use the same manager address and Enugu RPC.
 - [ ] Owner wallet has testnet gas and only test USDC for this rehearsal.
 - [ ] No private key is committed, pasted into chat, or placed in frontend environment variables.
 
-**Stop condition:** Do not submit lifecycle transactions until all remaining gate items are checked, the latest contract code is reviewed against the deployed bytecode/source, and the frontend/backend configuration is confirmed. This deployment is testnet-only and unaudited.
+**Stop condition:** The existing manager at the address above does not support the new 2-of-3 validator roster. Do not use it for validator-consensus market resolution. A new testnet deployment and frontend/backend address update are required after tests pass and the three wallets are confirmed. Do not submit lifecycle transactions until all remaining gate items are checked, the latest contract code is reviewed against the deployed bytecode/source, and the frontend/backend configuration is confirmed. This deployment is testnet-only and unaudited.
 
 ## Step 1 — Read-only preflight
 
@@ -77,10 +79,11 @@ Record market ID, transaction hash, block number, creator, question, close time,
 
 - [ ] Verify stakes stop at the configured close time, any wallet can close after the deadline, and early closure fails.
 - [ ] Close the market after the deadline; any wallet may call `closeMarket`, while early closure must fail. Record the caller and transaction receipt.
-- [ ] Resolve only from the configured resolver role, with YES or NO and a non-zero evidence hash.
-- [ ] Verify the challenge window blocks early finalization.
-- [ ] In a separate test market, submit a valid participant dispute and confirm it enters arbitration rather than enabling immediate refunds.
-- [ ] Confirm only the owner can adjudicate; verify replacement evidence restarts the challenge window.
+- [ ] Each of the three configured validators may vote once on the initial outcome. Confirm a single vote leaves the market CLOSED, conflicting votes do not resolve it, and matching votes require both the same outcome and identical non-zero evidence hash.
+- [ ] Verify two matching votes transition the market to DISPUTED and start the challenge window; verify early finalization is blocked.
+- [ ] In a separate test market, submit a valid participant dispute and confirm it enters ARBITRATION rather than enabling immediate refunds.
+- [ ] Confirm arbitration also requires two matching votes from distinct configured validators on both outcome and evidence hash; verify the challenge window restarts after consensus.
+- [ ] Confirm duplicate votes, unconfigured wallets, and a single validator attempting to resolve are rejected.
 - [ ] Exercise the seven-day unresolved-dispute timeout only on a dedicated test market.
 
 ## Step 6 — Settlement and refunds
