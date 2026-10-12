@@ -6,7 +6,7 @@ process.env.DATABASE_URL ??= "postgres://test:test@127.0.0.1:5432/asset_oracle_t
 process.env.ADMIN_WALLET_ADDRESS = "0x3d3724d20d9d5db5a40819869057b37465a0c67d";
 process.env.MARKET_CREATOR_WALLET_ADDRESSES = "0x96adb1c2ea8a816d68d27363a55e88b4c507691a,0x8b8a6fb521d372c19a5ff913049475f4c8fb9459";
 
-const owner = process.env.ADMIN_WALLET_ADDRESS;
+const owner = "0x3d3724d20d9d5db5a40819869057b37465a0c67d";
 const creator = "0x96adb1c2ea8a816d68d27363a55e88b4c507691a";
 const user = "0x1111111111111111111111111111111111111111";
 const proposalId = "00000000-0000-4000-8000-000000000001";
