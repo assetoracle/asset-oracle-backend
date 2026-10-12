@@ -84,7 +84,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await expect(
       f.manager.connect(f.owner).resolveMarket(1, 2, ethers.keccak256(ethers.toUtf8Bytes("former owner")))
     ).to.be.reverted;
-    await f.manager.connect(f.creator).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
 
     await f.manager.connect(f.creator).setMarketCreator(f.outsider.address, true);
     expect(await f.manager.hasRole(await f.manager.MARKET_CREATOR_ROLE(), f.outsider.address)).to.equal(true);
@@ -352,7 +352,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
   });
 
 
-  it("honours creator and resolver role revocation", async function () {
+  it("honours creator role revocation while validator authorization remains separate", async function () {
     const f = await deployFixture();
     await f.manager.setMarketCreator(f.creator.address, false);
     const closeTime = (await time.latest()) + 3600;
@@ -368,11 +368,8 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.setMarketCreator(f.creator.address, true);
     await createAndClose(f);
     await f.manager.setOracleResolver(f.resolver.address, false);
-    await expect(
-      f.manager.connect(f.resolver).resolveMarket(
-        1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence"))
-      )
-    ).to.be.reverted;
+    // Validator authorization is controlled by the fixed validator roster, not the legacy resolver role.
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
   });
 
   it("allows anyone to close after the deadline and rejects staking at or after close", async function () {
@@ -427,13 +424,13 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
       3600
     );
     const evidence = ethers.keccak256(ethers.toUtf8Bytes("evidence"));
-    await expect(f.manager.connect(f.resolver).resolveMarket(1, 1, evidence)).to.be.reverted;
+    await expect(f.manager.connect(f.outsider).resolveMarket(1, 1, evidence)).to.be.reverted;
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await expect(f.manager.connect(f.resolver).resolveMarket(1, 0, evidence)).to.be.reverted;
+    await expect(f.manager.connect(f.owner).resolveMarket(1, 0, evidence)).to.be.reverted;
     await resolveByConsensus(f, 1, 1, evidence);
     await expect(
-      f.manager.connect(f.resolver).resolveMarket(
+      f.manager.connect(f.owner).resolveMarket(
         1, 2, ethers.keccak256(ethers.toUtf8Bytes("second evidence"))
       )
     ).to.be.reverted;
