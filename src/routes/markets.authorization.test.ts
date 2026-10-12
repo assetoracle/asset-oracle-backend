@@ -133,3 +133,5 @@ test("invalid signatures are rejected before proposal creation", async () => {
     assert.equal(created, 0);
   });
 });
+
+// These tests exercise the actual Express routes with isolated dependencies and no database writes.
