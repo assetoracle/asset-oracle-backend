@@ -7,9 +7,13 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import marketsRouter from "./routes/markets.js";
 import referralsRouter from "./routes/referrals.js";
 import statsRouter from "./routes/stats.js";
+import oraclesRouter from "./routes/oracles.js";
+import cryptoOracleRouter from "./routes/cryptoOracle.js";
 import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
+import { startShalomDexMonitor } from "./services/shalomDexMonitor.js";
+import { startCoinGeckoPriceMonitor } from "./services/coinGeckoPriceMonitor.js";
 
 const app = express();
 
@@ -34,6 +38,8 @@ app.use(express.json({ limit: "100kb" }));
 app.use("/api/markets", marketsRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/stats", statsRouter);
+app.use("/api/oracles", cryptoOracleRouter);
+app.use("/api/oracles", oraclesRouter);
 
 app.get("/", (_req, res) => {
   res.json({
@@ -63,6 +69,18 @@ async function startServer(): Promise<void> {
       console.log(`Asset Oracle API listening on port ${PORT}`);
       console.log("Market proposal database initialized");
     });
+
+    if (process.env.SHALOM_DEX_MONITOR_ENABLED === "true") {
+      await startShalomDexMonitor();
+    } else {
+      console.log("SHALOM DEX monitor is disabled; set SHALOM_DEX_MONITOR_ENABLED=true after configuring verified mainnet pool parameters.");
+    }
+
+    if (process.env.COINGECKO_MONITOR_ENABLED === "true") {
+      await startCoinGeckoPriceMonitor();
+    } else {
+      console.log("CoinGecko price monitor is disabled; set COINGECKO_MONITOR_ENABLED=true to enable BTC/ETH/BNB evidence polling.");
+    }
   } catch (error) {
     console.error(
       "Failed to initialize the market proposal database:",
