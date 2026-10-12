@@ -215,7 +215,7 @@ async function getTwapPoolPrice(
   const token1Address = token1 as Address;
   const [decimals0, decimals1] = await Promise.all([
     client.readContract({ address: token0Address, abi: erc20Abi, functionName: "decimals", blockNumber }),
-    client.readContract({ address: token1Address, abi: erc20Abi, functionName: "decimals" }),
+    client.readContract({ address: token1Address, abi: erc20Abi, functionName: "decimals", blockNumber }),
   ]);
 
   const cumulatives = cumulative[0] as readonly bigint[];
