@@ -78,7 +78,7 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
       address,
       role: getWalletRole(address),
       permissions: {
-        createMarketProposal: true,
+        createMarketProposal: isMarketCreatorWallet(address),
         viewOwnProposals: true,
         reviewAllProposals: getWalletRole(address) === "OWNER",
         approveOrRejectProposals: getWalletRole(address) === "OWNER",
@@ -139,6 +139,12 @@ marketsRouter.post("/proposals", async (req, res, next) => {
     if (!verified) {
       return res.status(401).json({
         error: "Wallet verification failed. Request a new nonce and sign again.",
+      });
+    }
+
+    if (!isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({
+        error: "Only configured market creators can submit market proposals.",
       });
     }
 
