@@ -21,6 +21,14 @@ async function main() {
   const validatorPool = ethers.getAddress(required("VALIDATOR_REWARD_POOL_ADDRESS"));
   const resolver = ethers.getAddress(required("ORACLE_RESOLVER_ADDRESS"));
   const usdcAddress = ethers.getAddress(required("USDC_TOKEN_ADDRESS"));
+  const validators = [
+    ethers.getAddress(required("VALIDATOR_WALLET_1")),
+    ethers.getAddress(required("VALIDATOR_WALLET_2")),
+    ethers.getAddress(required("VALIDATOR_WALLET_3")),
+  ] as const;
+  if (new Set(validators.map(address => address.toLowerCase())).size !== 3) {
+    throw new Error("Refusing deployment: VALIDATOR_WALLET_1/2/3 must be three distinct wallet addresses.");
+  }
 
   if (owner.toLowerCase() !== expectedOwner.toLowerCase()) {
     throw new Error(`Refusing deployment: OWNER_WALLET_ADDRESS must be the confirmed owner ${expectedOwner}.`);
@@ -78,6 +86,10 @@ async function main() {
   const stablecoinTx = await manager.configureStablecoin(0, usdcAddress, usdcDecimals);
   const stablecoinReceipt = await stablecoinTx.wait();
   if (!stablecoinReceipt) throw new Error("USDC configuration receipt was not available.");
+  const validatorsTx = await manager.configureValidators(validators);
+  const validatorsReceipt = await validatorsTx.wait();
+  if (!validatorsReceipt) throw new Error("Validator roster configuration receipt was not available.");
+
   const resolverTx = await manager.setOracleResolver(resolver, true);
   const resolverReceipt = await resolverTx.wait();
   if (!resolverReceipt) throw new Error("Resolver configuration receipt was not available.");
@@ -96,6 +108,9 @@ async function main() {
   console.log("Deployment block:", deploymentReceipt.blockNumber);
   console.log("USDC configuration transaction:", stablecoinTx.hash);
   console.log("USDC configuration block:", stablecoinReceipt.blockNumber);
+  console.log("Validator roster configuration transaction:", validatorsTx.hash);
+  console.log("Validator roster configuration block:", validatorsReceipt.blockNumber);
+  console.log("Validators:", validators.join(", "));
   console.log("Resolver configuration transaction:", resolverTx.hash);
   console.log("Resolver configuration block:", resolverReceipt.blockNumber);
   for (const receipt of creatorReceipts) {
