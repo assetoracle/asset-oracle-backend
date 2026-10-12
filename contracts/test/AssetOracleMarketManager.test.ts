@@ -58,10 +58,11 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     );
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.creator).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    // Check the former owner's role while the market is still CLOSED, so status cannot mask authorization.
     await expect(
       f.manager.connect(f.owner).resolveMarket(1, 2, ethers.keccak256(ethers.toUtf8Bytes("former owner")))
     ).to.be.reverted;
+    await f.manager.connect(f.creator).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
 
     await f.manager.connect(f.creator).setMarketCreator(f.outsider.address, true);
     expect(await f.manager.hasRole(await f.manager.MARKET_CREATOR_ROLE(), f.outsider.address)).to.equal(true);
