@@ -10,6 +10,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     const Manager = await ethers.getContractFactory("AssetOracleMarketManager");
     const manager = await Manager.deploy(owner.address, treasury.address, validatorPool.address);
     await manager.configureStablecoin(0, await usdc.getAddress(), 6);
+    await manager.configureValidators([owner.address, resolver.address, bob.address]);
     await manager.setMarketCreator(creator.address, true);
     await manager.setOracleResolver(resolver.address, true);
     for (const user of [alice, bob, creator]) {
@@ -17,6 +18,27 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
       await usdc.connect(user).approve(await manager.getAddress(), ethers.MaxUint256);
     }
     return { owner, creator, resolver, treasury, validatorPool, alice, bob, outsider, usdc, manager };
+  }
+
+
+  async function resolveByConsensus(
+    f: Awaited<ReturnType<typeof deployFixture>>,
+    marketId: number,
+    outcome: number,
+    evidenceHash: string
+  ) {
+    await f.manager.connect(f.owner).resolveMarket(marketId, outcome, evidenceHash);
+    await f.manager.connect(f.resolver).resolveMarket(marketId, outcome, evidenceHash);
+  }
+
+  async function resolveDisputeByConsensus(
+    f: Awaited<ReturnType<typeof deployFixture>>,
+    marketId: number,
+    outcome: number,
+    evidenceHash: string
+  ) {
+    await f.manager.connect(f.owner).resolveDispute(marketId, outcome, evidenceHash);
+    await f.manager.connect(f.resolver).resolveDispute(marketId, outcome, evidenceHash);
   }
 
   async function createAndClose(f: Awaited<ReturnType<typeof deployFixture>>) {
@@ -103,7 +125,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.bob).stake(1, false, 1_000_000n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
     const before = await f.usdc.balanceOf(f.alice.address);
@@ -146,7 +168,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.alice).stake(1, false, 1_000_000n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
     const before = await f.usdc.balanceOf(f.alice.address);
@@ -168,7 +190,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.creator).stake(1, false, 2n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
 
@@ -205,7 +227,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.creator).stake(1, false, 1n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
 
@@ -234,7 +256,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.creator).stake(1, false, 1n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
 
@@ -257,12 +279,12 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("initial evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("initial evidence")));
     await expect(f.manager.connect(f.outsider).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")))).to.be.reverted;
     await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")));
     expect((await f.manager.getMarket(1)).status).to.equal(6); // ARBITRATION
     await expect(f.manager.connect(f.outsider).resolveDispute(1, 2, ethers.keccak256(ethers.toUtf8Bytes("decision")))).to.be.reverted;
-    await f.manager.resolveDispute(1, 2, ethers.keccak256(ethers.toUtf8Bytes("decision")));
+    await resolveDisputeByConsensus(f, 1, 2, ethers.keccak256(ethers.toUtf8Bytes("decision")));
     expect((await f.manager.getMarket(1)).status).to.equal(2); // DISPUTED; challenge window restarts
     await expect(
       f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("second challenge")))
@@ -279,7 +301,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("initial evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("initial evidence")));
     await time.increase(3500); // File the dispute near the end of the original one-hour challenge window.
     await f.manager.connect(f.alice).disputeResolution(1, ethers.keccak256(ethers.toUtf8Bytes("challenge")));
     await time.increase(7 * 24 * 60 * 60 - 100);
@@ -301,7 +323,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.bob).stake(1, false, 2_000_000n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
+    await resolveByConsensus(f, 1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
 
@@ -409,7 +431,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
     await expect(f.manager.connect(f.resolver).resolveMarket(1, 0, evidence)).to.be.reverted;
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, evidence);
+    await resolveByConsensus(f, 1, 1, evidence);
     await expect(
       f.manager.connect(f.resolver).resolveMarket(
         1, 2, ethers.keccak256(ethers.toUtf8Bytes("second evidence"))
@@ -441,7 +463,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     }
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
+    await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
     const before = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
@@ -465,7 +487,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
     await time.increaseTo(closeTime);
     await f.manager.connect(f.creator).closeMarket(1);
-    await f.manager.connect(f.resolver).resolveMarket(1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
+    await resolveByConsensus(f, 1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
     await time.increase(3600);
     await f.manager.finalizeMarket(1);
     const before = await f.usdc.balanceOf(f.alice.address);
