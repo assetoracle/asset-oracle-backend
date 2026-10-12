@@ -33,6 +33,20 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.creator).closeMarket(1);
   }
 
+  it("transfers role administration with contract ownership", async function () {
+    const f = await deployFixture();
+    await f.manager.transferOwnership(f.creator.address);
+
+    expect(await f.manager.owner()).to.equal(f.creator.address);
+    expect(await f.manager.hasRole(await f.manager.DEFAULT_ADMIN_ROLE(), f.creator.address)).to.equal(true);
+    expect(await f.manager.hasRole(await f.manager.DEFAULT_ADMIN_ROLE(), f.owner.address)).to.equal(false);
+
+    await f.manager.connect(f.creator).setMarketCreator(f.outsider.address, true);
+    expect(await f.manager.hasRole(await f.manager.MARKET_CREATOR_ROLE(), f.outsider.address)).to.equal(true);
+
+    await expect(f.manager.setMarketCreator(f.outsider.address, false)).to.be.reverted;
+  });
+
   it("allows only USDC on the testnet contract and validates its token decimals", async function () {
     const f = await deployFixture();
     await expect(f.manager.configureStablecoin(0, ethers.ZeroAddress, 6)).to.be.reverted;
