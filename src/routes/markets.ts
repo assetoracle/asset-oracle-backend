@@ -76,7 +76,7 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
       address,
       role: getWalletRole(address),
       permissions: {
-        createMarketProposal: true,
+        createMarketProposal: isMarketCreatorWallet(address),
         viewOwnProposals: true,
         reviewAllProposals: getWalletRole(address) === "OWNER",
         approveOrRejectProposals: getWalletRole(address) === "OWNER",
