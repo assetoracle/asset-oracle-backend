@@ -353,7 +353,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     ).to.be.reverted;
   });
 
-  it("allows only the owner or market creator to close and rejects staking at or after close", async function () {
+  it("allows anyone to close after the deadline and rejects staking at or after close", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
     await f.manager.connect(f.creator).createMarket(
@@ -365,10 +365,32 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
       3600
     );
     await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await expect(f.manager.connect(f.outsider).closeMarket(1)).to.be.revertedWithCustomError(f.manager, "MarketNotClosable");
     await time.increaseTo(closeTime);
-    await expect(f.manager.connect(f.outsider).closeMarket(1)).to.be.reverted;
-    await f.manager.connect(f.creator).closeMarket(1);
+    await f.manager.connect(f.outsider).closeMarket(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(1); // CLOSED
     await expect(f.manager.connect(f.alice).stake(1, true, 1_000_000n)).to.be.reverted;
+  });
+
+  it("allows participants to recover an abandoned market after anyone closes it post-deadline", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0,
+      "Will the test event happen?",
+      "YES if the official source confirms the event by the deadline.",
+      "https://official.example/result",
+      closeTime,
+      3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime + 3600);
+    await f.manager.connect(f.outsider).closeMarket(1);
+    await f.manager.connect(f.outsider).refundTimedOutMarket(1);
+    const before = await f.usdc.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).refundCancelled(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
 
   it("blocks early, invalid, and duplicate market resolution", async function () {
