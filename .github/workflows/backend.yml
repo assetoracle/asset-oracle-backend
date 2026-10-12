@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: TypeScript Build
+    name: TypeScript Build and Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -26,3 +26,6 @@ jobs:
 
       - name: Build backend
         run: npm run build
+
+      - name: Run backend tests
+        run: npm test
