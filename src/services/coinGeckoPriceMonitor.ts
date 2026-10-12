@@ -3,8 +3,6 @@ import { database } from "../config/database.js";
 import { COINGECKO_TARGETS, parseCoinGeckoObservation, type CoinGeckoAssetId } from "./coinGeckoPricing.js";
 
 const POLL_INTERVAL_MS = 60_000;
-const MAX_SOURCE_AGE_MS = 5 * 60_000;
-const MAX_FUTURE_SKEW_MS = 60_000;
 
 export type CoinGeckoObservation = {
   assetId: CoinGeckoAssetId;
