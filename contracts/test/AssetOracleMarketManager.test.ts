@@ -143,6 +143,29 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
   });
 
+  it("prevents owner cancellation after a market closes and preserves timeout refunds", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+
+    await expect(
+      f.manager.cancelMarket(1, ethers.keccak256(ethers.toUtf8Bytes("owner cancellation")))
+    ).to.be.revertedWithCustomError(f.manager, "InvalidStatus");
+
+    expect((await f.manager.getMarket(1)).status).to.equal(1); // Remains CLOSED.
+    await time.increase(3600);
+    await f.manager.connect(f.outsider).refundTimedOutMarket(1);
+    const before = await f.usdc.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).refundCancelled(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
+  });
+
   it("allows full refunds when a closed market times out unresolved", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
