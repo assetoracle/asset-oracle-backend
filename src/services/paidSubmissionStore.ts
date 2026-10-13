@@ -1,4 +1,5 @@
 import { database } from "../config/database.js";
+import { awardLeaderboardPoints } from "./pointsStore.js";
 
 export type SubmissionNetwork = "MAINNET" | "TESTNET";
 export type SubmissionToken = "USDC" | "USDT" | "cNGN";
@@ -169,11 +170,28 @@ export async function markSubmissionPublished(input: { id: string; marketId: str
        AND published_market_id IS NULL RETURNING id`,
     [input.id, input.marketId],
   );
-  if ((result.rowCount ?? result.rows.length) > 0) return;
-  const existing = await database.query<{ status: string; published_market_id: string | null }>(
-    "SELECT status, published_market_id FROM paid_market_submissions WHERE id = $1", [input.id],
+  let published = (result.rowCount ?? result.rows.length) > 0;
+  if (!published) {
+    const existing = await database.query<{ status: string; published_market_id: string | null }>(
+      "SELECT status, published_market_id FROM paid_market_submissions WHERE id = $1", [input.id],
+    );
+    published = existing.rows[0]?.status === "PUBLISHED" && existing.rows[0].published_market_id === input.marketId;
+    if (!existing.rows[0]) throw new Error("Paid submission not found.");
+    if (!published) throw new Error("Submission cannot be marked published from its current state.");
+  }
+
+  // Award only after publication is confirmed in the lifecycle store. Stable event key
+  // makes retries safe if the database update succeeded but the points write failed.
+  const submission = await database.query<{ wallet_address: string; proposal_id: string }>(
+    "SELECT wallet_address, proposal_id FROM paid_market_submissions WHERE id = $1 AND status = 'PUBLISHED' AND published_market_id = $2",
+    [input.id, input.marketId],
   );
-  if (existing.rows[0]?.status === "PUBLISHED" && existing.rows[0].published_market_id === input.marketId) return;
-  if (!existing.rows[0]) throw new Error("Paid submission not found.");
-  throw new Error("Submission cannot be marked published from its current state.");
+  if (!submission.rows[0]) throw new Error("Published submission could not be reloaded for its points award.");
+  await awardLeaderboardPoints({
+    walletAddress: submission.rows[0].wallet_address,
+    eventType: "PAID_MARKET_SUBMISSION",
+    eventKey: `paid-submission:${input.id}`,
+    points: 50,
+    metadata: { submissionId: input.id, proposalId: submission.rows[0].proposal_id, marketId: input.marketId },
+  });
 }
