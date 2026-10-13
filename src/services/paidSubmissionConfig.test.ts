@@ -24,7 +24,7 @@ test("mainnet paid submissions remain disabled unless every required setting is 
 test("mainnet config reads the corrected USDT address and explicit decimals", () => {
   const config = getPaidSubmissionMainnetConfig(validEnv);
   assert.equal(config.enabled, true);
-  assert.equal(config.tokens.USDT?.address, "0x26E490D30E73c36800788Dc6D6315946C4bBeA24");
+  assert.equal(config.tokens.USDT?.address, "0x26E490d30e73c36800788DC6d6315946C4BbEa24");
   assert.equal(config.tokens.USDT?.decimals, 6);
 });
 
