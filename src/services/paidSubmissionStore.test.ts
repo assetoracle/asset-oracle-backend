@@ -155,3 +155,82 @@ test("publication reward bridge ignores ordinary proposals and delegates paid pr
   lookupRows = [{ id: "submission-3" }];
   assert.equal(await markPaidSubmissionPublishedForProposal({ proposalId: "proposal-3", marketId: "22" }), true);
 });
+
+
+test("admin decision updates proposal and paid submission in one transaction", async () => {
+  const originalConnect = (database as unknown as { connect: () => Promise<unknown> }).connect;
+  const statements: string[] = [];
+  let proposalStatus = "PENDING_APPROVAL";
+  let paidStatus = "PAID_PENDING_REVIEW";
+  const client = {
+    query: async (sql: string, values?: unknown[]) => {
+      statements.push(sql.trim().split(/\\s+/).slice(0, 3).join(" "));
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT id, status FROM market_proposals")) {
+        return { rows: [{ id: "proposal-1", status: proposalStatus }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, status FROM paid_market_submissions")) {
+        return { rows: [{ id: "submission-1", status: paidStatus }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE market_proposals")) {
+        proposalStatus = String(values?.[1]);
+        return { rows: [{ id: "proposal-1" }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE paid_market_submissions")) {
+        paidStatus = String(values?.[1]);
+        return { rows: [{ id: "submission-1" }], rowCount: 1 };
+      }
+      throw new Error("Unexpected client query: " + sql);
+    },
+    release: () => {},
+  };
+  (database as unknown as { connect: () => Promise<unknown> }).connect = async () => client;
+  try {
+    const { decideMarketProposalAtomically } = await import("./paidSubmissionStore.js");
+    assert.equal(await decideMarketProposalAtomically({ proposalId: "proposal-1", decision: "REJECTED" }), "UPDATED");
+    assert.equal(proposalStatus, "REJECTED");
+    assert.equal(paidStatus, "REJECTED_REFUND_PENDING");
+    assert.equal(statements[0], "BEGIN");
+    assert.equal(statements.at(-1), "COMMIT");
+  } finally {
+    (database as unknown as { connect: () => Promise<unknown> }).connect = originalConnect;
+  }
+});
+
+test("admin decision rolls back proposal status when paid state cannot be updated", async () => {
+  const originalConnect = (database as unknown as { connect: () => Promise<unknown> }).connect;
+  const statements: string[] = [];
+  let proposalUpdateAttempted = false;
+  const client = {
+    query: async (sql: string) => {
+      statements.push(sql.trim());
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT id, status FROM market_proposals")) {
+        return { rows: [{ id: "proposal-2", status: "PENDING_APPROVAL" }], rowCount: 1 };
+      }
+      if (sql.includes("SELECT id, status FROM paid_market_submissions")) {
+        return { rows: [{ id: "submission-2", status: "PAID_PENDING_REVIEW" }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE market_proposals")) {
+        proposalUpdateAttempted = true;
+        return { rows: [{ id: "proposal-2" }], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE paid_market_submissions")) return { rows: [], rowCount: 0 };
+      throw new Error("Unexpected client query: " + sql);
+    },
+    release: () => {},
+  };
+  (database as unknown as { connect: () => Promise<unknown> }).connect = async () => client;
+  try {
+    const { decideMarketProposalAtomically } = await import("./paidSubmissionStore.js");
+    await assert.rejects(
+      decideMarketProposalAtomically({ proposalId: "proposal-2", decision: "APPROVED" }),
+      /state changed while applying/,
+    );
+    assert.equal(proposalUpdateAttempted, true);
+    assert.equal(statements.at(-1), "ROLLBACK");
+    assert.equal(statements.includes("COMMIT"), false);
+  } finally {
+    (database as unknown as { connect: () => Promise<unknown> }).connect = originalConnect;
+  }
+});
