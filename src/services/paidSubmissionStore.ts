@@ -72,6 +72,13 @@ export async function initializePaidSubmissionStore(): Promise<void> {
     )
   `);
   await database.query(`
+    ALTER TABLE paid_market_submissions ADD COLUMN IF NOT EXISTS quote_id UUID
+  `);
+  await database.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS paid_market_submissions_quote_id_unique
+    ON paid_market_submissions (quote_id) WHERE quote_id IS NOT NULL
+  `);
+  await database.query(`
     CREATE INDEX IF NOT EXISTS paid_market_submissions_status_idx
     ON paid_market_submissions (status, created_at)
   `);
