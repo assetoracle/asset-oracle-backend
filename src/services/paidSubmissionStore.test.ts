@@ -93,6 +93,11 @@ test("publication retry is recoverable and published market ID cannot silently c
     if (sql.includes("SELECT status, published_market_id")) return {
       rows: [{ status: "PUBLISHED", published_market_id: values?.[0] === "submission-1" ? "12" : null }], rowCount: 1,
     };
+    if (sql.includes("SELECT wallet_address, proposal_id")) return {
+      rows: [{ wallet_address: "0x" + "1".repeat(40), proposal_id: "proposal-1" }], rowCount: 1,
+    };
+    if (sql.includes("INSERT INTO leaderboard_point_events")) return { rows: [{ points: 50 }], rowCount: 1 };
+    if (sql.includes("SELECT COALESCE(SUM(points)")) return { rows: [{ total_points: "50" }], rowCount: 1 };
     throw new Error("Unexpected query: " + sql);
   };
   await markPublicationRetryRequired("submission-1");
