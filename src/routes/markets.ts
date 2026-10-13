@@ -17,6 +17,9 @@ import {
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
+import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
+import { getPaidSubmissionMainnetConfig } from "../services/paidSubmissionConfig.js";
+import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
 import {
   assertPaidSubmissionReadyForDecision,
   recordPaidSubmissionDecisionForProposal,
@@ -90,6 +93,57 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
       },
     });
   } catch (error) {
+    return next(error);
+  }
+});
+
+
+// Paid-submission quote endpoint. Public activation is fail-closed until mainnet
+// token addresses/decimals and treasury are configured and explicitly enabled.
+marketsRouter.post("/paid-submissions/quote", async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      token: z.enum(["USDC", "USDT", "cNGN"]),
+      walletAuth: walletAuthSchema,
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "A supported token and valid wallet authentication are required." });
+    }
+    const { token, walletAuth } = parsed.data;
+    const verified = await verifyWalletSignature(
+      walletAuth.address,
+      walletAuth.signature as `0x${string}`,
+      walletAuth.message,
+    );
+    if (!verified) {
+      return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
+    }
+    const config = getPaidSubmissionMainnetConfig();
+    if (!config.enabled) {
+      return res.status(503).json({
+        error: "Paid market submissions are not enabled on mainnet yet.",
+        disabledReasons: config.disabledReasons,
+      });
+    }
+    // cNGN stays unavailable until a real trusted rate provider is configured.
+    const quote = createPaidSubmissionQuote({ token, config });
+    const quoteId = await persistSubmissionQuote({ walletAddress: walletAuth.address, quote });
+    return res.status(201).json({
+      quoteId,
+      network: quote.network,
+      token: quote.token,
+      tokenAddress: quote.tokenAddress,
+      tokenDecimals: quote.tokenDecimals,
+      amountAtomic: quote.amountAtomic,
+      usdValue: quote.usdValue,
+      issuedAtMs: quote.issuedAtMs,
+      expiresAtMs: quote.expiresAtMs,
+      rateSource: quote.rateSource,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("cNGN/NGN-per-USD")) {
+      return res.status(503).json({ error: "cNGN quotes are temporarily unavailable until the trusted rate source is configured." });
+    }
     return next(error);
   }
 });
