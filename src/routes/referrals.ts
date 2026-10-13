@@ -113,6 +113,22 @@ referralsRouter.post("/qualify", async (req, res, next) => {
     if ((updated.rowCount ?? 0) === 0) {
       const already = await database.query<{ status: string }>("SELECT status FROM referral_attributions WHERE invited_wallet = $1", [wallet]);
       if (!already.rows[0]) return res.status(404).json({ error: "No referral attribution exists for this wallet" });
+      if (already.rows[0].status === "QUALIFIED") {
+        const attribution = await database.query<{ referrer_wallet: string; invited_wallet: string; first_prediction_tx: string | null }>(
+          "SELECT referrer_wallet, invited_wallet, first_prediction_tx FROM referral_attributions WHERE invited_wallet = $1 AND status = 'QUALIFIED'",
+          [wallet],
+        );
+        if (attribution.rows[0]) {
+          await awardLeaderboardPoints({
+            walletAddress: attribution.rows[0].referrer_wallet,
+            eventType: "QUALIFIED_REFERRAL",
+            eventKey: `referral:${attribution.rows[0].invited_wallet}`,
+            points: 5,
+            metadata: { invitedWallet: attribution.rows[0].invited_wallet, firstPredictionTx: attribution.rows[0].first_prediction_tx, recoveredOnRetry: true },
+          });
+        }
+        return res.status(200).json({ status: "QUALIFIED", message: "Referral already qualified; points award confirmed idempotently." });
+      }
       return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification", status: already.rows[0].status });
     }
     const qualifiedStatus = (updated.rows[0] as { status: string }).status;
