@@ -85,6 +85,7 @@ test("refund recording requires a valid transaction hash and is idempotent", asy
 
 test("publication retry is recoverable and published market ID cannot silently change", async () => {
   let updateCalls = 0;
+  let pointsInsertCalls = 0;
   db.query = async (sql, values) => {
     if (sql.includes("UPDATE paid_market_submissions")) {
       updateCalls++;
@@ -96,11 +97,22 @@ test("publication retry is recoverable and published market ID cannot silently c
     if (sql.includes("SELECT wallet_address, proposal_id")) return {
       rows: [{ wallet_address: "0x" + "1".repeat(40), proposal_id: "proposal-1" }], rowCount: 1,
     };
-    if (sql.includes("INSERT INTO leaderboard_point_events")) return { rows: [{ points: 50 }], rowCount: 1 };
+    if (sql.includes("INSERT INTO leaderboard_point_events")) {
+      pointsInsertCalls++;
+      return pointsInsertCalls === 1
+        ? { rows: [{ points: 50 }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+    if (sql.includes("SELECT wallet_address, points FROM leaderboard_point_events")) {
+      return { rows: [{ wallet_address: "0x" + "1".repeat(40), points: 50 }], rowCount: 1 };
+    }
     if (sql.includes("SELECT COALESCE(SUM(points)")) return { rows: [{ total_points: "50" }], rowCount: 1 };
     throw new Error("Unexpected query: " + sql);
   };
   await markPublicationRetryRequired("submission-1");
   await markSubmissionPublished({ id: "submission-1", marketId: "12" });
+  // Retrying the same confirmed publication must re-check the same idempotent event key.
+  await markSubmissionPublished({ id: "submission-1", marketId: "12" });
+  assert.equal(pointsInsertCalls, 2);
   await assert.rejects(markSubmissionPublished({ id: "submission-1", marketId: "13" }), /cannot be marked published/);
 });
