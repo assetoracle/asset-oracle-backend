@@ -14,12 +14,29 @@ import { initializeOnchainStatsIndexer } from "./services/onchainStatsIndexer.js
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const configuredFrontendOrigins = (process.env.FRONTEND_URL || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+const allowedFrontendOrigins = new Set([
+  ...configuredFrontendOrigins,
+  "https://assetoracleapp.xyz",
+  "https://www.assetoracleapp.xyz",
+  "https://asset-oracle.onrender.com",
+]);
 
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin(origin, callback) {
+    // Requests without an Origin header (e.g. server-to-server/health checks)
+    // are not browser cross-origin requests and remain permitted.
+    if (!origin || allowedFrontendOrigins.has(origin.replace(/\/$/, ""))) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("Origin not allowed by CORS"));
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
