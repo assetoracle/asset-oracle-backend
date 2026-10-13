@@ -195,3 +195,51 @@ export async function markSubmissionPublished(input: { id: string; marketId: str
     metadata: { submissionId: input.id, proposalId: submission.rows[0].proposal_id, marketId: input.marketId },
   });
 }
+
+
+/**
+ * Keep paid-submission review state aligned with the admin decision for its proposal.
+ * A paid proposal cannot be approved/rejected until payment has been confirmed.
+ */
+export async function recordPaidSubmissionDecisionForProposal(
+  proposalId: string,
+  decision: "APPROVED" | "REJECTED",
+): Promise<boolean> {
+  const lookup = await database.query<{ id: string; status: PaidSubmissionStatus }>(
+    "SELECT id, status FROM paid_market_submissions WHERE proposal_id = $1",
+    [proposalId],
+  );
+  const submission = lookup.rows[0];
+  if (!submission) return false; // Ordinary, non-paid proposal.
+  if (submission.status !== "PAID_PENDING_REVIEW") {
+    throw new Error("Paid submission must have confirmed payment and be pending review before an admin decision.");
+  }
+  const nextStatus = decision === "APPROVED" ? "APPROVED" : "REJECTED_REFUND_PENDING";
+  const updated = await database.query(
+    "UPDATE paid_market_submissions SET status = $2, updated_at = NOW() WHERE id = $1 AND status = 'PAID_PENDING_REVIEW' RETURNING id",
+    [submission.id, nextStatus],
+  );
+  if ((updated.rowCount ?? updated.rows.length) === 0) {
+    const current = await database.query<{ status: PaidSubmissionStatus }>(
+      "SELECT status FROM paid_market_submissions WHERE id = $1", [submission.id],
+    );
+    if (current.rows[0]?.status !== nextStatus) {
+      throw new Error("Paid submission review state changed concurrently; reload and retry.");
+    }
+  }
+  return true;
+}
+
+/** Award 50 points only when a verified publication is linked to a paid proposal. */
+export async function markPaidSubmissionPublishedForProposal(input: {
+  proposalId: string;
+  marketId: string;
+}): Promise<boolean> {
+  const result = await database.query<{ id: string }>(
+    "SELECT id FROM paid_market_submissions WHERE proposal_id = $1",
+    [input.proposalId],
+  );
+  if (!result.rows[0]) return false;
+  await markSubmissionPublished({ id: result.rows[0].id, marketId: input.marketId });
+  return true;
+}
