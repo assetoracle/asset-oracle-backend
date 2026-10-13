@@ -209,6 +209,19 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
               row.marketId, row.walletAddress, row.grossAmount, row.outcome,
             ],
           );
+          if (row.eventName === "Staked" && row.walletAddress) {
+            await dbClient.query(
+              `INSERT INTO leaderboard_point_events
+               (wallet_address, event_type, event_key, points, metadata)
+               VALUES ($1, 'MARKET_PARTICIPATION', $2, 10, $3::jsonb)
+               ON CONFLICT (event_type, event_key) DO NOTHING`,
+              [
+                row.walletAddress.toLowerCase(),
+                `market:${row.marketId}:wallet:${row.walletAddress.toLowerCase()}`,
+                JSON.stringify({ marketId: row.marketId, firstObservedStakeTx: row.txHash, chainId: row.chainId }),
+              ],
+            );
+          }
         }
         await dbClient.query(
           `UPDATE onchain_stats_cursors SET last_scanned_block = $3, updated_at = NOW()
