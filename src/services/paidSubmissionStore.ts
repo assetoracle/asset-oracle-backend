@@ -198,6 +198,21 @@ export async function markSubmissionPublished(input: { id: string; marketId: str
 
 
 /**
+ * Validate paid review eligibility before the market proposal itself is mutated.
+ * This prevents unpaid payment intents from being approved or rejected as ordinary proposals.
+ */
+export async function assertPaidSubmissionReadyForDecision(proposalId: string): Promise<void> {
+  const lookup = await database.query<{ status: PaidSubmissionStatus }>(
+    "SELECT status FROM paid_market_submissions WHERE proposal_id = $1",
+    [proposalId],
+  );
+  const submission = lookup.rows[0];
+  if (submission && submission.status !== "PAID_PENDING_REVIEW") {
+    throw new Error("Paid submission must have confirmed payment and be pending review before an admin decision.");
+  }
+}
+
+/**
  * Keep paid-submission review state aligned with the admin decision for its proposal.
  * A paid proposal cannot be approved/rejected until payment has been confirmed.
  */
