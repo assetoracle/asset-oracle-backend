@@ -11,6 +11,7 @@ import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
 import { initializePointsStore } from "./services/pointsStore.js";
+import { initializePaidSubmissionStore } from "./services/paidSubmissionStore.js";
 import { initializeOnchainStatsIndexer } from "./services/onchainStatsIndexer.js";
 
 const app = express();
@@ -42,6 +43,7 @@ async function startServer(): Promise<void> {
     await initializeWalletAuth();
     await initializeReferralStore();
     await initializePointsStore();
+    await initializePaidSubmissionStore();
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Asset Oracle API listening on port ${PORT}`);
