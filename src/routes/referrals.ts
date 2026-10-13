@@ -209,10 +209,23 @@ referralsRouter.post("/review", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-referralsRouter.get("/leaderboard", async (_req, res, next) => {
+referralsRouter.get("/points-leaderboard", async (_req, res, next) => {
   try {
     const leaderboard = await getPointsLeaderboard(100);
     return res.json({ period: "ALL_TIME", leaderboard });
+  } catch (error) { return next(error); }
+});
+
+referralsRouter.get("/leaderboard", async (_req, res, next) => {
+  try {
+    const result = await database.query<{ wallet: string; verified_referrals: string }>(
+      `SELECT referrer_wallet AS wallet, COUNT(*)::text AS verified_referrals
+       FROM referral_attributions WHERE status = 'QUALIFIED'
+       GROUP BY referrer_wallet ORDER BY COUNT(*) DESC, referrer_wallet ASC LIMIT 100`,
+    );
+    return res.json({ period: "ALL_TIME", leaderboard: result.rows.map((row, index) => ({
+      rank: index + 1, wallet: row.wallet, verifiedReferrals: Number(row.verified_referrals),
+    })) });
   } catch (error) { return next(error); }
 });
 
