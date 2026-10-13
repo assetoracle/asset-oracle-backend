@@ -265,3 +265,70 @@ export async function markPaidSubmissionPublishedForProposal(input: {
   await markSubmissionPublished({ id: result.rows[0].id, marketId: input.marketId });
   return true;
 }
+
+
+/**
+ * Atomically applies the admin decision to the proposal and, when present, its paid
+ * submission. Prevents a successful proposal status update from being stranded if
+ * the paid-lifecycle status update fails.
+ */
+export async function decideMarketProposalAtomically(input: {
+  proposalId: string;
+  decision: "APPROVED" | "REJECTED";
+}): Promise<"UPDATED" | "NOT_FOUND" | "CONFLICT"> {
+  const client = await database.connect();
+  try {
+    await client.query("BEGIN");
+    const proposalResult = await client.query<{ id: string; status: string }>(
+      "SELECT id, status FROM market_proposals WHERE id = $1 FOR UPDATE",
+      [input.proposalId],
+    );
+    const proposal = proposalResult.rows[0];
+    if (!proposal) {
+      await client.query("ROLLBACK");
+      return "NOT_FOUND";
+    }
+    if (proposal.status !== "PENDING_APPROVAL") {
+      await client.query("ROLLBACK");
+      return "CONFLICT";
+    }
+
+    const paidResult = await client.query<{ id: string; status: PaidSubmissionStatus }>(
+      "SELECT id, status FROM paid_market_submissions WHERE proposal_id = $1 FOR UPDATE",
+      [input.proposalId],
+    );
+    const paid = paidResult.rows[0];
+    if (paid && paid.status !== "PAID_PENDING_REVIEW") {
+      await client.query("ROLLBACK");
+      return "CONFLICT";
+    }
+
+    const proposalUpdate = await client.query(
+      "UPDATE market_proposals SET status = $2 WHERE id = $1 AND status = 'PENDING_APPROVAL' RETURNING id",
+      [input.proposalId, input.decision],
+    );
+    if ((proposalUpdate.rowCount ?? proposalUpdate.rows.length) !== 1) {
+      await client.query("ROLLBACK");
+      return "CONFLICT";
+    }
+
+    if (paid) {
+      const nextStatus = input.decision === "APPROVED" ? "APPROVED" : "REJECTED_REFUND_PENDING";
+      const paidUpdate = await client.query(
+        "UPDATE paid_market_submissions SET status = $2, updated_at = NOW() WHERE id = $1 AND status = 'PAID_PENDING_REVIEW' RETURNING id",
+        [paid.id, nextStatus],
+      );
+      if ((paidUpdate.rowCount ?? paidUpdate.rows.length) !== 1) {
+        throw new Error("Paid submission state changed while applying the admin decision.");
+      }
+    }
+
+    await client.query("COMMIT");
+    return "UPDATED";
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
