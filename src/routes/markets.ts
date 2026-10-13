@@ -9,7 +9,6 @@ import {
   listPublishedMarkets,
   listMarketProposals,
   listMarketProposalsByWallet,
-  updateMarketProposalStatus,
   recordOnchainPublication,
 } from "../services/marketStore.js";
 import {
