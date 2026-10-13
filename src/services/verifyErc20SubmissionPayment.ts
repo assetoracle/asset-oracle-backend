@@ -1,6 +1,8 @@
 import { createPublicClient, getAddress, http, parseEventLogs, type PublicClient } from "viem";
 import type { SubmissionQuote } from "./paidSubmissionQuote.js";
 
+const erc20MetadataAbi = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint8" }] }] as const;
+
 const transferAbi = [{
   type: "event", name: "Transfer", anonymous: false,
   inputs: [
@@ -36,13 +38,14 @@ export async function verifyErc20SubmissionPayment(input: {
       !Number.isSafeInteger(input.minimumConfirmations) || input.minimumConfirmations < 1) {
     throw new Error("Payment chain and confirmation policy are not configured safely.");
   }
-  if ((input.nowMs ?? Date.now()) > input.quote.expiresAtMs) throw new Error("Payment quote expired; request a new quote before paying.");
 
   const sender = getAddress(input.authenticatedWallet);
   const treasury = getAddress(input.treasuryAddress);
   const token = getAddress(input.quote.tokenAddress);
   const client = clientOverride ?? createPublicClient({ transport: http(input.rpcUrl) });
   if (await client.getChainId() !== input.expectedChainId) throw new Error("Configured RPC is connected to the wrong chain.");
+  const onchainDecimals = await client.readContract({ address: token, abi: erc20MetadataAbi, functionName: "decimals" });
+  if (Number(onchainDecimals) !== input.quote.tokenDecimals) throw new Error("On-chain token decimals do not match the stored quote.");
 
   const hash = input.transactionHash as `0x${string}`;
   const [receipt, transaction] = await Promise.all([
@@ -52,6 +55,9 @@ export async function verifyErc20SubmissionPayment(input: {
   if (receipt.status !== "success") throw new Error("Payment transaction did not succeed.");
   if (transaction.from.toLowerCase() !== sender.toLowerCase()) throw new Error("Payment sender does not match the authenticated wallet.");
   if (!transaction.to || transaction.to.toLowerCase() !== token.toLowerCase()) throw new Error("Transaction was not sent to the selected stablecoin contract.");
+
+  const paymentBlock = await client.getBlock({ blockNumber: receipt.blockNumber });
+  if (Number(paymentBlock.timestamp) * 1000 > input.quote.expiresAtMs) throw new Error("Payment was mined after the quote expired; request a new quote.");
 
   const latestBlock = await client.getBlockNumber();
   const confirmations = latestBlock >= receipt.blockNumber ? latestBlock - receipt.blockNumber + 1n : 0n;
