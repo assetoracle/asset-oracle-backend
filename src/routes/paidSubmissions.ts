@@ -5,6 +5,7 @@ import { marketProposalSchema } from "../services/marketValidation.js";
 import { verifyWalletSignature } from "../services/walletAuth.js";
 import { getPaidSubmissionMainnetConfig } from "../services/paidSubmissionConfig.js";
 import { createPaidSubmissionIntent, getPaidSubmissionPaymentContext } from "../services/paidSubmissionIntentStore.js";
+import { getActiveSubmissionQuote } from "../services/submissionQuoteStore.js";
 import { verifyErc20SubmissionPayment } from "../services/verifyErc20SubmissionPayment.js";
 import { recordConfirmedSubmissionPayment } from "../services/paidSubmissionStore.js";
 
@@ -32,6 +33,13 @@ router.post("/intent", async (req, res, next) => {
     const config = getPaidSubmissionMainnetConfig();
     if (!config.enabled || !config.treasuryAddress) {
       return res.status(503).json({ error: "Paid market submissions are disabled until mainnet configuration is verified.", disabledReasons: config.disabledReasons });
+    }
+    const quote = await getActiveSubmissionQuote({ quoteId, walletAddress: walletAuth.address });
+    if (!quote) return res.status(409).json({ error: "Quote is missing, expired, already used, or belongs to another wallet. Request a new quote." });
+    const tokenConfig = config.tokens[quote.token];
+    if (!tokenConfig || tokenConfig.address.toLowerCase() !== quote.tokenAddress.toLowerCase() ||
+        tokenConfig.decimals !== quote.tokenDecimals) {
+      return res.status(409).json({ error: "Quote token configuration has changed. Request a new quote." });
     }
     const result = await createPaidSubmissionIntent({
       proposal,
