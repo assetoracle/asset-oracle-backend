@@ -10,6 +10,8 @@ const {
   recordSubmissionRefund,
   markPublicationRetryRequired,
   markSubmissionPublished,
+  recordPaidSubmissionDecisionForProposal,
+  markPaidSubmissionPublishedForProposal,
 } = await import("./paidSubmissionStore.js");
 
 type Row = Record<string, unknown>;
@@ -115,4 +117,41 @@ test("publication retry is recoverable and published market ID cannot silently c
   await markSubmissionPublished({ id: "submission-1", marketId: "12" });
   assert.equal(pointsInsertCalls, 2);
   await assert.rejects(markSubmissionPublished({ id: "submission-1", marketId: "13" }), /cannot be marked published/);
+});
+
+
+test("paid review decisions require confirmed payment and queue rejected proposals for refund", async () => {
+  let currentStatus = "PAID_PENDING_REVIEW";
+  db.query = async (sql, values) => {
+    if (sql.includes("SELECT id, status FROM paid_market_submissions")) {
+      return { rows: [{ id: "submission-2", status: currentStatus }], rowCount: 1 };
+    }
+    if (sql.includes("UPDATE paid_market_submissions")) {
+      currentStatus = String(values?.[1]);
+      return { rows: [{ id: "submission-2" }], rowCount: 1 };
+    }
+    throw new Error("Unexpected query: " + sql);
+  };
+  assert.equal(await recordPaidSubmissionDecisionForProposal("proposal-2", "REJECTED"), true);
+  assert.equal(currentStatus, "REJECTED_REFUND_PENDING");
+  await assert.rejects(recordPaidSubmissionDecisionForProposal("proposal-2", "APPROVED"), /confirmed payment and be pending review/);
+});
+
+test("publication reward bridge ignores ordinary proposals and delegates paid proposals to the idempotent award path", async () => {
+  let lookupRows: Row[] = [];
+  db.query = async (sql) => {
+    if (sql.includes("SELECT id FROM paid_market_submissions WHERE proposal_id")) {
+      return { rows: lookupRows, rowCount: lookupRows.length };
+    }
+    if (sql.includes("UPDATE paid_market_submissions")) return { rows: [{ id: "submission-3" }], rowCount: 1 };
+    if (sql.includes("SELECT wallet_address, proposal_id")) {
+      return { rows: [{ wallet_address: "0x" + "2".repeat(40), proposal_id: "proposal-3" }], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO leaderboard_point_events")) return { rows: [{ points: 50 }], rowCount: 1 };
+    if (sql.includes("SELECT COALESCE(SUM(points)")) return { rows: [{ total_points: "50" }], rowCount: 1 };
+    throw new Error("Unexpected query: " + sql);
+  };
+  assert.equal(await markPaidSubmissionPublishedForProposal({ proposalId: "ordinary-proposal", marketId: "22" }), false);
+  lookupRows = [{ id: "submission-3" }];
+  assert.equal(await markPaidSubmissionPublishedForProposal({ proposalId: "proposal-3", marketId: "22" }), true);
 });
