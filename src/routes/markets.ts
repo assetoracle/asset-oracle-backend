@@ -21,8 +21,7 @@ import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
 import { getPaidSubmissionMainnetConfig } from "../services/paidSubmissionConfig.js";
 import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
 import {
-  assertPaidSubmissionReadyForDecision,
-  recordPaidSubmissionDecisionForProposal,
+  decideMarketProposalAtomically,
   markPaidSubmissionPublishedForProposal,
 } from "../services/paidSubmissionStore.js";
 
@@ -360,33 +359,26 @@ marketsRouter.post(
         });
       }
 
-      // Refuse a decision before touching proposal state if a paid submission has not
-      // reached confirmed-payment/review status.
-      await assertPaidSubmissionReadyForDecision(idResult.data);
+      const decisionResult = await decideMarketProposalAtomically({
+        proposalId: idResult.data,
+        decision: status,
+      });
 
-      const proposal = await updateMarketProposalStatus(
-        idResult.data,
-        status,
-      );
-
-      if (!proposal) {
+      if (decisionResult === "NOT_FOUND") {
+        return res.status(404).json({ error: "Market proposal not found." });
+      }
+      if (decisionResult === "CONFLICT") {
         const existing = await getMarketProposal(idResult.data);
-
-        if (!existing) {
-          return res.status(404).json({
-            error: "Market proposal not found",
-          });
-        }
-
         return res.status(409).json({
-          error: "Only pending proposals can receive a decision",
-          status: existing.status,
+          error: "Only pending proposals with confirmed paid-submission review status can receive a decision.",
+          status: existing?.status ?? null,
         });
       }
 
-      // Paid proposals must have confirmed payment before an admin decision. Rejection
-      // queues a full refund; approval unlocks publication but does not publish automatically.
-      await recordPaidSubmissionDecisionForProposal(idResult.data, status);
+      const proposal = await getMarketProposal(idResult.data);
+      if (!proposal) {
+        return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
+      }
 
       return res.status(200).json({
         message: `Market proposal ${status.toLowerCase()}.`,
