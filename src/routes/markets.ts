@@ -18,6 +18,7 @@ import {
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
 import {
+  assertPaidSubmissionReadyForDecision,
   recordPaidSubmissionDecisionForProposal,
   markPaidSubmissionPublishedForProposal,
 } from "../services/paidSubmissionStore.js";
@@ -304,6 +305,10 @@ marketsRouter.post(
           error: "Admin authorization failed",
         });
       }
+
+      // Refuse a decision before touching proposal state if a paid submission has not
+      // reached confirmed-payment/review status.
+      await assertPaidSubmissionReadyForDecision(idResult.data);
 
       const proposal = await updateMarketProposalStatus(
         idResult.data,
