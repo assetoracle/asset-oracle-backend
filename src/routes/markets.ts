@@ -310,10 +310,6 @@ marketsRouter.post(
         status,
       );
 
-      // Paid proposals must have confirmed payment before an admin decision. Rejection
-      // queues a full refund; approval unlocks publication but does not publish automatically.
-      await recordPaidSubmissionDecisionForProposal(idResult.data, status);
-
       if (!proposal) {
         const existing = await getMarketProposal(idResult.data);
 
@@ -328,6 +324,10 @@ marketsRouter.post(
           status: existing.status,
         });
       }
+
+      // Paid proposals must have confirmed payment before an admin decision. Rejection
+      // queues a full refund; approval unlocks publication but does not publish automatically.
+      await recordPaidSubmissionDecisionForProposal(idResult.data, status);
 
       return res.status(200).json({
         message: `Market proposal ${status.toLowerCase()}.`,
