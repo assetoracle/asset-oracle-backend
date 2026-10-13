@@ -17,6 +17,10 @@ import {
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
+import {
+  recordPaidSubmissionDecisionForProposal,
+  markPaidSubmissionPublishedForProposal,
+} from "../services/paidSubmissionStore.js";
 
 const marketsRouter = Router();
 
@@ -306,6 +310,10 @@ marketsRouter.post(
         status,
       );
 
+      // Paid proposals must have confirmed payment before an admin decision. Rejection
+      // queues a full refund; approval unlocks publication but does not publish automatically.
+      await recordPaidSubmissionDecisionForProposal(idResult.data, status);
+
       if (!proposal) {
         const existing = await getMarketProposal(idResult.data);
 
@@ -430,6 +438,10 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
     if (!stored) {
       return res.status(409).json({ error: "Publication could not be recorded. Confirm the proposal is still approved and has not already been published." });
     }
+
+    // This route has already verified the receipt and matching MarketCreated event.
+    // The paid lifecycle helper awards 50 points idempotently only for a paid proposal.
+    await markPaidSubmissionPublishedForProposal({ proposalId: proposal.id, marketId });
 
     return res.status(200).json({
       message: "Verified on-chain publication recorded.",
