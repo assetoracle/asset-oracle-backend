@@ -1,0 +1,101 @@
+import assert from "node:assert/strict";
+import { afterEach, test } from "node:test";
+
+process.env.DATABASE_URL ??= "postgresql://test:test@127.0.0.1:5432/test";
+const { database } = await import("../config/database.js");
+const {
+  validateSubmissionPayment,
+  recordConfirmedSubmissionPayment,
+  queueSubmissionRefund,
+  recordSubmissionRefund,
+  markPublicationRetryRequired,
+  markSubmissionPublished,
+} = await import("./paidSubmissionStore.js");
+
+type Row = Record<string, unknown>;
+type Query = (sql: string, values?: unknown[]) => Promise<{ rows: Row[]; rowCount?: number | null }>;
+const db = database as unknown as { query: Query };
+const originalQuery = db.query;
+afterEach(() => { db.query = originalQuery; });
+
+test("allows only mainnet approved stablecoins and testnet USDC", () => {
+  for (const token of ["USDC", "USDT", "cNGN"] as const) {
+    assert.doesNotThrow(() => validateSubmissionPayment({
+      network: "MAINNET", token, amountAtomic: "10000000", expectedAmountAtomic: "10000000",
+    }));
+  }
+  assert.doesNotThrow(() => validateSubmissionPayment({
+    network: "TESTNET", token: "USDC", amountAtomic: "10000000", expectedAmountAtomic: "10000000",
+  }));
+  assert.throws(() => validateSubmissionPayment({
+    network: "TESTNET", token: "USDT", amountAtomic: "10000000", expectedAmountAtomic: "10000000",
+  }), /not enabled/);
+  assert.throws(() => validateSubmissionPayment({
+    network: "MAINNET", token: "USDC", amountAtomic: "999", expectedAmountAtomic: "10000000",
+  }), /does not match/);
+});
+
+test("payment confirmation is idempotent for the same transaction and rejects a different payment", async () => {
+  let updateCount = 0;
+  db.query = async (sql, values) => {
+    if (sql.includes("UPDATE paid_market_submissions")) {
+      updateCount++;
+      if (updateCount === 1) return { rows: [{ id: "submission-1" }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    }
+    if (sql.includes("SELECT status, payment_tx_hash")) {
+      return { rows: [{ status: "PAID_PENDING_REVIEW", payment_tx_hash: values?.[0] === "submission-1" ? "0x" + "a".repeat(64) : null }], rowCount: 1 };
+    }
+    throw new Error("Unexpected query: " + sql);
+  };
+  const tx = "0x" + "a".repeat(64);
+  await recordConfirmedSubmissionPayment({ id: "submission-1", paymentTxHash: tx });
+  await recordConfirmedSubmissionPayment({ id: "submission-1", paymentTxHash: tx });
+  await assert.rejects(recordConfirmedSubmissionPayment({
+    id: "submission-1", paymentTxHash: "0x" + "b".repeat(64),
+  }), /not awaiting payment|already recorded differently/);
+});
+
+test("refund queue only accepts paid submissions pending review", async () => {
+  db.query = async (sql) => {
+    if (sql.includes("UPDATE paid_market_submissions")) return { rows: [], rowCount: 0 };
+    if (sql.includes("SELECT status FROM paid_market_submissions")) return { rows: [{ status: "AWAITING_PAYMENT" }], rowCount: 1 };
+    throw new Error("Unexpected query: " + sql);
+  };
+  await assert.rejects(queueSubmissionRefund("submission-1"), /Only a paid submission/);
+});
+
+test("refund recording requires a valid transaction hash and is idempotent", async () => {
+  let calls = 0;
+  db.query = async (sql, values) => {
+    if (sql.includes("UPDATE paid_market_submissions")) {
+      calls++;
+      return calls === 1 ? { rows: [{ id: "submission-1" }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    }
+    if (sql.includes("SELECT status, refund_tx_hash")) return {
+      rows: [{ status: "REFUNDED", refund_tx_hash: values?.[0] === "submission-1" ? "0x" + "c".repeat(64) : null }], rowCount: 1,
+    };
+    throw new Error("Unexpected query: " + sql);
+  };
+  const tx = "0x" + "c".repeat(64);
+  await assert.rejects(recordSubmissionRefund({ id: "submission-1", refundTxHash: "invalid" }), /valid confirmed refund/);
+  await recordSubmissionRefund({ id: "submission-1", refundTxHash: tx });
+  await recordSubmissionRefund({ id: "submission-1", refundTxHash: tx });
+});
+
+test("publication retry is recoverable and published market ID cannot silently change", async () => {
+  let updateCalls = 0;
+  db.query = async (sql, values) => {
+    if (sql.includes("UPDATE paid_market_submissions")) {
+      updateCalls++;
+      return updateCalls === 1 ? { rows: [{ id: "submission-1" }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    }
+    if (sql.includes("SELECT status, published_market_id")) return {
+      rows: [{ status: "PUBLISHED", published_market_id: values?.[0] === "submission-1" ? "12" : null }], rowCount: 1,
+    };
+    throw new Error("Unexpected query: " + sql);
+  };
+  await markPublicationRetryRequired("submission-1");
+  await markSubmissionPublished({ id: "submission-1", marketId: "12" });
+  await assert.rejects(markSubmissionPublished({ id: "submission-1", marketId: "13" }), /cannot be marked published/);
+});
