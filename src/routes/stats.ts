@@ -69,8 +69,8 @@ statsRouter.get("/wallet/:address", async (req, res) => {
         const totalStake = market.totalStaked;
         const winningPool = market.outcome === 1 ? market.totalYes : market.outcome === 2 ? market.totalNo : 0n;
         let payout = 0n;
-        if (market.status === 3 && !claimed) {
-          if (market.outcome === 3) payout = yes + no;
+        if ((market.status === 3 || market.status === 4 || market.status === 5) && !claimed) {
+          if (market.status === 4 || market.status === 5 || market.outcome === 3) payout = yes + no;
           else if (winningPool === 0n) payout = ((yes + no) * 7500n) / 10000n;
           else {
             const winningStake = market.outcome === 1 ? yes : no;
@@ -87,7 +87,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           tokenDecimals: decimals, claimableAmount: formatUnits(payout, decimals),
         };
         positions.push(row);
-        if (market.status === 3 && !claimed && payout > 0n) claimable.push(row);
+        if ((market.status === 3 || market.status === 4 || market.status === 5) && !claimed && payout > 0n) claimable.push(row);
         return row;
       }));
       void batch;
