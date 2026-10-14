@@ -55,25 +55,32 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "getMarket", args: [BigInt(id)] }),
           client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "positions", args: [BigInt(id), address] }),
         ]);
-        const market = marketRaw as unknown as {
-          id: bigint; stablecoin: number; question: string; totalYes: bigint; totalNo: bigint;
-          totalStaked: bigint; outcome: number; status: number; resolvedAt: bigint;
+        const market = marketRaw as unknown as readonly unknown[] & {
+          id?: bigint; stablecoin?: number; question?: string; totalYes?: bigint; totalNo?: bigint;
+          totalStaked?: bigint; outcome?: number; status?: number; resolvedAt?: bigint;
         };
+        const stablecoinId = Number(market.stablecoin ?? market[2]);
+        const question = String(market.question ?? market[3] ?? "");
+        const totalYes = BigInt(market.totalYes ?? market[9] as bigint);
+        const totalNo = BigInt(market.totalNo ?? market[10] as bigint);
+        const totalStake = BigInt(market.totalStaked ?? market[11] as bigint);
+        const outcome = Number(market.outcome ?? market[12]);
+        const status = Number(market.status ?? market[13]);
+        const resolvedAt = BigInt(market.resolvedAt ?? market[8] as bigint);
         const position = positionRaw as unknown as readonly [bigint, bigint, boolean];
         const yes = position[0];
         const no = position[1];
         const claimed = position[2];
         if (yes === 0n && no === 0n) return null;
-        const coin = await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "stablecoins", args: [market.stablecoin] });
+        const coin = await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "stablecoins", args: [stablecoinId] });
         const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
-        const totalStake = market.totalStaked;
-        const winningPool = market.outcome === 1 ? market.totalYes : market.outcome === 2 ? market.totalNo : 0n;
+        const winningPool = outcome === 1 ? totalYes : outcome === 2 ? totalNo : 0n;
         let payout = 0n;
-        if ((market.status === 3 || market.status === 4 || market.status === 5) && !claimed) {
-          if (market.status === 4 || market.status === 5 || market.outcome === 3) payout = yes + no;
+        if ((status === 3 || status === 4 || status === 5) && !claimed) {
+          if (status === 4 || status === 5 || outcome === 3) payout = yes + no;
           else if (winningPool === 0n) payout = ((yes + no) * 7500n) / 10000n;
           else {
-            const winningStake = market.outcome === 1 ? yes : no;
+            const winningStake = outcome === 1 ? yes : no;
             if (winningStake > 0n) {
               const settlementFee = (totalStake * 200n) / 10000n;
               payout = (winningStake * (totalStake - settlementFee)) / winningPool;
@@ -81,13 +88,13 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           }
         }
         const row = {
-          marketId: id, question: market.question, yesStake: formatUnits(yes, decimals),
-          noStake: formatUnits(no, decimals), status: market.status, outcome: market.outcome,
-          claimed, timestamp: market.resolvedAt ? new Date(Number(market.resolvedAt) * 1000).toISOString() : null,
+          marketId: id, question, yesStake: formatUnits(yes, decimals),
+          noStake: formatUnits(no, decimals), status, outcome,
+          claimed, timestamp: resolvedAt ? new Date(Number(resolvedAt) * 1000).toISOString() : null,
           tokenDecimals: decimals, claimableAmount: formatUnits(payout, decimals),
         };
         positions.push(row);
-        if ((market.status === 3 || market.status === 4 || market.status === 5) && !claimed && payout > 0n) claimable.push(row);
+        if ((status === 3 || status === 4 || status === 5) && !claimed && payout > 0n) claimable.push(row);
         return row;
       }));
       void batch;
