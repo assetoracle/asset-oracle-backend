@@ -86,10 +86,19 @@ referralsRouter.post("/code", async (req, res, next) => {
 
 referralsRouter.post("/attribute", async (req, res, next) => {
   try {
-    const parsed = walletAuthSchema.extend({ referralCode: z.string().trim().min(1).max(32) }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Valid wallet authentication and referral code are required" });
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      message: z.string().optional(),
+      signature: z.string().regex(/^0x[0-9a-fA-F]+$/).optional(),
+      referralCode: z.string().trim().min(1).max(32),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Valid wallet address and referral code are required" });
     const { address, message, signature, referralCode } = parsed.data;
-    if (!await authenticate(address, message, signature)) return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
+    const token = sessionToken(req);
+    const authenticated = token
+      ? await verifyWalletSession(token, address)
+      : Boolean(message && signature && await authenticate(address, message, signature));
+    if (!authenticated) return res.status(401).json({ error: "Wallet session expired or wallet verification failed. Verify your wallet again." });
     const invited = address.toLowerCase();
     const code = referralCode.toUpperCase();
     const result = await database.query<{ owner_wallet: string }>("SELECT owner_wallet FROM referral_codes WHERE code = $1", [code]);
