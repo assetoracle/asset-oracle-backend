@@ -79,6 +79,7 @@ marketsRouter.post("/proposals/session", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: "A valid wallet address and proposal are required." });
     const { address, proposal } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    if (!isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured market creators can submit market proposals." });
     const stored = await createMarketProposal(proposal, address);
     return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
   } catch (error) { return next(error); }
@@ -151,7 +152,7 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
       address,
       role: getWalletRole(address),
       permissions: {
-        createMarketProposal: true,
+        createMarketProposal: isMarketCreatorWallet(address),
         viewOwnProposals: true,
         reviewAllProposals: getWalletRole(address) === "OWNER",
         approveOrRejectProposals: getWalletRole(address) === "OWNER",
@@ -212,6 +213,12 @@ marketsRouter.post("/proposals", async (req, res, next) => {
     if (!verified) {
       return res.status(401).json({
         error: "Wallet verification failed. Request a new nonce and sign again.",
+      });
+    }
+
+    if (!isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({
+        error: "Only configured market creators can submit market proposals.",
       });
     }
 
