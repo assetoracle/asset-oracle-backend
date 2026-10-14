@@ -5,11 +5,15 @@ import helmet from "helmet";
 import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import marketsRouter from "./routes/markets.js";
+import paidSubmissionsRouter from "./routes/paidSubmissions.js";
 import referralsRouter from "./routes/referrals.js";
 import statsRouter from "./routes/stats.js";
 import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
+import { initializePointsStore } from "./services/pointsStore.js";
+import { initializePaidSubmissionStore } from "./services/paidSubmissionStore.js";
+import { initializeSubmissionQuoteStore } from "./services/submissionQuoteStore.js";
 import { initializeOnchainStatsIndexer } from "./services/onchainStatsIndexer.js";
 
 const app = express();
@@ -42,6 +46,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "100kb" }));
 app.use("/api/markets", marketsRouter);
+app.use("/api/markets/paid-submissions", paidSubmissionsRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/stats", statsRouter);
 
@@ -57,6 +62,9 @@ async function startServer(): Promise<void> {
     await initializeMarketStore();
     await initializeWalletAuth();
     await initializeReferralStore();
+    await initializePointsStore();
+    await initializePaidSubmissionStore();
+    await initializeSubmissionQuoteStore();
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Asset Oracle API listening on port ${PORT}`);
