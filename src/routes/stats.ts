@@ -94,7 +94,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           tokenDecimals: decimals, claimableAmount: formatUnits(payout, decimals),
         };
         positions.push(row);
-        if ((status === 3 || status === 4 || status === 5) && !claimed && payout > 0n) claimable.push(row);
+        if ((status === 3 || status === 4 || status === 5) && !claimed) claimable.push(row);
         return row;
       }));
       void batch;
