@@ -69,6 +69,21 @@ function sessionToken(req: import("express").Request): string {
   return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
 }
 
+
+marketsRouter.post("/proposals/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      proposal: marketProposalSchema,
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid wallet address and proposal are required." });
+    const { address, proposal } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    const stored = await createMarketProposal(proposal, address);
+    return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
+  } catch (error) { return next(error); }
+});
+
 marketsRouter.post("/proposals/mine/session", async (req, res, next) => {
   try {
     const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
