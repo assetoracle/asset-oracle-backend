@@ -122,6 +122,28 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
     [EXPECTED_CHAIN_ID, managerAddress.toLowerCase(), (startBlock - 1n).toString()],
   );
 
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS onchain_stats_migrations (
+      migration_key TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  const backfill = await database.query(
+    `INSERT INTO onchain_stats_migrations (migration_key)
+     VALUES ($1) ON CONFLICT (migration_key) DO NOTHING RETURNING migration_key`,
+    [`wallet-claim-events-backfill-${EXPECTED_CHAIN_ID}-${managerAddress.toLowerCase()}`],
+  );
+  // The event index previously tracked only stakes and settlements. Rewind once
+  // so historical Claimed/Refunded events are indexed as well; primary keys make
+  // re-inserting existing events idempotent.
+  if (backfill.rowCount) {
+    await database.query(
+      `UPDATE onchain_stats_cursors SET last_scanned_block = $3, updated_at = NOW()
+       WHERE chain_id = $1 AND manager_address = $2`,
+      [EXPECTED_CHAIN_ID, managerAddress.toLowerCase(), (startBlock - 1n).toString()],
+    );
+  }
+
   let busy = false;
   const pollOnce = async () => {
     if (busy) return;
