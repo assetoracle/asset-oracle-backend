@@ -294,16 +294,19 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
   indexerStatus: string;
 }> {
   const manager = managerAddress.toLowerCase();
+  const legacy = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+  const managers = [...new Set([manager, ...legacy])];
   const cursor = await database.query<{ last_scanned_block: string; updated_at: Date }>(
     `SELECT last_scanned_block, updated_at FROM onchain_stats_cursors
-     WHERE chain_id = $1 AND manager_address = $2`,
-    [EXPECTED_CHAIN_ID, manager],
+     WHERE chain_id = $1 AND manager_address = ANY($2::text[])
+     ORDER BY last_scanned_block ASC`,
+    [EXPECTED_CHAIN_ID, managers],
   );
   if (!cursor.rows[0]) {
     return { totalUsers: null, tradingVolume24h: null, totalSettled: null, totalTradingVolume: null, lastIndexedBlock: null, indexerStatus: "INDEXER_NOT_INITIALIZED" };
   }
   const lastIndexedBlock = cursor.rows[0].last_scanned_block;
-  const isStale = Date.now() - new Date(cursor.rows[0].updated_at).getTime() > 120_000;
+  const isStale = cursor.rows.length < managers.length || cursor.rows.some((item) => Date.now() - new Date(item.updated_at).getTime() > 120_000);
   const aggregate = await database.query<{
     total_users: string;
     trading_volume_24h: string;
@@ -316,8 +319,8 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
        COUNT(*) FILTER (WHERE event_name = 'MarketFinalized')::text AS total_settled,
        COALESCE(SUM(gross_amount) FILTER (WHERE event_name = 'Staked'), 0)::text AS total_trading_volume
      FROM onchain_stats_events
-     WHERE chain_id = $1 AND manager_address = $2`,
-    [EXPECTED_CHAIN_ID, manager],
+     WHERE chain_id = $1 AND manager_address = ANY($2::text[])`,
+    [EXPECTED_CHAIN_ID, managers],
   );
   const row = aggregate.rows[0];
   return {
