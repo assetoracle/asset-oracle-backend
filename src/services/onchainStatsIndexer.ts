@@ -240,6 +240,19 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
             ],
           );
         }
+        for (const row of rows) {
+          if (row.eventName !== "Staked" || !row.walletAddress) continue;
+          await dbClient.query(
+            `INSERT INTO leaderboard_point_events
+             (wallet_address, event_type, event_key, points, metadata)
+             VALUES ($1, 'MARKET_PARTICIPATION', $2, 10, $3::jsonb)
+             ON CONFLICT (event_type, event_key) DO NOTHING`,
+            [row.walletAddress, `stake:${managerAddress.toLowerCase()}:${row.marketId}:${row.walletAddress}`, JSON.stringify({
+              chainId: EXPECTED_CHAIN_ID, managerAddress: managerAddress.toLowerCase(),
+              marketId: row.marketId, transactionHash: row.txHash, logIndex: row.logIndex,
+            })],
+          );
+        }
         await dbClient.query(
           `UPDATE onchain_stats_cursors SET last_scanned_block = $3, updated_at = NOW()
            WHERE chain_id = $1 AND manager_address = $2 AND last_scanned_block = $4`,
