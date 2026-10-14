@@ -82,6 +82,8 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
       PRIMARY KEY (chain_id, tx_hash, log_index)
     )
   `);
+  await database.query(`ALTER TABLE onchain_stats_events DROP CONSTRAINT IF EXISTS onchain_stats_events_event_name_check`);
+  await database.query(`ALTER TABLE onchain_stats_events ADD CONSTRAINT onchain_stats_events_event_name_check CHECK (event_name IN ('Staked', 'MarketFinalized', 'Claimed', 'Refunded'))`);
   await database.query(`
     CREATE INDEX IF NOT EXISTS onchain_stats_events_timestamp_idx
     ON onchain_stats_events (chain_id, manager_address, block_timestamp)
