@@ -14,6 +14,8 @@ import {
 } from "../services/marketStore.js";
 import {
   createWalletNonce,
+  createWalletSession,
+  verifyWalletSession,
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
