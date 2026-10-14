@@ -117,7 +117,18 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           amount: row.gross_amount === null ? null : row.gross_amount,
           outcome: row.outcome,
         }));
-        historyStatus = "VERIFIED_ONCHAIN_EVENT_INDEX";
+        const cursorResult = await (await import("../config/database.js")).database.query<{
+          last_scanned_block: string; updated_at: Date;
+        }>("SELECT last_scanned_block::text, updated_at FROM onchain_stats_cursors WHERE chain_id = $1 AND manager_address = $2", [EXPECTED_CHAIN_ID, manager.toLowerCase()]);
+        if (!cursorResult.rows[0]) historyStatus = "INDEXER_NOT_INITIALIZED";
+        else {
+          const indexedBlock = BigInt(cursorResult.rows[0].last_scanned_block);
+          const headBlock = await client.getBlockNumber();
+          const stale = Date.now() - new Date(cursorResult.rows[0].updated_at).getTime() > 120_000;
+          historyStatus = !stale && headBlock - indexedBlock <= 3n
+            ? "VERIFIED_ONCHAIN_EVENT_INDEX"
+            : "INDEXER_CATCHING_UP";
+        }
       } catch {
         historyStatus = "INDEX_UNAVAILABLE";
       }
