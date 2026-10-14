@@ -57,11 +57,17 @@ function decimalAmount(raw: string): string {
 export { decimalAmount };
 
 export async function initializeOnchainStatsIndexer(): Promise<void> {
-  const managerAddress = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
-  const configuredChainId = Number(process.env.ASSET_CHAIN_ID || EXPECTED_CHAIN_ID);
-  if (!managerAddress || !/^0x[0-9a-fA-F]{40}$/.test(managerAddress)) {
-    throw new Error("On-chain stats indexer requires a valid market manager address.");
+  const current = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+  const legacy = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const managers = [...new Set([current, ...legacy].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase()))];
+  if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {
+    throw new Error("On-chain stats indexer requires valid current and legacy manager addresses.");
   }
+  for (const managerAddress of managers) await initializeManagerIndexer(managerAddress);
+}
+
+async function initializeManagerIndexer(managerAddress: string): Promise<void> {
+  const configuredChainId = Number(process.env.ASSET_CHAIN_ID || EXPECTED_CHAIN_ID);
   if (configuredChainId !== EXPECTED_CHAIN_ID) {
     throw new Error("On-chain stats indexer only supports Asset Chain Enugu testnet (42421).");
   }
@@ -240,6 +246,19 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
             ],
           );
         }
+        for (const row of rows) {
+          if (row.eventName !== "Staked" || !row.walletAddress) continue;
+          await dbClient.query(
+            `INSERT INTO leaderboard_point_events
+             (wallet_address, event_type, event_key, points, metadata)
+             VALUES ($1, 'MARKET_PARTICIPATION', $2, 10, $3::jsonb)
+             ON CONFLICT (event_type, event_key) DO NOTHING`,
+            [row.walletAddress, `stake:${managerAddress.toLowerCase()}:${row.marketId}:${row.walletAddress}`, JSON.stringify({
+              chainId: EXPECTED_CHAIN_ID, managerAddress: managerAddress.toLowerCase(),
+              marketId: row.marketId, transactionHash: row.txHash, logIndex: row.logIndex,
+            })],
+          );
+        }
         await dbClient.query(
           `UPDATE onchain_stats_cursors SET last_scanned_block = $3, updated_at = NOW()
            WHERE chain_id = $1 AND manager_address = $2 AND last_scanned_block = $4`,
@@ -275,16 +294,19 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
   indexerStatus: string;
 }> {
   const manager = managerAddress.toLowerCase();
+  const legacy = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+  const managers = [...new Set([manager, ...legacy])];
   const cursor = await database.query<{ last_scanned_block: string; updated_at: Date }>(
     `SELECT last_scanned_block, updated_at FROM onchain_stats_cursors
-     WHERE chain_id = $1 AND manager_address = $2`,
-    [EXPECTED_CHAIN_ID, manager],
+     WHERE chain_id = $1 AND manager_address = ANY($2::text[])
+     ORDER BY last_scanned_block ASC`,
+    [EXPECTED_CHAIN_ID, managers],
   );
   if (!cursor.rows[0]) {
     return { totalUsers: null, tradingVolume24h: null, totalSettled: null, totalTradingVolume: null, lastIndexedBlock: null, indexerStatus: "INDEXER_NOT_INITIALIZED" };
   }
   const lastIndexedBlock = cursor.rows[0].last_scanned_block;
-  const isStale = Date.now() - new Date(cursor.rows[0].updated_at).getTime() > 120_000;
+  const isStale = cursor.rows.length < managers.length || cursor.rows.some((item) => Date.now() - new Date(item.updated_at).getTime() > 120_000);
   const aggregate = await database.query<{
     total_users: string;
     trading_volume_24h: string;
@@ -297,8 +319,8 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
        COUNT(*) FILTER (WHERE event_name = 'MarketFinalized')::text AS total_settled,
        COALESCE(SUM(gross_amount) FILTER (WHERE event_name = 'Staked'), 0)::text AS total_trading_volume
      FROM onchain_stats_events
-     WHERE chain_id = $1 AND manager_address = $2`,
-    [EXPECTED_CHAIN_ID, manager],
+     WHERE chain_id = $1 AND manager_address = ANY($2::text[])`,
+    [EXPECTED_CHAIN_ID, managers],
   );
   const row = aggregate.rows[0];
   return {

@@ -5,6 +5,7 @@ import { database } from "../config/database.js";
 import { verifyWalletSession, verifyWalletSignature } from "../services/walletAuth.js";
 import { isAdminWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import { createReferralCodeValue, fingerprintIp } from "../services/referralStore.js";
+import { awardLeaderboardPoints, getPointsLeaderboard } from "../services/pointsStore.js";
 
 const referralsRouter = Router();
 const walletAuthSchema = z.object({
@@ -20,6 +21,24 @@ async function authenticate(address: string, message: string, signature: string)
   return verifyWalletSignature(address, signature as `0x${string}`, message);
 }
 
+
+
+
+async function awardQualifiedReferralPoints(invitedWallet: string, transactionHash: string): Promise<void> {
+  const result = await database.query<{ referrer_wallet: string; invited_wallet: string; status: string }>(
+    "SELECT referrer_wallet, invited_wallet, status FROM referral_attributions WHERE invited_wallet = $1",
+    [invitedWallet.toLowerCase()],
+  );
+  const attribution = result.rows[0];
+  if (!attribution || attribution.status !== "QUALIFIED") return;
+  await awardLeaderboardPoints({
+    walletAddress: attribution.referrer_wallet,
+    eventType: "QUALIFIED_REFERRAL",
+    eventKey: "referral:" + attribution.invited_wallet,
+    points: 5,
+    metadata: { invitedWallet: attribution.invited_wallet, firstPredictionTx: transactionHash.toLowerCase() },
+  });
+}
 
 function sessionToken(req: import("express").Request): string {
   const header = req.header("authorization") ?? "";
@@ -173,7 +192,9 @@ referralsRouter.post("/qualify/session", async (req, res, next) => {
       if (!already.rows[0]) return res.status(404).json({ error: "No referral attribution exists for this wallet." });
       return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification.", status: already.rows[0].status });
     }
-    return res.json({ status: (updated.rows[0] as { status: string }).status, message: "First prediction verified. Referral record updated." });
+    const qualifiedStatus = (updated.rows[0] as { status: string }).status;
+    if (qualifiedStatus === "QUALIFIED") await awardQualifiedReferralPoints(wallet, transactionHash);
+    return res.json({ status: qualifiedStatus, message: "First prediction verified. Referral record updated." });
   } catch (error) {
     if (error instanceof Error && /TransactionReceiptNotFound|could not be found/i.test(error.message)) return res.status(409).json({ error: "Prediction transaction is not confirmed yet." });
     return next(error);
@@ -215,7 +236,9 @@ referralsRouter.post("/qualify", async (req, res, next) => {
       if (!already.rows[0]) return res.status(404).json({ error: "No referral attribution exists for this wallet" });
       return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification", status: already.rows[0].status });
     }
-    return res.json({ status: (updated.rows[0] as { status: string }).status, message: "First prediction verified. Referral record updated." });
+    const qualifiedStatus = (updated.rows[0] as { status: string }).status;
+    if (qualifiedStatus === "QUALIFIED") await awardQualifiedReferralPoints(wallet, transactionHash);
+    return res.json({ status: qualifiedStatus, message: "First prediction verified. Referral record updated." });
   } catch (error) {
     if (error instanceof Error && /TransactionReceiptNotFound|could not be found/i.test(error.message)) return res.status(409).json({ error: "Prediction transaction is not confirmed yet" });
     return next(error);
@@ -275,11 +298,13 @@ referralsRouter.post("/review/session", async (req, res, next) => {
     const updated = await database.query(
       `UPDATE referral_attributions SET status = 'QUALIFIED'
        WHERE invited_wallet = $1 AND status = 'FLAGGED' AND first_prediction_tx IS NOT NULL
-       RETURNING invited_wallet`,
+       RETURNING invited_wallet, first_prediction_tx`,
       [invitedWallet.toLowerCase()],
     );
     if (!updated.rowCount) return res.status(409).json({ error: "No stake-verified flagged referral is awaiting approval." });
-    return res.json({ status: "QUALIFIED", message: "Referral approved and included in the all-time leaderboard." });
+    const approved = updated.rows[0] as { invited_wallet: string; first_prediction_tx: string };
+    await awardQualifiedReferralPoints(approved.invited_wallet, approved.first_prediction_tx);
+    return res.json({ status: "QUALIFIED", message: "Referral approved, awarded 5 points, and included in the all-time leaderboard." });
   } catch (error) { return next(error); }
 });
 
@@ -331,7 +356,9 @@ referralsRouter.post("/review", async (req, res, next) => {
       [invitedWallet.toLowerCase()],
     );
     if (!updated.rowCount) return res.status(409).json({ error: "No stake-verified flagged referral is awaiting approval" });
-    return res.json({ status: "QUALIFIED", message: "Referral approved and included in the all-time leaderboard." });
+    const approved = updated.rows[0] as { invited_wallet: string; first_prediction_tx: string };
+    await awardQualifiedReferralPoints(approved.invited_wallet, approved.first_prediction_tx);
+    return res.json({ status: "QUALIFIED", message: "Referral approved, awarded 5 points, and included in the all-time leaderboard." });
   } catch (error) { return next(error); }
 });
 
@@ -344,6 +371,58 @@ referralsRouter.get("/leaderboard", async (_req, res, next) => {
     );
     return res.json({ period: "ALL_TIME", leaderboard: result.rows.map((row, index) => ({
       rank: index + 1, wallet: row.wallet, verifiedReferrals: Number(row.verified_referrals),
+    })) });
+  } catch (error) { return next(error); }
+});
+
+
+
+referralsRouter.get("/points-leaderboard", async (_req, res, next) => {
+  try {
+    const leaderboard = await getPointsLeaderboard(100);
+    return res.json({ period: "ALL_TIME", leaderboard });
+  } catch (error) { return next(error); }
+});
+
+referralsRouter.get("/referral-leaderboard", async (_req, res, next) => {
+  try {
+    const result = await database.query<{ wallet: string; referrals: string; points: string }>(
+      `SELECT lower(a.referrer_wallet) AS wallet, COUNT(*)::text AS referrals,
+              COALESCE(SUM(p.points), 0)::text AS points
+       FROM referral_attributions a
+       LEFT JOIN leaderboard_point_events p
+         ON p.event_type = 'QUALIFIED_REFERRAL'
+        AND p.event_key = 'referral:' || lower(a.invited_wallet)
+        AND lower(p.wallet_address) = lower(a.referrer_wallet)
+       WHERE a.status = 'QUALIFIED'
+       GROUP BY lower(a.referrer_wallet)
+       ORDER BY COUNT(*) DESC, COALESCE(SUM(p.points), 0) DESC, lower(a.referrer_wallet) ASC
+       LIMIT 100`
+    );
+    return res.json({ period: "ALL_TIME", leaderboard: result.rows.map((row, index) => ({
+      rank: index + 1, wallet: row.wallet, referrals: Number(row.referrals), referralPoints: Number(row.points),
+    })) });
+  } catch (error) { return next(error); }
+});
+
+referralsRouter.get("/total-leaderboard", async (_req, res, next) => {
+  try {
+    const result = await database.query<{ wallet: string; referrals: string; referral_points: string; activity_points: string; total_points: string }>(
+      `WITH qualified_referrals AS (
+         SELECT lower(referrer_wallet) AS wallet, COUNT(*)::text AS referrals FROM referral_attributions WHERE status = 'QUALIFIED' GROUP BY lower(referrer_wallet)
+       ), points AS (
+         SELECT lower(wallet_address) AS wallet, SUM(points) FILTER (WHERE event_type = 'QUALIFIED_REFERRAL')::text AS referral_points,
+                SUM(points) FILTER (WHERE event_type <> 'QUALIFIED_REFERRAL')::text AS activity_points, SUM(points)::text AS total_points
+         FROM leaderboard_point_events GROUP BY lower(wallet_address)
+       ), wallets AS (SELECT wallet FROM points UNION SELECT wallet FROM qualified_referrals)
+       SELECT w.wallet, COALESCE(r.referrals, '0') AS referrals, COALESCE(p.referral_points, '0') AS referral_points,
+              COALESCE(p.activity_points, '0') AS activity_points, COALESCE(p.total_points, '0') AS total_points
+       FROM wallets w LEFT JOIN qualified_referrals r ON r.wallet = w.wallet LEFT JOIN points p ON p.wallet = w.wallet
+       ORDER BY COALESCE(p.total_points::bigint, 0) DESC, COALESCE(r.referrals::bigint, 0) DESC, w.wallet ASC LIMIT 100`
+    );
+    return res.json({ period: "ALL_TIME", leaderboard: result.rows.map((row, index) => ({
+      rank: index + 1, wallet: row.wallet, referrals: Number(row.referrals), referralPoints: Number(row.referral_points),
+      activityPoints: Number(row.activity_points), totalPoints: Number(row.total_points),
     })) });
   } catch (error) { return next(error); }
 });
