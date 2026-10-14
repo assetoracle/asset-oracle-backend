@@ -298,7 +298,7 @@ referralsRouter.post("/review/session", async (req, res, next) => {
     const updated = await database.query(
       `UPDATE referral_attributions SET status = 'QUALIFIED'
        WHERE invited_wallet = $1 AND status = 'FLAGGED' AND first_prediction_tx IS NOT NULL
-       RETURNING invited_wallet`,
+       RETURNING invited_wallet, first_prediction_tx`,
       [invitedWallet.toLowerCase()],
     );
     if (!updated.rowCount) return res.status(409).json({ error: "No stake-verified flagged referral is awaiting approval." });
@@ -354,7 +354,9 @@ referralsRouter.post("/review", async (req, res, next) => {
       [invitedWallet.toLowerCase()],
     );
     if (!updated.rowCount) return res.status(409).json({ error: "No stake-verified flagged referral is awaiting approval" });
-    return res.json({ status: "QUALIFIED", message: "Referral approved and included in the all-time leaderboard." });
+    const approved = updated.rows[0] as { invited_wallet: string; first_prediction_tx: string };
+    await awardQualifiedReferralPoints(approved.invited_wallet, approved.first_prediction_tx);
+    return res.json({ status: "QUALIFIED", message: "Referral approved, awarded 5 points, and included in the all-time leaderboard." });
   } catch (error) { return next(error); }
 });
 
