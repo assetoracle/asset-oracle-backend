@@ -533,4 +533,111 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
   }
 });
 
+// Session-authenticated publication recording reuses the wallet verification session.
+marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next) => {
+  try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    const bodyResult = z.object({
+      txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+      marketId: z.string().regex(/^[1-9][0-9]*$/),
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+    }).safeParse(req.body);
+    if (!idResult.success || !bodyResult.success) {
+      return res.status(400).json({ error: "A valid proposal ID, transaction hash, market ID, and wallet authentication are required." });
+    }
+
+    const { txHash, marketId, address } = bodyResult.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    if (!isMarketCreatorWallet(address)) {
+      return res.status(403).json({ error: "An authenticated, configured market-creator wallet is required." });
+    }
+
+    const proposal = await getMarketProposal(idResult.data);
+    if (!proposal) return res.status(404).json({ error: "Market proposal not found." });
+    if (proposal.status !== "APPROVED") {
+      return res.status(409).json({ error: "Only approved proposals can be linked to an on-chain market." });
+    }
+
+    const manager = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+    const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || "https://enugu-rpc.assetchain.org";
+    const expectedChainId = Number(process.env.ASSET_CHAIN_ID || "42421");
+    if (!manager || !isAddress(manager) || expectedChainId !== 42421) {
+      return res.status(503).json({ error: "A verified Enugu testnet manager address and chain configuration are required." });
+    }
+
+    const client = createPublicClient({ transport: http(rpcUrl) });
+    const actualChainId = await client.getChainId();
+    if (actualChainId !== expectedChainId) {
+      return res.status(503).json({ error: "Configured RPC does not report the expected Asset Chain Enugu testnet chain ID." });
+    }
+
+    const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` });
+    const transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
+
+    const matching = parseEventLogs({
+      abi: marketCreatedAbi,
+      logs: receipt.logs.filter((log) => getAddress(log.address) === getAddress(manager)),
+      eventName: "MarketCreated",
+      strict: false,
+    }).find((event) => event.args.marketId?.toString() === marketId);
+
+    const evidenceError = verifyPublicationEvidence({
+      expectedChainId,
+      actualChainId,
+      receiptStatus: receipt.status,
+      transactionTo: transaction.to,
+      transactionFrom: transaction.from,
+      managerAddress: getAddress(manager),
+      authenticatedWallet: address,
+      marketId,
+      eventMarketId: matching?.args.marketId?.toString() ?? null,
+      expectedQuestion: proposal.question,
+      eventQuestion: matching?.args.question ?? null,
+      eventStablecoin: matching?.args.stablecoin === undefined ? null : Number(matching.args.stablecoin),
+      eventCloseTime: matching?.args.closeTime ?? null,
+      expectedCloseTime: BigInt(Math.floor(Date.parse(proposal.closesAt) / 1000)),
+      eventCreator: matching?.args.creator ?? null,
+    });
+    if (evidenceError) {
+      const status = evidenceError.startsWith("Configured RPC") ? 503
+        : evidenceError.startsWith("Transaction sender") ? 403
+        : 400;
+      return res.status(status).json({ error: evidenceError });
+    }
+
+    const stored = await recordOnchainPublication({
+      id: proposal.id,
+      marketId,
+      txHash: txHash.toLowerCase(),
+      managerAddress: getAddress(manager),
+      chainId: actualChainId,
+    });
+    if (!stored) {
+      return res.status(409).json({ error: "Publication could not be recorded. Confirm the proposal is still approved and has not already been published." });
+    }
+
+    return res.status(200).json({
+      message: "Verified on-chain publication recorded.",
+      proposal: stored,
+      publication: {
+        marketId,
+        txHash: txHash.toLowerCase(),
+        managerAddress: getAddress(manager),
+        chainId: actualChainId,
+        explorerUrl: `${process.env.ASSET_CHAIN_EXPLORER_URL || "https://scan-testnet.assetchain.org"}/tx/${txHash}`,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes("already has a recorded on-chain publication") ||
+      error.message.includes("already recorded for another proposal")
+    )) {
+      return res.status(409).json({ error: error.message });
+    }
+    return next(error);
+  }
+});
+
 export default marketsRouter;
