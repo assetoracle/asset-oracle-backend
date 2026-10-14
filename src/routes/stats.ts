@@ -59,10 +59,10 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           id: bigint; stablecoin: number; question: string; totalYes: bigint; totalNo: bigint;
           totalStaked: bigint; outcome: number; status: number; resolvedAt: bigint;
         };
-        const position = positionRaw as unknown as readonly [bigint, bigint, boolean] | { yes: bigint; no: bigint; claimed: boolean };
-        const yes = Array.isArray(position) ? position[0] : position.yes;
-        const no = Array.isArray(position) ? position[1] : position.no;
-        const claimed = Array.isArray(position) ? position[2] : position.claimed;
+        const position = positionRaw as unknown as readonly [bigint, bigint, boolean];
+        const yes = position[0];
+        const no = position[1];
+        const claimed = position[2];
         if (yes === 0n && no === 0n) return null;
         const coin = await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "stablecoins", args: [market.stablecoin] });
         const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
