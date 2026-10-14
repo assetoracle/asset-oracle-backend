@@ -5,6 +5,7 @@ import { database } from "../config/database.js";
 import { verifyWalletSession, verifyWalletSignature } from "../services/walletAuth.js";
 import { isAdminWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import { createReferralCodeValue, fingerprintIp } from "../services/referralStore.js";
+import { awardLeaderboardPoints, getPointsLeaderboard } from "../services/pointsStore.js";
 
 const referralsRouter = Router();
 const walletAuthSchema = z.object({
@@ -20,6 +21,24 @@ async function authenticate(address: string, message: string, signature: string)
   return verifyWalletSignature(address, signature as `0x${string}`, message);
 }
 
+
+
+
+async function awardQualifiedReferralPoints(invitedWallet: string, transactionHash: string): Promise<void> {
+  const result = await database.query<{ referrer_wallet: string; invited_wallet: string; status: string }>(
+    "SELECT referrer_wallet, invited_wallet, status FROM referral_attributions WHERE invited_wallet = $1",
+    [invitedWallet.toLowerCase()],
+  );
+  const attribution = result.rows[0];
+  if (!attribution || attribution.status !== "QUALIFIED") return;
+  await awardLeaderboardPoints({
+    walletAddress: attribution.referrer_wallet,
+    eventType: "QUALIFIED_REFERRAL",
+    eventKey: "referral:" + attribution.invited_wallet,
+    points: 5,
+    metadata: { invitedWallet: attribution.invited_wallet, firstPredictionTx: transactionHash.toLowerCase() },
+  });
+}
 
 function sessionToken(req: import("express").Request): string {
   const header = req.header("authorization") ?? "";
@@ -173,7 +192,9 @@ referralsRouter.post("/qualify/session", async (req, res, next) => {
       if (!already.rows[0]) return res.status(404).json({ error: "No referral attribution exists for this wallet." });
       return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification.", status: already.rows[0].status });
     }
-    return res.json({ status: (updated.rows[0] as { status: string }).status, message: "First prediction verified. Referral record updated." });
+    const qualifiedStatus = (updated.rows[0] as { status: string }).status;
+    if (qualifiedStatus === "QUALIFIED") await awardQualifiedReferralPoints(wallet, transactionHash);
+    return res.json({ status: qualifiedStatus, message: "First prediction verified. Referral record updated." });
   } catch (error) {
     if (error instanceof Error && /TransactionReceiptNotFound|could not be found/i.test(error.message)) return res.status(409).json({ error: "Prediction transaction is not confirmed yet." });
     return next(error);
@@ -215,7 +236,9 @@ referralsRouter.post("/qualify", async (req, res, next) => {
       if (!already.rows[0]) return res.status(404).json({ error: "No referral attribution exists for this wallet" });
       return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification", status: already.rows[0].status });
     }
-    return res.json({ status: (updated.rows[0] as { status: string }).status, message: "First prediction verified. Referral record updated." });
+    const qualifiedStatus = (updated.rows[0] as { status: string }).status;
+    if (qualifiedStatus === "QUALIFIED") await awardQualifiedReferralPoints(wallet, transactionHash);
+    return res.json({ status: qualifiedStatus, message: "First prediction verified. Referral record updated." });
   } catch (error) {
     if (error instanceof Error && /TransactionReceiptNotFound|could not be found/i.test(error.message)) return res.status(409).json({ error: "Prediction transaction is not confirmed yet" });
     return next(error);
@@ -345,6 +368,15 @@ referralsRouter.get("/leaderboard", async (_req, res, next) => {
     return res.json({ period: "ALL_TIME", leaderboard: result.rows.map((row, index) => ({
       rank: index + 1, wallet: row.wallet, verifiedReferrals: Number(row.verified_referrals),
     })) });
+  } catch (error) { return next(error); }
+});
+
+
+
+referralsRouter.get("/points-leaderboard", async (_req, res, next) => {
+  try {
+    const leaderboard = await getPointsLeaderboard(100);
+    return res.json({ period: "ALL_TIME", leaderboard });
   } catch (error) { return next(error); }
 });
 
