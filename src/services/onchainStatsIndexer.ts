@@ -57,11 +57,17 @@ function decimalAmount(raw: string): string {
 export { decimalAmount };
 
 export async function initializeOnchainStatsIndexer(): Promise<void> {
-  const managerAddress = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
-  const configuredChainId = Number(process.env.ASSET_CHAIN_ID || EXPECTED_CHAIN_ID);
-  if (!managerAddress || !/^0x[0-9a-fA-F]{40}$/.test(managerAddress)) {
-    throw new Error("On-chain stats indexer requires a valid market manager address.");
+  const current = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+  const legacy = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const managers = [...new Set([current, ...legacy].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase()))];
+  if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {
+    throw new Error("On-chain stats indexer requires valid current and legacy manager addresses.");
   }
+  for (const managerAddress of managers) await initializeManagerIndexer(managerAddress);
+}
+
+async function initializeManagerIndexer(managerAddress: string): Promise<void> {
+  const configuredChainId = Number(process.env.ASSET_CHAIN_ID || EXPECTED_CHAIN_ID);
   if (configuredChainId !== EXPECTED_CHAIN_ID) {
     throw new Error("On-chain stats indexer only supports Asset Chain Enugu testnet (42421).");
   }
