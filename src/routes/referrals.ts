@@ -134,6 +134,52 @@ referralsRouter.post("/attribute", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+
+referralsRouter.post("/qualify/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid wallet address and transaction hash are required." });
+    const { address, transactionHash } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    if (!managerAddress || !isAddress(managerAddress)) return res.status(503).json({ error: "Referral prediction verification is not enabled until the verified market manager address is configured." });
+
+    const client = createPublicClient({ transport: http(rpcUrl) });
+    const receipt = await client.getTransactionReceipt({ hash: transactionHash as `0x${string}` });
+    if (receipt.status !== "success") return res.status(400).json({ error: "Prediction transaction did not succeed." });
+    const matchingLogs = receipt.logs.filter((log) => log.address.toLowerCase() === managerAddress.toLowerCase()).flatMap((log) => {
+      try {
+        const decoded = decodeEventLog({ abi: [stakedEvent], data: log.data, topics: log.topics });
+        return decoded.eventName === "Staked" ? [decoded.args] : [];
+      } catch { return []; }
+    });
+    const wallet = address.toLowerCase();
+    if (!matchingLogs.some((log) => getAddress(log.user).toLowerCase() === wallet)) {
+      return res.status(400).json({ error: "Transaction does not contain a verified stake by this wallet on the configured market manager." });
+    }
+    const updated = await database.query(
+      `UPDATE referral_attributions
+       SET status = CASE WHEN ip_shared_flag THEN 'FLAGGED' ELSE 'QUALIFIED' END,
+           first_prediction_tx = $1, qualified_at = NOW()
+       WHERE invited_wallet = $2 AND status = 'PENDING_PREDICTION'
+         AND first_prediction_tx IS NULL
+       RETURNING status`,
+      [transactionHash.toLowerCase(), wallet],
+    );
+    if ((updated.rowCount ?? 0) === 0) {
+      const already = await database.query<{ status: string }>("SELECT status FROM referral_attributions WHERE invited_wallet = $1", [wallet]);
+      if (!already.rows[0]) return res.status(404).json({ error: "No referral attribution exists for this wallet." });
+      return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification.", status: already.rows[0].status });
+    }
+    return res.json({ status: (updated.rows[0] as { status: string }).status, message: "First prediction verified. Referral record updated." });
+  } catch (error) {
+    if (error instanceof Error && /TransactionReceiptNotFound|could not be found/i.test(error.message)) return res.status(409).json({ error: "Prediction transaction is not confirmed yet." });
+    return next(error);
+  }
+});
+
 referralsRouter.post("/qualify", async (req, res, next) => {
   try {
     const parsed = walletAuthSchema.extend({ transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }).safeParse(req.body);
