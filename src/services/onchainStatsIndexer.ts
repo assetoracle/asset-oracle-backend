@@ -13,12 +13,18 @@ const stakedEvent = parseAbiItem(
 const finalizedEvent = parseAbiItem(
   "event MarketFinalized(uint256 indexed marketId, uint8 outcome)",
 );
+const claimedEvent = parseAbiItem(
+  "event Claimed(uint256 indexed marketId, address indexed user, uint256 amount)",
+);
+const refundedEvent = parseAbiItem(
+  "event Refunded(uint256 indexed marketId, address indexed user, uint256 amount)",
+);
 
 type IndexedEvent = {
   chainId: number;
   txHash: string;
   logIndex: number;
-  eventName: "Staked" | "MarketFinalized";
+  eventName: "Staked" | "MarketFinalized" | "Claimed" | "Refunded";
   blockNumber: bigint;
   blockTimestamp: Date;
   marketId: string;
@@ -66,7 +72,7 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
       manager_address TEXT NOT NULL,
       tx_hash TEXT NOT NULL,
       log_index INTEGER NOT NULL,
-      event_name TEXT NOT NULL CHECK (event_name IN ('Staked', 'MarketFinalized')),
+      event_name TEXT NOT NULL CHECK (event_name IN ('Staked', 'MarketFinalized', 'Claimed', 'Refunded')),
       block_number BIGINT NOT NULL,
       block_timestamp TIMESTAMPTZ NOT NULL,
       market_id NUMERIC(78, 0) NOT NULL,
@@ -76,6 +82,8 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
       PRIMARY KEY (chain_id, tx_hash, log_index)
     )
   `);
+  await database.query(`ALTER TABLE onchain_stats_events DROP CONSTRAINT IF EXISTS onchain_stats_events_event_name_check`);
+  await database.query(`ALTER TABLE onchain_stats_events ADD CONSTRAINT onchain_stats_events_event_name_check CHECK (event_name IN ('Staked', 'MarketFinalized', 'Claimed', 'Refunded'))`);
   await database.query(`
     CREATE INDEX IF NOT EXISTS onchain_stats_events_timestamp_idx
     ON onchain_stats_events (chain_id, manager_address, block_timestamp)
@@ -114,6 +122,28 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
     [EXPECTED_CHAIN_ID, managerAddress.toLowerCase(), (startBlock - 1n).toString()],
   );
 
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS onchain_stats_migrations (
+      migration_key TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  const backfill = await database.query(
+    `INSERT INTO onchain_stats_migrations (migration_key)
+     VALUES ($1) ON CONFLICT (migration_key) DO NOTHING RETURNING migration_key`,
+    [`wallet-claim-events-backfill-${EXPECTED_CHAIN_ID}-${managerAddress.toLowerCase()}`],
+  );
+  // The event index previously tracked only stakes and settlements. Rewind once
+  // so historical Claimed/Refunded events are indexed as well; primary keys make
+  // re-inserting existing events idempotent.
+  if (backfill.rowCount) {
+    await database.query(
+      `UPDATE onchain_stats_cursors SET last_scanned_block = $3, updated_at = NOW()
+       WHERE chain_id = $1 AND manager_address = $2`,
+      [EXPECTED_CHAIN_ID, managerAddress.toLowerCase(), (startBlock - 1n).toString()],
+    );
+  }
+
   let busy = false;
   const pollOnce = async () => {
     if (busy) return;
@@ -141,13 +171,17 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
         ? fromBlock + batchSize - 1n
         : head - CONFIRMATION_DEPTH;
 
-      const [stakeLogs, finalizedLogs] = await Promise.all([
+      const [stakeLogs, finalizedLogs, claimedLogs, refundedLogs] = await Promise.all([
         client.getLogs({ address: managerAddress as `0x${string}`, event: stakedEvent, fromBlock, toBlock }),
         client.getLogs({ address: managerAddress as `0x${string}`, event: finalizedEvent, fromBlock, toBlock }),
+        client.getLogs({ address: managerAddress as `0x${string}`, event: claimedEvent, fromBlock, toBlock }),
+        client.getLogs({ address: managerAddress as `0x${string}`, event: refundedEvent, fromBlock, toBlock }),
       ]);
       const logs = [
         ...stakeLogs.map((log) => ({ log, eventName: "Staked" as const })),
         ...finalizedLogs.map((log) => ({ log, eventName: "MarketFinalized" as const })),
+        ...claimedLogs.map((log) => ({ log, eventName: "Claimed" as const })),
+        ...refundedLogs.map((log) => ({ log, eventName: "Refunded" as const })),
       ].sort((a, b) => Number(a.log.blockNumber! - b.log.blockNumber!) ||
         Number(a.log.logIndex! - b.log.logIndex!));
 
@@ -167,28 +201,24 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
         const args = decoded.args;
         if (eventName === "Staked") {
           return {
-            chainId: EXPECTED_CHAIN_ID,
-            txHash: hash,
-            logIndex: log.logIndex!,
-            eventName,
-            blockNumber: log.blockNumber!,
-            blockTimestamp: timestamps.get(log.blockNumber!.toString())!,
-            marketId: String(args.marketId),
-            walletAddress: String(args.user).toLowerCase(),
-            grossAmount: String(args.grossAmount),
-            outcome: null,
+            chainId: EXPECTED_CHAIN_ID, txHash: hash, logIndex: log.logIndex!, eventName,
+            blockNumber: log.blockNumber!, blockTimestamp: timestamps.get(log.blockNumber!.toString())!,
+            marketId: String(args.marketId), walletAddress: String(args.user).toLowerCase(),
+            grossAmount: String(args.grossAmount), outcome: null,
+          };
+        }
+        if (eventName === "Claimed" || eventName === "Refunded") {
+          return {
+            chainId: EXPECTED_CHAIN_ID, txHash: hash, logIndex: log.logIndex!, eventName,
+            blockNumber: log.blockNumber!, blockTimestamp: timestamps.get(log.blockNumber!.toString())!,
+            marketId: String(args.marketId), walletAddress: String(args.user).toLowerCase(),
+            grossAmount: String(args.amount), outcome: null,
           };
         }
         return {
-          chainId: EXPECTED_CHAIN_ID,
-          txHash: hash,
-          logIndex: log.logIndex!,
-          eventName,
-          blockNumber: log.blockNumber!,
-          blockTimestamp: timestamps.get(log.blockNumber!.toString())!,
-          marketId: String(args.marketId),
-          walletAddress: null,
-          grossAmount: null,
+          chainId: EXPECTED_CHAIN_ID, txHash: hash, logIndex: log.logIndex!, eventName,
+          blockNumber: log.blockNumber!, blockTimestamp: timestamps.get(log.blockNumber!.toString())!,
+          marketId: String(args.marketId), walletAddress: null, grossAmount: null,
           outcome: Number(args.outcome),
         };
       });

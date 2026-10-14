@@ -2,7 +2,7 @@ import { Router } from "express";
 import { isAddress, createPublicClient, http, parseAbiItem, getAddress, decodeEventLog } from "viem";
 import { z } from "zod";
 import { database } from "../config/database.js";
-import { verifyWalletSignature } from "../services/walletAuth.js";
+import { verifyWalletSession, verifyWalletSignature } from "../services/walletAuth.js";
 import { verifyAdminWallet } from "../services/adminAuth.js";
 import { createReferralCodeValue, fingerprintIp } from "../services/referralStore.js";
 
@@ -19,6 +19,52 @@ const stakedEvent = parseAbiItem("event Staked(uint256 indexed marketId, address
 async function authenticate(address: string, message: string, signature: string) {
   return verifyWalletSignature(address, signature as `0x${string}`, message);
 }
+
+
+function sessionToken(req: import("express").Request): string {
+  const header = req.header("authorization") ?? "";
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+}
+
+referralsRouter.post("/code/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid wallet address is required" });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    const wallet = address.toLowerCase();
+    const existing = await database.query<{ code: string }>("SELECT code FROM referral_codes WHERE owner_wallet = $1", [wallet]);
+    if (existing.rows[0]) return res.json({ code: existing.rows[0].code });
+    const code = createReferralCodeValue();
+    const inserted = await database.query<{ code: string }>("INSERT INTO referral_codes (code, owner_wallet) VALUES ($1, $2) ON CONFLICT (owner_wallet) DO UPDATE SET owner_wallet = EXCLUDED.owner_wallet RETURNING code", [code, wallet]);
+    return res.status(201).json({ code: inserted.rows[0].code });
+  } catch (error) { return next(error); }
+});
+
+referralsRouter.get("/me/session", async (req, res, next) => {
+  try {
+    const address = req.query.address;
+    if (typeof address !== "string" || !isAddress(address)) return res.status(400).json({ error: "A valid wallet address is required" });
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    const wallet = address.toLowerCase();
+    const [codeResult, countsResult, rankResult] = await Promise.all([
+      database.query<{ code: string }>("SELECT code FROM referral_codes WHERE owner_wallet = $1", [wallet]),
+      database.query<{ status: string; total: string }>("SELECT status, COUNT(*)::text AS total FROM referral_attributions WHERE referrer_wallet = $1 GROUP BY status", [wallet]),
+      database.query<{ rank: string }>("WITH leaderboard AS (SELECT referrer_wallet, RANK() OVER (ORDER BY COUNT(*) DESC, referrer_wallet ASC) AS rank FROM referral_attributions WHERE status = 'QUALIFIED' GROUP BY referrer_wallet) SELECT rank::text AS rank FROM leaderboard WHERE referrer_wallet = $1", [wallet]),
+    ]);
+    const counts = Object.fromEntries(countsResult.rows.map((row) => [row.status, Number(row.total)]));
+    return res.json({
+      address: wallet,
+      code: codeResult.rows[0]?.code ?? null,
+      verifiedReferrals: counts.QUALIFIED ?? 0,
+      pendingReferrals: counts.PENDING_PREDICTION ?? 0,
+      flaggedReferrals: counts.FLAGGED ?? 0,
+      leaderboardRank: rankResult.rows[0] ? Number(rankResult.rows[0].rank) : null,
+      rewardsEarned: null,
+      rewardsAvailable: false,
+    });
+  } catch (error) { return next(error); }
+});
 
 referralsRouter.post("/code", async (req, res, next) => {
   try {
@@ -40,10 +86,19 @@ referralsRouter.post("/code", async (req, res, next) => {
 
 referralsRouter.post("/attribute", async (req, res, next) => {
   try {
-    const parsed = walletAuthSchema.extend({ referralCode: z.string().trim().min(1).max(32) }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Valid wallet authentication and referral code are required" });
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      message: z.string().optional(),
+      signature: z.string().regex(/^0x[0-9a-fA-F]+$/).optional(),
+      referralCode: z.string().trim().min(1).max(32),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Valid wallet address and referral code are required" });
     const { address, message, signature, referralCode } = parsed.data;
-    if (!await authenticate(address, message, signature)) return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
+    const token = sessionToken(req);
+    const authenticated = token
+      ? await verifyWalletSession(token, address)
+      : Boolean(message && signature && await authenticate(address, message, signature));
+    if (!authenticated) return res.status(401).json({ error: "Wallet session expired or wallet verification failed. Verify your wallet again." });
     const invited = address.toLowerCase();
     const code = referralCode.toUpperCase();
     const result = await database.query<{ owner_wallet: string }>("SELECT owner_wallet FROM referral_codes WHERE code = $1", [code]);

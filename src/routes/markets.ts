@@ -2,7 +2,7 @@ import { Router } from "express";
 import { createPublicClient, getAddress, http, isAddress, parseEventLogs } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
-import { getWalletRole, isMarketCreatorWallet, verifyAdminWallet } from "../services/adminAuth.js";
+import { getWalletRole, isAdminWallet, isMarketCreatorWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import {
   createMarketProposal,
   getMarketProposal,
@@ -14,6 +14,8 @@ import {
 } from "../services/marketStore.js";
 import {
   createWalletNonce,
+  createWalletSession,
+  verifyWalletSession,
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
@@ -51,6 +53,77 @@ marketsRouter.post("/auth/nonce", async (req, res, next) => {
 });
 
 
+marketsRouter.post("/auth/session", async (req, res, next) => {
+  try {
+    const result = walletAuthSchema.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: "Valid wallet authentication is required" });
+    const { address, message, signature } = result.data;
+    if (!await verifyWalletSignature(address, signature as `0x${string}`, message)) return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
+    const session = await createWalletSession(address);
+    return res.status(201).json({ address, ...session, role: getWalletRole(address) });
+  } catch (error) { return next(error); }
+});
+
+function sessionToken(req: import("express").Request): string {
+  const header = req.header("authorization") ?? "";
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+}
+
+
+marketsRouter.post("/proposals/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      proposal: marketProposalSchema,
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid wallet address and proposal are required." });
+    const { address, proposal } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    const stored = await createMarketProposal(proposal, address);
+    return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
+  } catch (error) { return next(error); }
+});
+
+marketsRouter.post("/proposals/mine/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid wallet address is required" });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    const proposals = await listMarketProposalsByWallet(address);
+    return res.status(200).json({ proposals, count: proposals.length });
+  } catch (error) { return next(error); }
+});
+
+marketsRouter.post("/admin/proposals/list/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid admin wallet address is required" });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    if (!isAdminWallet(address)) return res.status(403).json({ error: "Only the configured owner wallet can review proposals." });
+    const proposals = await listMarketProposals();
+    return res.status(200).json({ proposals, count: proposals.length });
+  } catch (error) { return next(error); }
+});
+
+marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, next) => {
+  try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address"), status: z.enum(["APPROVED", "REJECTED"]) }).safeParse(req.body);
+    if (!idResult.success || !parsed.success) return res.status(400).json({ error: "A valid proposal ID, wallet address, and decision are required." });
+    const { address, status } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    if (!isAdminWallet(address)) return res.status(403).json({ error: "Only the configured owner wallet can decide proposals." });
+    const proposal = await updateMarketProposalStatus(idResult.data, status);
+    if (!proposal) {
+      const existing = await getMarketProposal(idResult.data);
+      if (!existing) return res.status(404).json({ error: "Market proposal not found" });
+      return res.status(409).json({ error: "Only pending proposals can receive a decision", status: existing.status });
+    }
+    return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
+  } catch (error) { return next(error); }
+});
 marketsRouter.post("/auth/role", async (req, res, next) => {
   try {
     const result = walletAuthSchema.safeParse(req.body);
