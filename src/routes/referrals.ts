@@ -380,4 +380,47 @@ referralsRouter.get("/points-leaderboard", async (_req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+referralsRouter.get("/referral-leaderboard", async (_req, res, next) => {
+  try {
+    const result = await database.query<{ wallet: string; referrals: string; points: string }>(
+      `SELECT lower(a.referrer_wallet) AS wallet, COUNT(*)::text AS referrals,
+              COALESCE(SUM(p.points), 0)::text AS points
+       FROM referral_attributions a
+       LEFT JOIN leaderboard_point_events p
+         ON p.event_type = 'QUALIFIED_REFERRAL'
+        AND p.event_key = 'referral:' || lower(a.invited_wallet)
+        AND lower(p.wallet_address) = lower(a.referrer_wallet)
+       WHERE a.status = 'QUALIFIED'
+       GROUP BY lower(a.referrer_wallet)
+       ORDER BY COUNT(*) DESC, COALESCE(SUM(p.points), 0) DESC, lower(a.referrer_wallet) ASC
+       LIMIT 100`
+    );
+    return res.json({ period: "ALL_TIME", leaderboard: result.rows.map((row, index) => ({
+      rank: index + 1, wallet: row.wallet, referrals: Number(row.referrals), referralPoints: Number(row.points),
+    })) });
+  } catch (error) { return next(error); }
+});
+
+referralsRouter.get("/total-leaderboard", async (_req, res, next) => {
+  try {
+    const result = await database.query<{ wallet: string; referrals: string; referral_points: string; activity_points: string; total_points: string }>(
+      `WITH qualified_referrals AS (
+         SELECT lower(referrer_wallet) AS wallet, COUNT(*)::text AS referrals FROM referral_attributions WHERE status = 'QUALIFIED' GROUP BY lower(referrer_wallet)
+       ), points AS (
+         SELECT lower(wallet_address) AS wallet, SUM(points) FILTER (WHERE event_type = 'QUALIFIED_REFERRAL')::text AS referral_points,
+                SUM(points) FILTER (WHERE event_type <> 'QUALIFIED_REFERRAL')::text AS activity_points, SUM(points)::text AS total_points
+         FROM leaderboard_point_events GROUP BY lower(wallet_address)
+       ), wallets AS (SELECT wallet FROM points UNION SELECT wallet FROM qualified_referrals)
+       SELECT w.wallet, COALESCE(r.referrals, '0') AS referrals, COALESCE(p.referral_points, '0') AS referral_points,
+              COALESCE(p.activity_points, '0') AS activity_points, COALESCE(p.total_points, '0') AS total_points
+       FROM wallets w LEFT JOIN qualified_referrals r ON r.wallet = w.wallet LEFT JOIN points p ON p.wallet = w.wallet
+       ORDER BY COALESCE(p.total_points::bigint, 0) DESC, COALESCE(r.referrals::bigint, 0) DESC, w.wallet ASC LIMIT 100`
+    );
+    return res.json({ period: "ALL_TIME", leaderboard: result.rows.map((row, index) => ({
+      rank: index + 1, wallet: row.wallet, referrals: Number(row.referrals), referralPoints: Number(row.referral_points),
+      activityPoints: Number(row.activity_points), totalPoints: Number(row.total_points),
+    })) });
+  } catch (error) { return next(error); }
+});
+
 export default referralsRouter;
