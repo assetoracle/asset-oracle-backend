@@ -1,10 +1,6 @@
-name: Asset Oracle Backend Checks
+name: Asset Oracle Backend Build (Manual)
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
   workflow_dispatch:
 
 jobs:
