@@ -481,10 +481,12 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
 
     mapping(uint256 => bool) public feesPaid;
     mapping(uint256 => bool) public disputeFiledByMarket;
+    /// @notice Owner cancellation is only available before the market closes.
+    /// @dev After close, participants must use consensus resolution or the timeout-refund path.
     function cancelMarket(uint256 marketId, bytes32 reasonHash) external onlyOwner {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
-        if (market.status != Status.OPEN && market.status != Status.CLOSED) revert InvalidStatus();
+        if (market.status != Status.OPEN) revert InvalidStatus();
         market.status = Status.CANCELLED;
         market.evidenceHash = reasonHash;
         emit MarketCancelled(marketId, reasonHash);
