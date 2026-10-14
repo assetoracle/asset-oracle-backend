@@ -125,6 +125,31 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
   } catch (error) { return next(error); }
 });
+// Return authoritative role and permissions using the already verified wallet session.
+marketsRouter.post("/auth/role/session", async (req, res, next) => {
+  try {
+    const result = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: "A valid wallet address is required." });
+    const { address } = result.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    const role = getWalletRole(address);
+    return res.status(200).json({
+      address,
+      role,
+      permissions: {
+        createMarketProposal: isMarketCreatorWallet(address),
+        viewOwnProposals: true,
+        reviewAllProposals: role === "OWNER",
+        approveOrRejectProposals: role === "OWNER",
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 marketsRouter.post("/auth/role", async (req, res, next) => {
   try {
     const result = walletAuthSchema.safeParse(req.body);
