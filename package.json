@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "DATABASE_URL=postgres://test:test@127.0.0.1:5432/asset_oracle_test tsx --test $(find src -name '*.test.ts' -print)"
   },
   "dependencies": {
     "cors": "^2.8.5",

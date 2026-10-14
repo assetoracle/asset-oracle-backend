@@ -24,5 +24,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Typecheck backend
+        run: npm run typecheck
+
+      - name: Run backend tests
+        run: npm test
+
       - name: Build backend
         run: npm run build
