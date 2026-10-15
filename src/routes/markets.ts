@@ -5,6 +5,7 @@ import { marketProposalSchema } from "../services/marketValidation.js";
 import { getWalletRole, getWalletRoleDetails, isAdminWallet, isMarketCreatorWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import {
   createMarketProposal,
+  updateOwnedMarketProposal,
   getMarketProposal,
   listPublishedMarkets,
   listMarketProposals,
@@ -92,6 +93,44 @@ marketsRouter.post("/proposals/session", async (req, res, next) => {
     });
     return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
   } catch (error) { return next(error); }
+});
+
+marketsRouter.put("/proposals/:id/session", async (req, res, next) => {
+  try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      proposal: marketProposalSchema,
+    }).safeParse(req.body);
+    if (!idResult.success || !parsed.success) {
+      return res.status(400).json({ error: "A valid proposal ID, wallet address, and updated proposal are required." });
+    }
+    const { address, proposal: input } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    if (!isMarketCreatorWallet(address)) {
+      return res.status(403).json({ error: "Only configured market creators can edit proposals." });
+    }
+    const updated = await updateOwnedMarketProposal(idResult.data, address, input);
+    if (!updated) {
+      const existing = await getMarketProposal(idResult.data);
+      if (!existing) return res.status(404).json({ error: "Market proposal not found." });
+      if (existing.walletAddress?.toLowerCase() !== address.toLowerCase()) {
+        return res.status(403).json({ error: "You can only edit proposals submitted by your connected wallet." });
+      }
+      if (existing.onchainTxHash || existing.onchainMarketId) {
+        return res.status(409).json({ error: "This proposal already has an on-chain market and cannot be edited." });
+      }
+      return res.status(409).json({ error: "This proposal cannot be edited. Refresh your proposals and try again." });
+    }
+    return res.status(200).json({
+      message: "Proposal updated and resubmitted for approval.",
+      proposal: updated,
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 marketsRouter.post("/proposals/mine/session", async (req, res, next) => {
