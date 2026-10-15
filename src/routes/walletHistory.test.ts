@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { formatIndexedAmount, getWalletIndexerStatus, normalizeManagerAddresses } from "./walletHistory.js";
-const current = "0x1111111111111111111111111111111111111111";
-const legacy = "0x2222222222222222222222222222222222222222";
+const current = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const legacy = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const now = Date.now();
-test("includes current and legacy managers once and rejects malformed addresses", () => assert.deepEqual(normalizeManagerAddresses(current, [legacy, current.toUpperCase(), "bad"]), [current, legacy]));
+test("includes current and legacy managers once and rejects malformed addresses", () => assert.deepEqual(normalizeManagerAddresses(current, [legacy, "0x" + current.slice(2).toUpperCase(), "bad"]), [current, legacy]));
 test("formats six-decimal token amounts", () => assert.equal(formatIndexedAmount("1234567", 6), "1.234567"));
 test("formats eighteen-decimal token amounts", () => assert.equal(formatIndexedAmount("1234567890000000000", 18), "1.23456789"));
 test("does not guess decimals when token metadata is unavailable", () => assert.equal(formatIndexedAmount("1234567", null), null));
