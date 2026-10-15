@@ -106,30 +106,35 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     let historyStatus = "INDEXER_DISABLED";
     if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
       try {
-        const result = await (await import("../config/database.js")).database.query<{
+        const legacyManagers = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "")
+          .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+        const indexedManagers = [...new Set([manager.toLowerCase(), ...legacyManagers])];
+        const database = (await import("../config/database.js")).database;
+        const result = await database.query<{
           event_name: string; tx_hash: string; block_number: string; block_timestamp: Date;
           market_id: string; gross_amount: string | null; outcome: number | null;
         }>(`SELECT event_name, tx_hash, block_number::text, block_timestamp, market_id::text, gross_amount::text, outcome
             FROM onchain_stats_events
-            WHERE chain_id = $1 AND manager_address = $2 AND wallet_address = $3
-            ORDER BY block_number DESC, log_index DESC LIMIT 250`, [EXPECTED_CHAIN_ID, manager.toLowerCase(), wallet]);
+            WHERE chain_id = $1 AND manager_address = ANY($2::text[]) AND wallet_address = $3
+            ORDER BY block_number DESC, log_index DESC LIMIT 250`, [EXPECTED_CHAIN_ID, indexedManagers, wallet]);
         history = result.rows.map((row) => ({
           type: row.event_name, transactionHash: row.tx_hash, blockNumber: row.block_number,
           timestamp: new Date(row.block_timestamp).toISOString(), marketId: row.market_id,
           amount: row.gross_amount === null ? null : formatUnits(BigInt(row.gross_amount), marketDecimals.get(Number(row.market_id)) ?? 6),
           outcome: row.outcome,
         }));
-        const cursorResult = await (await import("../config/database.js")).database.query<{
-          last_scanned_block: string; updated_at: Date;
-        }>("SELECT last_scanned_block::text, updated_at FROM onchain_stats_cursors WHERE chain_id = $1 AND manager_address = $2", [EXPECTED_CHAIN_ID, manager.toLowerCase()]);
-        if (!cursorResult.rows[0]) historyStatus = "INDEXER_NOT_INITIALIZED";
+        const cursorResult = await database.query<{
+          manager_address: string; last_scanned_block: string; updated_at: Date;
+        }>("SELECT manager_address, last_scanned_block::text, updated_at FROM onchain_stats_cursors WHERE chain_id = $1 AND manager_address = ANY($2::text[])", [EXPECTED_CHAIN_ID, indexedManagers]);
+        if (cursorResult.rows.length < indexedManagers.length) historyStatus = "INDEXER_NOT_INITIALIZED";
         else {
-          const indexedBlock = BigInt(cursorResult.rows[0].last_scanned_block);
           const headBlock = await client.getBlockNumber();
-          const stale = Date.now() - new Date(cursorResult.rows[0].updated_at).getTime() > 120_000;
-          historyStatus = !stale && headBlock - indexedBlock <= 3n
-            ? "VERIFIED_ONCHAIN_EVENT_INDEX"
-            : "INDEXER_CATCHING_UP";
+          const staleOrBehind = cursorResult.rows.some((cursor) => {
+            const indexedBlock = BigInt(cursor.last_scanned_block);
+            const stale = Date.now() - new Date(cursor.updated_at).getTime() > 120_000;
+            return stale || indexedBlock > headBlock || headBlock - indexedBlock > 3n;
+          });
+          historyStatus = staleOrBehind ? "INDEXER_CATCHING_UP" : "VERIFIED_ONCHAIN_EVENT_INDEX";
         }
       } catch {
         historyStatus = "INDEX_UNAVAILABLE";
