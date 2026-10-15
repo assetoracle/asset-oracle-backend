@@ -11,3 +11,8 @@ export const HUMAN_VALIDATOR_ADDRESSES = [
   "0xb94185491c78e7331c5d53e9b0df74970b3c9b8a",
   "0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01",
 ] as const;
+
+/** Existing manager that still owns legacy market positions and claimable funds. */
+export const LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES = [
+  "0xf41fc574765175A59a9d064F7F2719EB7380a452",
+] as const;
