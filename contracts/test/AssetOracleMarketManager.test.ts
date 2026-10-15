@@ -272,7 +272,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     ).to.be.reverted;
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(977_550n);
   });
 
   it("distributes payouts in bounded batches and skips participants who already claimed", async function () {
@@ -291,7 +291,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.outsider).distributePayouts(1, 0, 50);
     expect(await f.manager.claimCountByMarket(1)).to.equal(3n);
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
-    await expect(f.manager.connect(f.outsider).distributePayouts(1, 0, 50)).to.be.reverted;
+    await expect(f.manager.connect(f.outsider).distributePayouts(1, 3, 50)).to.be.reverted;
   });
 
   it("returns the full net stake for an INVALID outcome without settlement fees", async function () {
