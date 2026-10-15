@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { createPublicClient, formatUnits, http, isAddress } from "viem";
 import { formatIndexedAmount, normalizeManagerAddresses, getWalletIndexerStatus } from "./walletHistory.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const statsRouter = Router();
 const DEFAULT_RPC_URL = "https://enugu-rpc.assetchain.org";
@@ -31,7 +32,7 @@ const WALLET_ACCOUNT_ABI = [
 statsRouter.get("/wallet/:address", async (req, res) => {
   const address = req.params.address;
   if (!isAddress(address)) return res.status(400).json({ error: "A valid wallet address is required." });
-  const manager = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+  const manager = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
   const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || DEFAULT_RPC_URL;
   const configuredChainId = Number(process.env.ASSET_CHAIN_ID || EXPECTED_CHAIN_ID);
   if (!manager || !isAddress(manager) || configuredChainId !== EXPECTED_CHAIN_ID) {
@@ -219,7 +220,7 @@ statsRouter.get("/dashboard", async (_req, res) => {
   let indexerStatus = "AWAITING_VERIFIED_ONCHAIN_INDEX";
   let lastIndexedBlock: string | null = null;
 
-  const managerAddress = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+  const managerAddress = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
   const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || DEFAULT_RPC_URL;
   const configuredChainId = Number(process.env.ASSET_CHAIN_ID || EXPECTED_CHAIN_ID);
 
