@@ -1,3 +1,4 @@
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 import { createPublicClient, http, parseAbiItem, type Log } from "viem";
 import { database } from "../config/database.js";
 
@@ -53,8 +54,6 @@ function decimalAmount(raw: string): string {
   const fraction = (value % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
-
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 export { decimalAmount };
 
