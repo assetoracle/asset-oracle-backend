@@ -65,6 +65,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     mapping(uint256 => mapping(address => uint256)) public refunds;
     mapping(uint256 => mapping(address => bool)) public participantRegistered;
     mapping(uint256 => uint256) public participantCountByMarket;
+    mapping(uint256 => address[]) private participantsByMarket;
     mapping(uint256 => uint256) public claimCountByMarket;
     mapping(uint256 => uint256) public claimedPayoutsByMarket;
     mapping(uint256 => uint256) public retainedNoWinnerByMarket;
@@ -106,6 +107,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     event MarketFinalized(uint256 indexed marketId, Outcome outcome);
     event Claimed(uint256 indexed marketId, address indexed user, uint256 amount);
     event Refunded(uint256 indexed marketId, address indexed user, uint256 amount);
+    event PayoutBatchProcessed(uint256 indexed marketId, uint256 startIndex, uint256 endIndex, uint256 participantCount);
     event FeesDistributed(uint256 indexed marketId, uint256 validatorAmount, uint256 treasuryAmount);
     event MarketCancelled(uint256 indexed marketId, bytes32 reasonHash);
 
@@ -280,6 +282,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (!participantRegistered[marketId][msg.sender]) {
             participantRegistered[marketId][msg.sender] = true;
             participantCountByMarket[marketId]++;
+            participantsByMarket[marketId].push(msg.sender);
         }
         if (yesSide) {
             position.yes += netAmount;
@@ -324,8 +327,11 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         market.outcome = outcome;
         market.evidenceHash = evidenceHash;
         market.resolvedAt = uint64(block.timestamp);
-        market.status = Status.DISPUTED;
+        // Initial 2-of-3 human consensus is final for this market. Payouts are
+        // transferred in bounded permissionless batches to avoid an unbounded loop.
+        market.status = Status.SETTLED;
         emit MarketResolved(marketId, outcome, evidenceHash, msg.sender);
+        emit MarketFinalized(marketId, outcome);
     }
 
     function disputeResolution(uint256 marketId, bytes32 evidenceHash) external {
@@ -389,10 +395,43 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     function claim(uint256 marketId) external nonReentrant {
+        _claimFor(marketId, msg.sender);
+    }
+
+    /// @notice Distribute payouts to a bounded slice of participants after 2-of-3 consensus.
+    /// @dev Anyone may call this repeatedly; already-claimed participants are skipped.
+    function distributePayouts(uint256 marketId, uint256 startIndex, uint256 batchSize) external nonReentrant {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
         if (market.status != Status.SETTLED) revert InvalidStatus();
-        Position storage position = positions[marketId][msg.sender];
+        if (batchSize == 0 || batchSize > 50) revert InvalidMarketParameters();
+
+        address[] storage participants = participantsByMarket[marketId];
+        uint256 count = participants.length;
+        if (startIndex >= count) revert InvalidMarketParameters();
+        uint256 endIndex = startIndex + batchSize;
+        if (endIndex > count) endIndex = count;
+
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            address participant = participants[i];
+            if (!positions[marketId][participant].claimed) {
+                _claimFor(marketId, participant);
+            }
+        }
+        emit PayoutBatchProcessed(marketId, startIndex, endIndex, count);
+    }
+
+    function getParticipantAt(uint256 marketId, uint256 index) external view returns (address) {
+        if (markets[marketId].id == 0) revert MarketNotFound();
+        return participantsByMarket[marketId][index];
+    }
+
+    function _claimFor(uint256 marketId, address user) internal {
+
+        Market storage market = markets[marketId];
+        if (market.id == 0) revert MarketNotFound();
+        if (market.status != Status.SETTLED) revert InvalidStatus();
+        Position storage position = positions[marketId][user];
         if (position.claimed) revert AlreadyClaimed();
         if (position.yes == 0 && position.no == 0) revert NothingToClaim();
         uint256 amount;
@@ -403,8 +442,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             if (amount == 0) revert NothingToClaim();
             position.claimed = true;
             claimedPayoutsByMarket[marketId] += amount;
-            token.safeTransfer(msg.sender, amount);
-            emit Refunded(marketId, msg.sender, amount);
+            token.safeTransfer(user, amount);
+            emit Refunded(marketId, user, amount);
             _recordSettlementClaim(marketId, market, token);
             return;
         }
@@ -425,8 +464,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
                 if (retainedAmount > 0) token.safeTransfer(treasury, retainedAmount);
                 emit FeesDistributed(marketId, 0, retainedAmount);
             }
-            if (amount > 0) token.safeTransfer(msg.sender, amount);
-            emit Refunded(marketId, msg.sender, amount);
+            if (amount > 0) token.safeTransfer(user, amount);
+            emit Refunded(marketId, user, amount);
             _recordSettlementClaim(marketId, market, token);
             return;
         }
@@ -451,8 +490,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             token.safeTransfer(treasury, treasuryFee);
             emit FeesDistributed(marketId, validatorFee, treasuryFee);
         }
-        token.safeTransfer(msg.sender, amount);
-        emit Claimed(marketId, msg.sender, amount);
+        token.safeTransfer(user, amount);
+        emit Claimed(marketId, user, amount);
         _recordSettlementClaim(marketId, market, token);
     }
 
