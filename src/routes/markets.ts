@@ -133,6 +133,25 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
   } catch (error) { return next(error); }
 });
+// Public role preview lets the UI show the connected wallet's configured role immediately.
+ // This endpoint only reports the public role allowlist; protected actions still require a verified session.
+marketsRouter.post("/auth/role/public", (req, res) => {
+  const result = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+  if (!result.success) return res.status(400).json({ error: "A valid wallet address is required." });
+  const { address } = result.data;
+  const role = getWalletRole(address);
+  return res.status(200).json({
+    address,
+    role,
+    permissions: {
+      createMarketProposal: isMarketCreatorWallet(address),
+      viewOwnProposals: true,
+      reviewAllProposals: role === "OWNER",
+      approveOrRejectProposals: role === "OWNER",
+    },
+  });
+});
+
 // Return authoritative role and permissions using the already verified wallet session.
 marketsRouter.post("/auth/role/session", async (req, res, next) => {
   try {
