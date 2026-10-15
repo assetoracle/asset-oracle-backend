@@ -114,6 +114,40 @@ export async function createMarketProposal(
   return mapProposal(result.rows[0]);
 }
 
+export async function updateOwnedMarketProposal(
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         "closesAt" = $6,
+         "resolvesAt" = $7,
+         "resolutionRule" = $8,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
 export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
   const result = await database.query<MarketProposalRow>(
     `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
