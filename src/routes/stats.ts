@@ -103,7 +103,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
             const status = Number(market.status ?? market[13]);
             const resolvedAt = BigInt(market.resolvedAt ?? market[8] as bigint);
             const challengePeriod = BigInt(market.challengePeriod ?? market[7] as bigint);
-            const challengeElapsed = status === 2 && resolvedAt > 0n && BigInt(Math.floor(Date.now() / 1000)) >= resolvedAt + challengePeriod;
+            const challengeElapsed = status === 2 && [1, 2, 3].includes(outcome) && resolvedAt > 0n && BigInt(Math.floor(Date.now() / 1000)) >= resolvedAt + challengePeriod;
             const claimableStatus = status === 3 || status === 4 || status === 5 || challengeElapsed;
             const position = positionRaw as unknown as readonly [bigint, bigint, boolean];
             const yes = position[0];
