@@ -20,19 +20,17 @@
 
 ## Current gate
 
-- [x] Deployment transaction hash and manager address recorded.
-- [x] Read-only Enugu preflight passed.
-- [x] Approved testnet USDC configuration and six decimals verified by preflight.
-- [x] Owner creator/resolver roles verified by preflight (legacy deployment only).
-- [ ] Deploy a new manager from the validator-consensus contract source; the existing deployed manager does not enforce 2-of-3 voting.
-- [ ] Configure and read back this fixed roster before creating any markets: primary `0x3d3724d20d9d5db5a40819869057b37465a0c67d`, validator 2 `0xb94185491c78e7331c5d53e9b0df74970b3c9b8a`, validator 3 `0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01`.
+- [x] Current 2-of-3 manager address recorded: `0x5fc327f55cf533ed5d05337f835be37ff1e0db1f`.
+- [x] Fixed validator roster documented: primary/Validator 1 `0x3d3724d20d9d5db5a40819869057b37465a0c67d`, Validator 2 `0xb94185491c78e7331c5d53e9b0df74970b3c9b8a`, Validator 3 `0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01`.
+- [ ] Attach the current manager's deployment transaction/block evidence and rerun read-only Enugu preflight against that address.
+- [ ] Confirm live backend and frontend both use the current 2-of-3 manager.
 - [ ] Latest contract tests and compile pass on the exact source commit.
 - [ ] Ownership-transfer regression test confirms admin, creator, and resolver roles move to the new owner and are revoked from the former owner.
 - [ ] Confirm live backend and frontend both use the same manager address and Enugu RPC.
 - [ ] Owner wallet has testnet gas and only test USDC for this rehearsal.
 - [ ] No private key is committed, pasted into chat, or placed in frontend environment variables.
 
-**Stop condition:** The existing manager at the address above does not support the new 2-of-3 validator roster. Do not use it for validator-consensus market resolution. A new testnet deployment and frontend/backend address update are required after tests pass and the three wallets are confirmed. Do not submit lifecycle transactions until all remaining gate items are checked, the latest contract code is reviewed against the deployed bytecode/source, and the frontend/backend configuration is confirmed. This deployment is testnet-only and unaudited.
+**Stop condition:** Do not use the legacy manager for new market creation or validator-consensus settlement. The current 2-of-3 manager is `0x5fc327f55cf533ed5d05337f835be37ff1e0db1f`. Before lifecycle transactions, attach its deployment evidence, rerun read-only preflight, confirm its live validator roster and owner permissions, and verify backend/frontend point to this same address. Testnet only; unaudited.
 
 ## Step 1 — Read-only preflight
 
