@@ -115,34 +115,36 @@ statsRouter.get("/wallet/:address", async (req, res) => {
             FROM onchain_stats_events
             WHERE chain_id = $1 AND manager_address = ANY($2::text[]) AND wallet_address = $3
             ORDER BY block_number DESC, log_index DESC LIMIT 250`, [EXPECTED_CHAIN_ID, indexedManagers, wallet]);
-        const historyDecimals = new Map<string, number>();
-        const resolveHistoryDecimals = async (managerAddress: string, marketId: string): Promise<number | null> => {
+        const historyDecimals = new Map<string, Promise<number | null>>();
+        const resolveHistoryDecimals = (managerAddress: string, marketId: string): Promise<number | null> => {
           const key = `${managerAddress.toLowerCase()}:${marketId}`;
           const cached = historyDecimals.get(key);
-          if (cached !== undefined) return cached;
-          try {
-            const marketRaw = await client.readContract({
-              address: managerAddress as `0x${string}`,
-              abi: WALLET_ACCOUNT_ABI,
-              functionName: "getMarket",
-              args: [BigInt(marketId)],
-            });
-            const market = marketRaw as unknown as readonly unknown[] & { stablecoin?: number };
-            const stablecoinId = Number(market.stablecoin ?? market[2]);
-            if (!Number.isInteger(stablecoinId) || stablecoinId < 0 || stablecoinId > 255) return null;
-            const coin = await client.readContract({
-              address: managerAddress as `0x${string}`,
-              abi: WALLET_ACCOUNT_ABI,
-              functionName: "stablecoins",
-              args: [stablecoinId],
-            });
-            const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
-            if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) return null;
-            historyDecimals.set(key, decimals);
-            return decimals;
-          } catch {
-            return null;
-          }
+          if (cached) return cached;
+          const lookup = (async (): Promise<number | null> => {
+            try {
+              const marketRaw = await client.readContract({
+                address: managerAddress as `0x${string}`,
+                abi: WALLET_ACCOUNT_ABI,
+                functionName: "getMarket",
+                args: [BigInt(marketId)],
+              });
+              const market = marketRaw as unknown as readonly unknown[] & { stablecoin?: number };
+              const stablecoinId = Number(market.stablecoin ?? market[2]);
+              if (!Number.isInteger(stablecoinId) || stablecoinId < 0 || stablecoinId > 255) return null;
+              const coin = await client.readContract({
+                address: managerAddress as `0x${string}`,
+                abi: WALLET_ACCOUNT_ABI,
+                functionName: "stablecoins",
+                args: [stablecoinId],
+              });
+              const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
+              return Number.isInteger(decimals) && decimals >= 0 && decimals <= 255 ? decimals : null;
+            } catch {
+              return null;
+            }
+          })();
+          historyDecimals.set(key, lookup);
+          return lookup;
         };
         history = await Promise.all(result.rows.map(async (row) => {
           const decimals = row.gross_amount === null ? null : await resolveHistoryDecimals(row.manager_address, row.market_id);
