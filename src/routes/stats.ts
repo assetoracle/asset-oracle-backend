@@ -48,7 +48,6 @@ statsRouter.get("/wallet/:address", async (req, res) => {
 
     const positions: Array<Record<string, unknown>> = [];
     const claimable: Array<Record<string, unknown>> = [];
-    const marketDecimals = new Map<number, number>();
     const wallet = address.toLowerCase();
     for (let start = 1; start <= count; start += 10) {
       const ids = Array.from({ length: Math.min(10, count - start + 1) }, (_, index) => start + index);
@@ -76,7 +75,6 @@ statsRouter.get("/wallet/:address", async (req, res) => {
         if (yes === 0n && no === 0n) return null;
         const coin = await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "stablecoins", args: [stablecoinId] });
         const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
-        marketDecimals.set(id, decimals);
         const winningPool = outcome === 1 ? totalYes : outcome === 2 ? totalNo : 0n;
         let payout = 0n;
         if ((status === 3 || status === 4 || status === 5) && !claimed) {
