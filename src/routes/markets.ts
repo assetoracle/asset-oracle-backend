@@ -2,7 +2,7 @@ import { Router } from "express";
 import { createPublicClient, getAddress, http, isAddress, parseEventLogs } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
-import { getWalletRole, isAdminWallet, isMarketCreatorWallet, verifyAdminWallet } from "../services/adminAuth.js";
+import { getWalletRole, getWalletRoleDetails, isAdminWallet, isMarketCreatorWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import {
   createMarketProposal,
   getMarketProposal,
@@ -20,6 +20,7 @@ import {
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
 import { awardLeaderboardPoints } from "../services/pointsStore.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
 
@@ -139,16 +140,9 @@ marketsRouter.post("/auth/role/public", (req, res) => {
   const result = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
   if (!result.success) return res.status(400).json({ error: "A valid wallet address is required." });
   const { address } = result.data;
-  const role = getWalletRole(address);
   return res.status(200).json({
     address,
-    role,
-    permissions: {
-      createMarketProposal: isMarketCreatorWallet(address),
-      viewOwnProposals: true,
-      reviewAllProposals: role === "OWNER",
-      approveOrRejectProposals: role === "OWNER",
-    },
+    ...getWalletRoleDetails(address),
   });
 });
 
@@ -161,17 +155,10 @@ marketsRouter.post("/auth/role/session", async (req, res, next) => {
     if (!await verifyWalletSession(sessionToken(req), address)) {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
-    const role = getWalletRole(address);
     return res.status(200).json({
-      address,
-      role,
-      permissions: {
-        createMarketProposal: isMarketCreatorWallet(address),
-        viewOwnProposals: true,
-        reviewAllProposals: role === "OWNER",
-        approveOrRejectProposals: role === "OWNER",
-      },
-    });
+    address,
+    ...getWalletRoleDetails(address),
+  });
   } catch (error) {
     return next(error);
   }
@@ -202,13 +189,7 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
 
     return res.status(200).json({
       address,
-      role: getWalletRole(address),
-      permissions: {
-        createMarketProposal: isMarketCreatorWallet(address),
-        viewOwnProposals: true,
-        reviewAllProposals: getWalletRole(address) === "OWNER",
-        approveOrRejectProposals: getWalletRole(address) === "OWNER",
-      },
+      ...getWalletRoleDetails(address),
     });
   } catch (error) {
     return next(error);
@@ -513,7 +494,7 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
       return res.status(409).json({ error: "Only approved proposals can be linked to an on-chain market." });
     }
 
-    const manager = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+    const manager = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
     const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || "https://enugu-rpc.assetchain.org";
     const expectedChainId = Number(process.env.ASSET_CHAIN_ID || "42421");
     if (!manager || !isAddress(manager) || expectedChainId !== 42421) {
@@ -620,7 +601,7 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
       return res.status(409).json({ error: "Only approved proposals can be linked to an on-chain market." });
     }
 
-    const manager = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+    const manager = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
     const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || "https://enugu-rpc.assetchain.org";
     const expectedChainId = Number(process.env.ASSET_CHAIN_ID || "42421");
     if (!manager || !isAddress(manager) || expectedChainId !== 42421) {

@@ -1,7 +1,8 @@
 import { getAddress, isAddress } from "viem";
 import { verifyWalletSignature } from "./walletAuth.js";
+import { HUMAN_VALIDATOR_ADDRESSES } from "../config/assetOracle.js";
 
-export type WalletRole = "OWNER" | "MARKET_CREATOR" | "USER";
+export type WalletRole = "OWNER" | "VALIDATOR_2" | "VALIDATOR_3" | "MARKET_CREATOR" | "USER";
 
 function configuredWallets(...values: Array<string | undefined>): string[] {
   return values
@@ -36,11 +37,46 @@ export function isMarketCreatorWallet(address: string): boolean {
   return creators.includes(normalizedAddress) || isAdminWallet(normalizedAddress);
 }
 
+export function getHumanValidatorNumber(address: string): 1 | 2 | 3 | null {
+  if (!isAddress(address)) return null;
+  const normalized = getAddress(address);
+  const index = HUMAN_VALIDATOR_ADDRESSES.findIndex(
+    (validator) => getAddress(validator) === normalized,
+  );
+  return index < 0 ? null : (index + 1) as 1 | 2 | 3;
+}
+
+export function isHumanValidator(address: string): boolean {
+  return getHumanValidatorNumber(address) !== null;
+}
+
 export function getWalletRole(address: string): WalletRole {
   if (!isAddress(address)) return "USER";
   if (isAdminWallet(address)) return "OWNER";
+  const validatorNumber = getHumanValidatorNumber(address);
+  if (validatorNumber === 2) return "VALIDATOR_2";
+  if (validatorNumber === 3) return "VALIDATOR_3";
   if (isMarketCreatorWallet(address)) return "MARKET_CREATOR";
   return "USER";
+}
+
+export function getWalletRoleDetails(address: string) {
+  const isOwner = isAdminWallet(address);
+  const validatorNumber = getHumanValidatorNumber(address);
+  return {
+    role: getWalletRole(address),
+    isOwner,
+    humanValidator: validatorNumber !== null,
+    validatorNumber,
+    permissions: {
+      createMarketProposal: isMarketCreatorWallet(address),
+      viewOwnProposals: true,
+      reviewAllProposals: isOwner,
+      approveOrRejectProposals: isOwner,
+      isHumanValidator: validatorNumber !== null,
+      validatorNumber,
+    },
+  };
 }
 
 export async function verifyAdminWallet(

@@ -1,3 +1,4 @@
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 import { createPublicClient, http, parseAbiItem, type Log } from "viem";
 import { database } from "../config/database.js";
 
@@ -57,7 +58,7 @@ function decimalAmount(raw: string): string {
 export { decimalAmount };
 
 export async function initializeOnchainStatsIndexer(): Promise<void> {
-  const current = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+  const current = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
   const legacy = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",").map((value) => value.trim()).filter(Boolean);
   const managers = [...new Set([current, ...legacy].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase()))];
   if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {

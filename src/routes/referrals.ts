@@ -6,6 +6,7 @@ import { verifyWalletSession, verifyWalletSignature } from "../services/walletAu
 import { isAdminWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import { createReferralCodeValue, fingerprintIp } from "../services/referralStore.js";
 import { awardLeaderboardPoints, getPointsLeaderboard } from "../services/pointsStore.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const referralsRouter = Router();
 const walletAuthSchema = z.object({
@@ -14,7 +15,7 @@ const walletAuthSchema = z.object({
   signature: z.string().regex(/^0x[0-9a-fA-F]+$/, "Invalid signature"),
 });
 const rpcUrl = process.env.ASSET_CHAIN_RPC_URL || "https://enugu-rpc.assetchain.org";
-const managerAddress = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
+const managerAddress = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
 const stakedEvent = parseAbiItem("event Staked(uint256 indexed marketId, address indexed user, bool yesSide, uint256 grossAmount, uint256 fee, uint256 netAmount)");
 
 async function authenticate(address: string, message: string, signature: string) {
