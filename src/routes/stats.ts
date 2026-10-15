@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createPublicClient, formatUnits, http, isAddress } from "viem";
 import { formatIndexedAmount, normalizeManagerAddresses, getWalletIndexerStatus } from "./walletHistory.js";
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES } from "../config/assetOracle.js";
 
 const statsRouter = Router();
 const DEFAULT_RPC_URL = "https://enugu-rpc.assetchain.org";
@@ -47,7 +47,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     const count = Number(await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "marketCount" }));
     if (!Number.isSafeInteger(count) || count < 0 || count > 5000) return res.status(503).json({ error: "Market count is outside the supported account-history range." });
 
-    const legacyManagers = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",");
+    const legacyManagers = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")];
     const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
     const managerCounts = new Map<string, number>([[manager.toLowerCase(), count]]);
     let positionsComplete = true;
@@ -144,7 +144,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     let historyStatus = "INDEXER_DISABLED";
     if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
       try {
-        const legacyManagers = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",");
+        const legacyManagers = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")];
         const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
         const database = (await import("../config/database.js")).database;
         const result = await database.query<{
