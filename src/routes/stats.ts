@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { createPublicClient, formatUnits, http, isAddress } from "viem";
+import { formatIndexedAmount, normalizeManagerAddresses, getWalletIndexerStatus } from "./walletHistory.js";
 
 const statsRouter = Router();
 const DEFAULT_RPC_URL = "https://enugu-rpc.assetchain.org";
@@ -47,7 +48,6 @@ statsRouter.get("/wallet/:address", async (req, res) => {
 
     const positions: Array<Record<string, unknown>> = [];
     const claimable: Array<Record<string, unknown>> = [];
-    const marketDecimals = new Map<number, number>();
     const wallet = address.toLowerCase();
     for (let start = 1; start <= count; start += 10) {
       const ids = Array.from({ length: Math.min(10, count - start + 1) }, (_, index) => start + index);
@@ -75,7 +75,6 @@ statsRouter.get("/wallet/:address", async (req, res) => {
         if (yes === 0n && no === 0n) return null;
         const coin = await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "stablecoins", args: [stablecoinId] });
         const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
-        marketDecimals.set(id, decimals);
         const winningPool = outcome === 1 ? totalYes : outcome === 2 ? totalNo : 0n;
         let payout = 0n;
         if ((status === 3 || status === 4 || status === 5) && !claimed) {
@@ -106,36 +105,61 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     let historyStatus = "INDEXER_DISABLED";
     if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
       try {
-        const legacyManagers = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "")
-          .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
-        const indexedManagers = [...new Set([manager.toLowerCase(), ...legacyManagers])];
+        const legacyManagers = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",");
+        const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
         const database = (await import("../config/database.js")).database;
         const result = await database.query<{
-          event_name: string; tx_hash: string; block_number: string; block_timestamp: Date;
+          manager_address: string; event_name: string; tx_hash: string; block_number: string; block_timestamp: Date;
           market_id: string; gross_amount: string | null; outcome: number | null;
-        }>(`SELECT event_name, tx_hash, block_number::text, block_timestamp, market_id::text, gross_amount::text, outcome
+        }>(`SELECT manager_address, event_name, tx_hash, block_number::text, block_timestamp, market_id::text, gross_amount::text, outcome
             FROM onchain_stats_events
             WHERE chain_id = $1 AND manager_address = ANY($2::text[]) AND wallet_address = $3
             ORDER BY block_number DESC, log_index DESC LIMIT 250`, [EXPECTED_CHAIN_ID, indexedManagers, wallet]);
-        history = result.rows.map((row) => ({
-          type: row.event_name, transactionHash: row.tx_hash, blockNumber: row.block_number,
-          timestamp: new Date(row.block_timestamp).toISOString(), marketId: row.market_id,
-          amount: row.gross_amount === null ? null : formatUnits(BigInt(row.gross_amount), marketDecimals.get(Number(row.market_id)) ?? 6),
-          outcome: row.outcome,
+        const historyDecimals = new Map<string, Promise<number | null>>();
+        const resolveHistoryDecimals = (managerAddress: string, marketId: string): Promise<number | null> => {
+          const key = `${managerAddress.toLowerCase()}:${marketId}`;
+          const cached = historyDecimals.get(key);
+          if (cached) return cached;
+          const lookup = (async (): Promise<number | null> => {
+            try {
+              const marketRaw = await client.readContract({
+                address: managerAddress as `0x${string}`,
+                abi: WALLET_ACCOUNT_ABI,
+                functionName: "getMarket",
+                args: [BigInt(marketId)],
+              });
+              const market = marketRaw as unknown as readonly unknown[] & { stablecoin?: number };
+              const stablecoinId = Number(market.stablecoin ?? market[2]);
+              if (!Number.isInteger(stablecoinId) || stablecoinId < 0 || stablecoinId > 255) return null;
+              const coin = await client.readContract({
+                address: managerAddress as `0x${string}`,
+                abi: WALLET_ACCOUNT_ABI,
+                functionName: "stablecoins",
+                args: [stablecoinId],
+              });
+              const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
+              return Number.isInteger(decimals) && decimals >= 0 && decimals <= 255 ? decimals : null;
+            } catch {
+              return null;
+            }
+          })();
+          historyDecimals.set(key, lookup);
+          return lookup;
+        };
+        history = await Promise.all(result.rows.map(async (row) => {
+          const decimals = row.gross_amount === null ? null : await resolveHistoryDecimals(row.manager_address, row.market_id);
+          return {
+            type: row.event_name, transactionHash: row.tx_hash, blockNumber: row.block_number,
+            timestamp: new Date(row.block_timestamp).toISOString(), marketId: row.market_id,
+            amount: formatIndexedAmount(row.gross_amount, decimals),
+            outcome: row.outcome,
+          };
         }));
         const cursorResult = await database.query<{
           manager_address: string; last_scanned_block: string; updated_at: Date;
         }>("SELECT manager_address, last_scanned_block::text, updated_at FROM onchain_stats_cursors WHERE chain_id = $1 AND manager_address = ANY($2::text[])", [EXPECTED_CHAIN_ID, indexedManagers]);
-        if (cursorResult.rows.length < indexedManagers.length) historyStatus = "INDEXER_NOT_INITIALIZED";
-        else {
-          const headBlock = await client.getBlockNumber();
-          const staleOrBehind = cursorResult.rows.some((cursor) => {
-            const indexedBlock = BigInt(cursor.last_scanned_block);
-            const stale = Date.now() - new Date(cursor.updated_at).getTime() > 120_000;
-            return stale || indexedBlock > headBlock || headBlock - indexedBlock > 3n;
-          });
-          historyStatus = staleOrBehind ? "INDEXER_CATCHING_UP" : "VERIFIED_ONCHAIN_EVENT_INDEX";
-        }
+        const headBlock = await client.getBlockNumber();
+        historyStatus = getWalletIndexerStatus(indexedManagers, cursorResult.rows, headBlock, Date.now());
       } catch {
         historyStatus = "INDEX_UNAVAILABLE";
       }
