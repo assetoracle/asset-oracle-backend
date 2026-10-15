@@ -188,6 +188,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           const decimals = row.gross_amount === null ? null : await resolveHistoryDecimals(row.manager_address, row.market_id);
           return {
             type: row.event_name, transactionHash: row.tx_hash, blockNumber: row.block_number,
+            managerAddress: row.manager_address,
             timestamp: new Date(row.block_timestamp).toISOString(), marketId: row.market_id,
             amount: formatIndexedAmount(row.gross_amount, decimals),
             outcome: row.outcome,
