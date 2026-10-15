@@ -92,7 +92,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
             ]);
             const market = marketRaw as unknown as readonly unknown[] & {
               id?: bigint; stablecoin?: number; question?: string; totalYes?: bigint; totalNo?: bigint;
-              totalStaked?: bigint; outcome?: number; status?: number; resolvedAt?: bigint;
+              totalStaked?: bigint; outcome?: number; status?: number; resolvedAt?: bigint; challengePeriod?: bigint;
             };
             const stablecoinId = Number(market.stablecoin ?? market[2]);
             const question = String(market.question ?? market[3] ?? "");
@@ -102,6 +102,9 @@ statsRouter.get("/wallet/:address", async (req, res) => {
             const outcome = Number(market.outcome ?? market[12]);
             const status = Number(market.status ?? market[13]);
             const resolvedAt = BigInt(market.resolvedAt ?? market[8] as bigint);
+            const challengePeriod = BigInt(market.challengePeriod ?? market[7] as bigint);
+            const challengeElapsed = status === 2 && resolvedAt > 0n && BigInt(Math.floor(Date.now() / 1000)) >= resolvedAt + challengePeriod;
+            const claimableStatus = status === 3 || status === 4 || status === 5 || challengeElapsed;
             const position = positionRaw as unknown as readonly [bigint, bigint, boolean];
             const yes = position[0];
             const no = position[1];
@@ -111,7 +114,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
             const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
             const winningPool = outcome === 1 ? totalYes : outcome === 2 ? totalNo : 0n;
             let payout = 0n;
-            if ((status === 3 || status === 4 || status === 5) && !claimed) {
+            if (claimableStatus && !claimed) {
               if (status === 4 || status === 5 || outcome === 3) payout = yes + no;
               else if (winningPool === 0n) payout = ((yes + no) * 7500n) / 10000n;
               else {
@@ -129,7 +132,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
               tokenDecimals: decimals, claimableAmount: formatUnits(payout, decimals),
             };
             positions.push(row);
-            if ((status === 3 || status === 4 || status === 5) && !claimed) claimable.push(row);
+            if (claimableStatus && !claimed) claimable.push(row);
             return row;
           } catch {
             positionsComplete = false;
