@@ -46,59 +46,97 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     const count = Number(await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "marketCount" }));
     if (!Number.isSafeInteger(count) || count < 0 || count > 5000) return res.status(503).json({ error: "Market count is outside the supported account-history range." });
 
+    const legacyManagers = (process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",");
+    const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
+    const managerCounts = new Map<string, number>([[manager.toLowerCase(), count]]);
+    let positionsComplete = true;
+
+    // Read positions from each configured manager independently. Old positions
+    // remain owned by their original contract; this endpoint never migrates funds.
+    for (const managerAddress of indexedManagers) {
+      if (managerAddress === manager.toLowerCase()) continue;
+      try {
+        const legacyCode = await client.getCode({ address: managerAddress as `0x${string}` });
+        if (!legacyCode || legacyCode === "0x") {
+          positionsComplete = false;
+          continue;
+        }
+        const legacyCount = Number(await client.readContract({
+          address: managerAddress as `0x${string}`,
+          abi: WALLET_ACCOUNT_ABI,
+          functionName: "marketCount",
+        }));
+        if (!Number.isSafeInteger(legacyCount) || legacyCount < 0 || legacyCount > 5000) {
+          positionsComplete = false;
+          continue;
+        }
+        managerCounts.set(managerAddress, legacyCount);
+      } catch {
+        positionsComplete = false;
+      }
+    }
+
     const positions: Array<Record<string, unknown>> = [];
     const claimable: Array<Record<string, unknown>> = [];
     const wallet = address.toLowerCase();
-    for (let start = 1; start <= count; start += 10) {
-      const ids = Array.from({ length: Math.min(10, count - start + 1) }, (_, index) => start + index);
-      const batch = await Promise.all(ids.map(async (id) => {
-        const [marketRaw, positionRaw] = await Promise.all([
-          client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "getMarket", args: [BigInt(id)] }),
-          client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "positions", args: [BigInt(id), address] }),
-        ]);
-        const market = marketRaw as unknown as readonly unknown[] & {
-          id?: bigint; stablecoin?: number; question?: string; totalYes?: bigint; totalNo?: bigint;
-          totalStaked?: bigint; outcome?: number; status?: number; resolvedAt?: bigint;
-        };
-        const stablecoinId = Number(market.stablecoin ?? market[2]);
-        const question = String(market.question ?? market[3] ?? "");
-        const totalYes = BigInt(market.totalYes ?? market[9] as bigint);
-        const totalNo = BigInt(market.totalNo ?? market[10] as bigint);
-        const totalStake = BigInt(market.totalStaked ?? market[11] as bigint);
-        const outcome = Number(market.outcome ?? market[12]);
-        const status = Number(market.status ?? market[13]);
-        const resolvedAt = BigInt(market.resolvedAt ?? market[8] as bigint);
-        const position = positionRaw as unknown as readonly [bigint, bigint, boolean];
-        const yes = position[0];
-        const no = position[1];
-        const claimed = position[2];
-        if (yes === 0n && no === 0n) return null;
-        const coin = await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "stablecoins", args: [stablecoinId] });
-        const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
-        const winningPool = outcome === 1 ? totalYes : outcome === 2 ? totalNo : 0n;
-        let payout = 0n;
-        if ((status === 3 || status === 4 || status === 5) && !claimed) {
-          if (status === 4 || status === 5 || outcome === 3) payout = yes + no;
-          else if (winningPool === 0n) payout = ((yes + no) * 7500n) / 10000n;
-          else {
-            const winningStake = outcome === 1 ? yes : no;
-            if (winningStake > 0n) {
-              const settlementFee = (totalStake * 200n) / 10000n;
-              payout = (winningStake * (totalStake - settlementFee)) / winningPool;
+    for (const [managerAddress, marketCount] of managerCounts) {
+      for (let start = 1; start <= marketCount; start += 10) {
+        const ids = Array.from({ length: Math.min(10, marketCount - start + 1) }, (_, index) => start + index);
+        const batch = await Promise.all(ids.map(async (id) => {
+          try {
+            const contractAddress = managerAddress as `0x${string}`;
+            const [marketRaw, positionRaw] = await Promise.all([
+              client.readContract({ address: contractAddress, abi: WALLET_ACCOUNT_ABI, functionName: "getMarket", args: [BigInt(id)] }),
+              client.readContract({ address: contractAddress, abi: WALLET_ACCOUNT_ABI, functionName: "positions", args: [BigInt(id), address] }),
+            ]);
+            const market = marketRaw as unknown as readonly unknown[] & {
+              id?: bigint; stablecoin?: number; question?: string; totalYes?: bigint; totalNo?: bigint;
+              totalStaked?: bigint; outcome?: number; status?: number; resolvedAt?: bigint;
+            };
+            const stablecoinId = Number(market.stablecoin ?? market[2]);
+            const question = String(market.question ?? market[3] ?? "");
+            const totalYes = BigInt(market.totalYes ?? market[9] as bigint);
+            const totalNo = BigInt(market.totalNo ?? market[10] as bigint);
+            const totalStake = BigInt(market.totalStaked ?? market[11] as bigint);
+            const outcome = Number(market.outcome ?? market[12]);
+            const status = Number(market.status ?? market[13]);
+            const resolvedAt = BigInt(market.resolvedAt ?? market[8] as bigint);
+            const position = positionRaw as unknown as readonly [bigint, bigint, boolean];
+            const yes = position[0];
+            const no = position[1];
+            const claimed = position[2];
+            if (yes === 0n && no === 0n) return null;
+            const coin = await client.readContract({ address: contractAddress, abi: WALLET_ACCOUNT_ABI, functionName: "stablecoins", args: [stablecoinId] });
+            const decimals = Number((coin as unknown as readonly [string, number, boolean])[1]);
+            const winningPool = outcome === 1 ? totalYes : outcome === 2 ? totalNo : 0n;
+            let payout = 0n;
+            if ((status === 3 || status === 4 || status === 5) && !claimed) {
+              if (status === 4 || status === 5 || outcome === 3) payout = yes + no;
+              else if (winningPool === 0n) payout = ((yes + no) * 7500n) / 10000n;
+              else {
+                const winningStake = outcome === 1 ? yes : no;
+                if (winningStake > 0n) {
+                  const settlementFee = (totalStake * 200n) / 10000n;
+                  payout = (winningStake * (totalStake - settlementFee)) / winningPool;
+                }
+              }
             }
+            const row = {
+              managerAddress, marketId: id, question, yesStake: formatUnits(yes, decimals),
+              noStake: formatUnits(no, decimals), status, outcome,
+              claimed, timestamp: resolvedAt ? new Date(Number(resolvedAt) * 1000).toISOString() : null,
+              tokenDecimals: decimals, claimableAmount: formatUnits(payout, decimals),
+            };
+            positions.push(row);
+            if ((status === 3 || status === 4 || status === 5) && !claimed) claimable.push(row);
+            return row;
+          } catch {
+            positionsComplete = false;
+            return null;
           }
-        }
-        const row = {
-          marketId: id, question, yesStake: formatUnits(yes, decimals),
-          noStake: formatUnits(no, decimals), status, outcome,
-          claimed, timestamp: resolvedAt ? new Date(Number(resolvedAt) * 1000).toISOString() : null,
-          tokenDecimals: decimals, claimableAmount: formatUnits(payout, decimals),
-        };
-        positions.push(row);
-        if ((status === 3 || status === 4 || status === 5) && !claimed) claimable.push(row);
-        return row;
-      }));
-      void batch;
+        }));
+        void batch;
+      }
     }
 
     let history: Array<Record<string, unknown>> = [];
@@ -150,6 +188,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
           const decimals = row.gross_amount === null ? null : await resolveHistoryDecimals(row.manager_address, row.market_id);
           return {
             type: row.event_name, transactionHash: row.tx_hash, blockNumber: row.block_number,
+            managerAddress: row.manager_address,
             timestamp: new Date(row.block_timestamp).toISOString(), marketId: row.market_id,
             amount: formatIndexedAmount(row.gross_amount, decimals),
             outcome: row.outcome,
@@ -164,7 +203,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
         historyStatus = "INDEX_UNAVAILABLE";
       }
     }
-    return res.json({ address: wallet, chainId: EXPECTED_CHAIN_ID, positions, claimable, history, historyStatus });
+    return res.json({ address: wallet, chainId: EXPECTED_CHAIN_ID, positions, claimable, positionsStatus: positionsComplete ? "VERIFIED_ONCHAIN_POSITIONS" : "PARTIAL_ONCHAIN_POSITIONS", history, historyStatus });
   } catch {
     return res.status(503).json({ error: "Wallet history could not be retrieved from the verified chain RPC." });
   }
