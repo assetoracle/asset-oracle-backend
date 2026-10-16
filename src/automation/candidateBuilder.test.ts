@@ -20,6 +20,9 @@ test("candidate builder creates a validated, review-only proposal with determini
   assert.equal(result.skipped.length, 0);
   assert.equal(result.candidates[0].proposal.resolutionRule.targetValue, 105_000);
   assert.equal(result.candidates[0].proposal.category, "Crypto");
+  assert.match(result.candidates[0].proposal.question, /Bitcoin \(BTC\).*2026-10-17 12:05:00 UTC/);
+  assert.equal(result.candidates[0].proposal.resolutionRule.observationTime, result.candidates[0].proposal.resolvesAt);
+  assert.match(result.candidates[0].proposal.resolutionRule.description, /leave unresolved for manual review/);
   assert.equal(result.candidates[0].quality.score, 70);
   const repeated = buildPriceThresholdCandidates([evidence], { now: () => now });
   assert.equal(repeated.candidates[0].key, result.candidates[0].key);
