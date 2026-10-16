@@ -1,0 +1,119 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import pg from "pg";
+import type { MarketCandidate } from "./types.js";
+
+const testDatabaseUrl = process.env.AUTOMATION_TEST_DATABASE_URL;
+const enabled = Boolean(testDatabaseUrl);
+
+function assertSafeTestDatabase(connectionString: string): URL {
+  const url = new URL(connectionString);
+  const databaseName = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  if (!/(^|[-_])test($|[-_])/i.test(databaseName) && !/^localhost$|^127\.0\.0\.1$|^::1$/.test(url.hostname)) {
+    throw new Error("AUTOMATION_TEST_DATABASE_URL must target a clearly named test database or localhost.");
+  }
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL === connectionString) {
+    throw new Error("Refusing to run automation integration tests against DATABASE_URL.");
+  }
+  return url;
+}
+
+const skipReason = enabled
+  ? false
+  : "Set AUTOMATION_TEST_DATABASE_URL to an isolated PostgreSQL test database to run these integration tests.";
+
+test("PostgreSQL candidate persistence preserves initial evidence and appends distinct observations", { skip: skipReason }, async () => {
+  const connectionString = testDatabaseUrl!;
+  const parsed = assertSafeTestDatabase(connectionString);
+  const adminPool = new pg.Pool({ connectionString, max: 1 });
+  const schema = "automation_it_" + randomUUID().replace(/-/g, "");
+  const quoteIdentifier = (value: string) => '"' + value.replace(/"/g, '""') + '"';
+  let scopedPool: pg.Pool | undefined;
+  try {
+    await adminPool.query("CREATE SCHEMA " + quoteIdentifier(schema));
+    const scopedUrl = new URL(parsed.toString());
+    scopedUrl.searchParams.set("options", "-c search_path=" + schema);
+    process.env.DATABASE_URL = scopedUrl.toString();
+    // Import only after setting DATABASE_URL so the store uses the isolated schema.
+    const store = await import("./candidateStore.js");
+    scopedPool = new pg.Pool({ connectionString: scopedUrl.toString(), max: 1 });
+    // The store's pool and this scoped pool share the same isolated schema.
+    await store.initializeAutomationCandidateStore();
+
+    const now = new Date();
+    const first: MarketCandidate = {
+      key: "integration-" + randomUUID(),
+      proposal: {
+        question: "Will integration-test Bitcoin exceed 100 USD at the test observation time?",
+        description: "Integration-test candidate; not intended for publication.",
+        category: "Crypto",
+        closesAt: new Date(now.getTime() + 60 * 60_000).toISOString(),
+        resolvesAt: new Date(now.getTime() + 2 * 60 * 60_000).toISOString(),
+        resolutionRule: {
+          sourceId: "coingecko",
+          metric: "price_usd",
+          comparison: "AT_LEAST",
+          targetValue: 100,
+          currency: "USD",
+          observationTime: new Date(now.getTime() + 2 * 60 * 60_000).toISOString(),
+          description: "Integration test rule requiring a timestamped USD price observation.",
+        },
+      },
+      evidence: {
+        provider: "coingecko",
+        metric: "price_usd",
+        assetId: "bitcoin",
+        observedAt: new Date(now.getTime() - 5_000).toISOString(),
+        value: 95,
+        currency: "USD",
+        sourceUrl: "https://www.coingecko.com/en/coins/bitcoin",
+      },
+      quality: { score: 70, reasons: ["integration test"] },
+    };
+
+    assert.deepEqual(await store.upsertAutomationCandidates([first]), { inserted: 1, existing: 0 });
+    const changedObservation = {
+      ...first,
+      evidence: { ...first.evidence, observedAt: new Date(now.getTime() - 1_000).toISOString(), value: 96 },
+    };
+    assert.deepEqual(await store.upsertAutomationCandidates([changedObservation]), { inserted: 0, existing: 1 });
+    assert.deepEqual(await store.upsertAutomationCandidates([changedObservation]), { inserted: 0, existing: 1 });
+
+    const candidate = await store.listAutomationCandidates({ limit: 100 });
+    const stored = candidate.find((item) => item.key === first.key);
+    assert.ok(stored);
+    assert.equal(stored.evidence.value, 95, "original evidence must remain immutable");
+
+    const observations = await scopedPool.query(
+      "SELECT value FROM automation_candidate_observations WHERE candidate_id = $1 ORDER BY observed_at",
+      [stored.id],
+    );
+    assert.deepEqual(observations.rows.map((row) => Number(row.value)), [95, 96]);
+
+    const dismissed = await store.reviewAutomationCandidate({
+      id: stored.id, adminWallet: "0x0000000000000000000000000000000000000001",
+      action: "DISMISS", reason: "integration test dismissal",
+    });
+    assert.equal(dismissed?.status, "DISMISSED");
+    assert.equal(await store.reviewAutomationCandidate({
+      id: stored.id, adminWallet: "0x0000000000000000000000000000000000000001",
+      action: "DISMISS", reason: "duplicate transition should not be audited",
+    }), null);
+    const restored = await store.reviewAutomationCandidate({
+      id: stored.id, adminWallet: "0x0000000000000000000000000000000000000001",
+      action: "RESTORE", reason: "integration test restore",
+    });
+    assert.equal(restored?.status, "PENDING_REVIEW");
+
+    const audits = await scopedPool.query(
+      "SELECT action, reason FROM automation_candidate_review_events WHERE candidate_id = $1 ORDER BY created_at",
+      [stored.id],
+    );
+    assert.deepEqual(audits.rows.map((row) => row.action), ["DISMISS", "RESTORE"]);
+  } finally {
+    if (scopedPool) await scopedPool.end();
+    await adminPool.query("DROP SCHEMA IF EXISTS " + quoteIdentifier(schema) + " CASCADE");
+    await adminPool.end();
+  }
+});
