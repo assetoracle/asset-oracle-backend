@@ -2,27 +2,28 @@
 
 ## Scope
 
-This module begins the API-based market creation workflow using CoinGecko as the first provider. It is deliberately proposal-only: it creates candidate data in memory for validation and review. It does not call the contract, publish markets, manage signing keys, cast validator votes, or settle markets.
+This phase implements **proposal-only market discovery** using CoinGecko as the first provider. It does not call the market manager contract, publish markets, manage signing keys, cast validator votes, or settle markets.
 
-## Current boundary
+## Current behavior
 
-- Use CoinGecko USD spot-price observations only.
-- Reject malformed, non-positive, stale, or future-dated observations.
-- Generate a deterministic candidate key so persistence can deduplicate retries.
-- Pass generated proposals through the existing market proposal schema.
-- Keep provider evidence and a basic quality explanation attached to each candidate.
-- Keep the module isolated so it can be disabled or removed without changing existing market, staking, fee, refund, or settlement paths.
+- Manual admin-only discovery through `POST /api/automation/candidates/run`; no scheduler is configured.
+- Admin candidate listing through `GET /api/automation/candidates`, with optional status and limit filters.
+- Admin review through `POST /api/automation/candidates/:id/review`: `DISMISS` and `RESTORE` transitions are audited with the admin wallet and a required reason.
+- Feature flag `MARKET_AUTOMATION_ENABLED` is off unless set to the exact string `true`.
+- `MARKET_AUTOMATION_COINGECKO_ASSETS` is a comma-separated CoinGecko asset-ID allowlist. Discovery requests cannot select assets outside it.
+- `COINGECKO_API_KEY` is optional for the provider's configured API tier.
+- Candidate proposals and initial evidence are persisted in PostgreSQL. A unique deterministic key prevents repeated runs from creating duplicate candidate rows; repeat observations update only `last_seen_at`, not the original proposal/evidence.
+- Proposals are checked with the existing market proposal schema. Provider evidence must be valid, positive, and recent.
+- This is a candidate-generation policy only. The current threshold and timing defaults need product approval before any scheduled worker or publisher is considered.
 
-## Before enabling a scheduled worker
+## API authentication
 
-1. Add a persistent candidate table with a unique constraint on the candidate key and immutable provider evidence.
-2. Add an authenticated admin review surface and metrics for provider errors, stale observations, duplicates, and candidate counts.
-3. Add a disabled-by-default feature flag and a dry-run mode.
-4. Add retry/backoff with a bounded retry budget and respect provider rate limits.
-5. Confirm the deployed Enugu contract address, bytecode/source match, creator role, configured validator roster, and USDC configuration from chain reads.
-6. Test provider timeouts, 429/5xx responses, duplicate runs, database failures, malformed payloads, and restart recovery.
-7. Only after those checks pass should a separately approved phase add a restricted publisher. The publisher must verify transaction receipts and the MarketCreated event and reconcile idempotently before recording a publication.
+Protected endpoints require the existing wallet session token in `Authorization: Bearer <token>` and the configured owner wallet address in the request/query `address` field. The address must also pass the backend's existing admin wallet allowlist check.
 
-## Deliberate limitations
+## Verification and safety boundary
 
-The generated price-threshold question is a starter candidate policy, not a claim that all such markets are desirable. Before enabling a worker, product policy must approve which assets, thresholds, cadence, market lifetime, and candidate volume are permitted. API data is evidence for a candidate, not on-chain validator consensus.
+- API discovery is evidence for a human-reviewed candidate, not validator consensus.
+- No publisher, cron/scheduler, signing-key integration, automatic settlement, or liquidity workflow is implemented in this phase.
+- Do not enable production discovery until asset policy, rate limiting/retries, monitoring, database failure behavior, and integration tests have been reviewed.
+- Before a separate publishing phase, verify the deployed Enugu manager address and bytecode/source, creator role, validator roster, enabled stablecoins, and RPC chain ID from live chain reads.
+- Any future publisher must use the existing contract and preserve its validator-consensus/evidence-hash rules. No contract change or on-chain transaction is part of this phase.
