@@ -68,6 +68,25 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
     CREATE INDEX IF NOT EXISTS automation_candidate_review_events_candidate_idx
     ON automation_candidate_review_events (candidate_id, created_at DESC)
   `);
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS automation_candidate_observations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      candidate_id UUID NOT NULL REFERENCES automation_market_candidates(id),
+      provider TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      observed_at TIMESTAMPTZ NOT NULL,
+      value DOUBLE PRECISION NOT NULL,
+      currency TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (candidate_id, observed_at, value)
+    )
+  `);
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS automation_candidate_observations_candidate_idx
+    ON automation_candidate_observations (candidate_id, observed_at DESC)
+  `);
 }
 
 export async function upsertAutomationCandidates(
@@ -76,13 +95,13 @@ export async function upsertAutomationCandidates(
   let inserted = 0;
   let existing = 0;
   for (const candidate of candidates) {
-    const result = await database.query<{ candidate_key: string; inserted: boolean }>(
+    const result = await database.query<{ id: string; candidate_key: string; inserted: boolean }>(
       `INSERT INTO automation_market_candidates
         (candidate_key, proposal, evidence, quality)
        VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
        ON CONFLICT (candidate_key) DO UPDATE
          SET last_seen_at = NOW()
-       RETURNING candidate_key, (xmax = 0) AS inserted`,
+       RETURNING id, candidate_key, (xmax = 0) AS inserted`,
       [
         candidate.key,
         JSON.stringify(candidate.proposal),
@@ -90,8 +109,19 @@ export async function upsertAutomationCandidates(
         JSON.stringify(candidate.quality),
       ],
     );
-    if (result.rows[0]?.inserted) inserted++;
+    const stored = result.rows[0];
+    if (!stored) throw new Error("Candidate upsert returned no row.");
+    if (stored.inserted) inserted++;
     else existing++;
+    // Preserve the first candidate basis; append later provider observations separately.
+    await database.query(
+      `INSERT INTO automation_candidate_observations
+        (candidate_id, provider, metric, asset_id, observed_at, value, currency, source_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (candidate_id, observed_at, value) DO NOTHING`,
+      [stored.id, candidate.evidence.provider, candidate.evidence.metric, candidate.evidence.assetId,
+       candidate.evidence.observedAt, candidate.evidence.value, candidate.evidence.currency, candidate.evidence.sourceUrl],
+    );
   }
   return { inserted, existing };
 }
