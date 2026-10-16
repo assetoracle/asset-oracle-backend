@@ -51,8 +51,10 @@ automationRouter.post("/candidates/run", async (req, res, next) => {
     if (!await requireAdmin(req, res, parsed.data.address)) return;
     if (!automationEnabled()) return res.status(409).json({ error: "Market automation is disabled. Set MARKET_AUTOMATION_ENABLED=true only for a controlled test." });
 
-    const configuredAssets = (process.env.MARKET_AUTOMATION_COINGECKO_ASSETS ?? "bitcoin,ethereum")
-      .split(",").map((asset) => asset.trim().toLowerCase()).filter(Boolean);
+    const configuredAssetValue = process.env.MARKET_AUTOMATION_COINGECKO_ASSETS
+      ?? (process.env.NODE_ENV === "production" ? "" : "bitcoin,ethereum");
+    const configuredAssets = [...new Set(configuredAssetValue
+      .split(",").map((asset) => asset.trim().toLowerCase()).filter(Boolean))];
     const requestedAssets = parsed.data.assets?.map((asset) => asset.toLowerCase());
     const assets = requestedAssets ?? configuredAssets;
     if (assets.length === 0 || assets.length > 20 || assets.some((asset) => !configuredAssets.includes(asset))) {
