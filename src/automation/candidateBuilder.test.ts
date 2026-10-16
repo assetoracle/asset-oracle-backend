@@ -45,3 +45,25 @@ test("candidate builder rejects invalid threshold configuration", () => {
     /thresholdPercent/,
   );
 });
+
+test("candidate key stays stable for repeated observations on the same UTC day", () => {
+  const laterObservation = {
+    ...evidence,
+    observedAt: new Date(now.getTime() - 10_000).toISOString(),
+    value: 101_000,
+  };
+  const first = buildPriceThresholdCandidates([evidence], { now: () => now });
+  const second = buildPriceThresholdCandidates([laterObservation], { now: () => now });
+  assert.equal(first.candidates[0].key, second.candidates[0].key);
+});
+
+test("candidate key changes on a new UTC observation day", () => {
+  const nextDayEvidence = {
+    ...evidence,
+    observedAt: "2026-10-17T11:59:30.000Z",
+  };
+  const first = buildPriceThresholdCandidates([evidence], { now: () => now });
+  const nextDayNow = new Date("2026-10-17T12:00:00.000Z");
+  const second = buildPriceThresholdCandidates([nextDayEvidence], { now: () => nextDayNow });
+  assert.notEqual(first.candidates[0].key, second.candidates[0].key);
+});
