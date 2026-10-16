@@ -37,7 +37,7 @@ function mapRow(row: CandidateRow): StoredAutomationCandidate {
 }
 
 export async function initializeAutomationCandidateStore(): Promise<void> {
-  await database.query(\`
+  await database.query(`
     CREATE TABLE IF NOT EXISTS automation_market_candidates (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       candidate_key TEXT NOT NULL UNIQUE,
@@ -49,11 +49,11 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
       first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
-  \`);
-  await database.query(\`
+  `);
+  await database.query(`
     CREATE INDEX IF NOT EXISTS automation_market_candidates_status_last_seen_idx
     ON automation_market_candidates (status, last_seen_at DESC)
-  \`);
+  `);
 }
 
 export async function upsertAutomationCandidates(
@@ -63,12 +63,12 @@ export async function upsertAutomationCandidates(
   let existing = 0;
   for (const candidate of candidates) {
     const result = await database.query<{ candidate_key: string; inserted: boolean }>(
-      \`INSERT INTO automation_market_candidates
+      `INSERT INTO automation_market_candidates
         (candidate_key, proposal, evidence, quality)
        VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
        ON CONFLICT (candidate_key) DO UPDATE
          SET last_seen_at = NOW()
-       RETURNING candidate_key, (xmax = 0) AS inserted\`,
+       RETURNING candidate_key, (xmax = 0) AS inserted`,
       [
         candidate.key,
         JSON.stringify(candidate.proposal),
@@ -89,10 +89,10 @@ export async function listAutomationCandidates(options: {
   const limit = Math.max(1, Math.min(Math.trunc(options.limit ?? 50), 100));
   const result = await database.query<CandidateRow>(
     options.status
-      ? \`SELECT * FROM automation_market_candidates
-         WHERE status = $1 ORDER BY last_seen_at DESC LIMIT $2\`
-      : \`SELECT * FROM automation_market_candidates
-         ORDER BY last_seen_at DESC LIMIT $1\`,
+      ? `SELECT * FROM automation_market_candidates
+         WHERE status = $1 ORDER BY last_seen_at DESC LIMIT $2`
+      : `SELECT * FROM automation_market_candidates
+         ORDER BY last_seen_at DESC LIMIT $1`,
     options.status ? [options.status, limit] : [limit],
   );
   return result.rows.map(mapRow);
