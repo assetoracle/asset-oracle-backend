@@ -11,8 +11,11 @@ export type CandidateBuilderOptions = {
 };
 
 function candidateKey(assetId: string, observationTime: string, thresholdPercent: number): string {
+  // One candidate per asset, policy threshold, and UTC observation day prevents
+  // a frequent discovery run from creating a new logical market every few minutes.
+  const observationDay = new Date(observationTime).toISOString().slice(0, 10);
   return createHash("sha256")
-    .update("coingecko:price_usd:" + assetId + ":" + observationTime + ":" + thresholdPercent)
+    .update("coingecko:price_usd:" + assetId + ":" + observationDay + ":" + thresholdPercent)
     .digest("hex");
 }
 
