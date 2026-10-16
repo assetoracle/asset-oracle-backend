@@ -54,6 +54,20 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
     CREATE INDEX IF NOT EXISTS automation_market_candidates_status_last_seen_idx
     ON automation_market_candidates (status, last_seen_at DESC)
   `);
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS automation_candidate_review_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      candidate_id UUID NOT NULL REFERENCES automation_market_candidates(id),
+      admin_wallet TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('DISMISS', 'RESTORE')),
+      reason TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS automation_candidate_review_events_candidate_idx
+    ON automation_candidate_review_events (candidate_id, created_at DESC)
+  `);
 }
 
 export async function upsertAutomationCandidates(
@@ -96,4 +110,32 @@ export async function listAutomationCandidates(options: {
     options.status ? [options.status, limit] : [limit],
   );
   return result.rows.map(mapRow);
+}
+
+export async function reviewAutomationCandidate(input: {
+  id: string;
+  adminWallet: string;
+  action: "DISMISS" | "RESTORE";
+  reason: string;
+}): Promise<StoredAutomationCandidate | null> {
+  const targetStatus = input.action === "DISMISS" ? "DISMISSED" : "PENDING_REVIEW";
+  const expectedStatus = input.action === "DISMISS" ? "PENDING_REVIEW" : "DISMISSED";
+  const result = await database.query<CandidateRow>(
+    `WITH changed AS (
+       UPDATE automation_market_candidates
+       SET status = $2
+       WHERE id = $1 AND status = $3
+       RETURNING *
+     ), audited AS (
+       INSERT INTO automation_candidate_review_events
+         (candidate_id, admin_wallet, action, reason)
+       SELECT id, $4, $5, $6 FROM changed
+       RETURNING candidate_id
+     )
+     SELECT changed.*
+     FROM changed
+     JOIN audited ON audited.candidate_id = changed.id`,
+    [input.id, targetStatus, expectedStatus, input.adminWallet, input.action, input.reason],
+  );
+  return result.rows[0] ? mapRow(result.rows[0]) : null;
 }
