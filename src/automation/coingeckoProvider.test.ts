@@ -56,3 +56,47 @@ test("CoinGecko provider omits stale or malformed observations", async () => {
   const result = await provider.getUsdPrices(["bitcoin", "ethereum", "solana"]);
   assert.equal(result.length, 0);
 });
+
+
+test("CoinGecko provider retries a rate limit using bounded Retry-After delay", async () => {
+  let calls = 0;
+  const delays: number[] = [];
+  const provider = new CoinGeckoProvider({
+    maxRetries: 2,
+    sleepImpl: async (milliseconds) => { delays.push(milliseconds); },
+    fetchImpl: (async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response("rate limited", {
+          status: 429,
+          headers: { "retry-after": "30" },
+        });
+      }
+      return new Response(JSON.stringify({
+        bitcoin: { usd: 65000, last_updated_at: recentTimestamp },
+      }), { status: 200 });
+    }) as typeof fetch,
+  });
+  const result = await provider.getUsdPrices(["bitcoin"]);
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [2000]);
+  assert.equal(result.length, 1);
+});
+
+test("CoinGecko provider stops after the configured retry budget", async () => {
+  let calls = 0;
+  const provider = new CoinGeckoProvider({
+    maxRetries: 1,
+    sleepImpl: async () => {},
+    fetchImpl: (async () => {
+      calls++;
+      return new Response("unavailable", { status: 503 });
+    }) as typeof fetch,
+  });
+  await assert.rejects(provider.getUsdPrices(["bitcoin"]), (error: unknown) => {
+    assert.ok(error instanceof ProviderRequestError);
+    assert.equal(error.retryable, true);
+    return true;
+  });
+  assert.equal(calls, 2);
+});
