@@ -86,6 +86,16 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
     assert.deepEqual(await store.upsertAutomationCandidates([changedObservation]), { inserted: 0, existing: 1 });
     assert.deepEqual(await store.upsertAutomationCandidates([changedObservation]), { inserted: 0, existing: 1 });
 
+    const captured = await store.recordProviderObservations([first.evidence, changedObservation.evidence]);
+    assert.deepEqual(captured, { inserted: 2, existing: 0 });
+    const target = changedObservation.evidence.observedAt;
+    const matching = await store.findPriceObservations({
+      provider: "coingecko", metric: "price_usd", assetId: "bitcoin",
+      targetAt: target, toleranceSeconds: 2,
+    });
+    assert.equal(matching.length, 1, "observations outside the explicit time tolerance must not be selected");
+    assert.equal(matching[0].value, 96);
+
     const candidate = await store.listAutomationCandidates({ limit: 100 });
     const stored = candidate.find((item) => item.key === first.key);
     assert.ok(stored);
