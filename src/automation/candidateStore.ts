@@ -92,38 +92,59 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
 export async function upsertAutomationCandidates(
   candidates: MarketCandidate[],
 ): Promise<{ inserted: number; existing: number }> {
+  if (candidates.length === 0) return { inserted: 0, existing: 0 };
+
+  const client = await database.connect();
   let inserted = 0;
   let existing = 0;
-  for (const candidate of candidates) {
-    const result = await database.query<{ id: string; candidate_key: string; inserted: boolean }>(
-      `INSERT INTO automation_market_candidates
-        (candidate_key, proposal, evidence, quality)
-       VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
-       ON CONFLICT (candidate_key) DO UPDATE
-         SET last_seen_at = NOW()
-       RETURNING id, candidate_key, (xmax = 0) AS inserted`,
-      [
-        candidate.key,
-        JSON.stringify(candidate.proposal),
-        JSON.stringify(candidate.evidence),
-        JSON.stringify(candidate.quality),
-      ],
-    );
-    const stored = result.rows[0];
-    if (!stored) throw new Error("Candidate upsert returned no row.");
-    if (stored.inserted) inserted++;
-    else existing++;
-    // Preserve the first candidate basis; append later provider observations separately.
-    await database.query(
-      `INSERT INTO automation_candidate_observations
-        (candidate_id, provider, metric, asset_id, observed_at, value, currency, source_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (candidate_id, observed_at, value) DO NOTHING`,
-      [stored.id, candidate.evidence.provider, candidate.evidence.metric, candidate.evidence.assetId,
-       candidate.evidence.observedAt, candidate.evidence.value, candidate.evidence.currency, candidate.evidence.sourceUrl],
-    );
+  try {
+    await client.query("BEGIN");
+    for (const candidate of candidates) {
+      const result = await client.query<{ id: string; candidate_key: string; inserted: boolean }>(
+        `INSERT INTO automation_market_candidates
+          (candidate_key, proposal, evidence, quality)
+         VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+         ON CONFLICT (candidate_key) DO UPDATE
+           SET last_seen_at = NOW()
+         RETURNING id, candidate_key, (xmax = 0) AS inserted`,
+        [
+          candidate.key,
+          JSON.stringify(candidate.proposal),
+          JSON.stringify(candidate.evidence),
+          JSON.stringify(candidate.quality),
+        ],
+      );
+      const stored = result.rows[0];
+      if (!stored) throw new Error("Candidate upsert returned no row.");
+      if (stored.inserted) inserted++;
+      else existing++;
+
+      // Preserve the first candidate basis; append later observations atomically.
+      await client.query(
+        `INSERT INTO automation_candidate_observations
+          (candidate_id, provider, metric, asset_id, observed_at, value, currency, source_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (candidate_id, observed_at, value) DO NOTHING`,
+        [
+          stored.id,
+          candidate.evidence.provider,
+          candidate.evidence.metric,
+          candidate.evidence.assetId,
+          candidate.evidence.observedAt,
+          candidate.evidence.value,
+          candidate.evidence.currency,
+          candidate.evidence.sourceUrl,
+        ],
+      );
+    }
+    await client.query("COMMIT");
+    return { inserted, existing };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
-  return { inserted, existing };
 }
 
 export async function listAutomationCandidates(options: {
