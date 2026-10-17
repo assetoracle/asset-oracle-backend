@@ -71,6 +71,7 @@ export class CoinGeckoProvider {
     url.searchParams.set("include_last_updated_at", "true");
 
     let body: unknown;
+    let retrievedAt = new Date().toISOString();
     for (let attempt = 0; ; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -93,6 +94,7 @@ export class CoinGeckoProvider {
         }
         try {
           body = await response.json();
+          retrievedAt = new Date().toISOString();
         } catch {
           throw new ProviderRequestError("CoinGecko returned invalid JSON.", true);
         }
@@ -133,9 +135,11 @@ export class CoinGeckoProvider {
         metric: "price_usd",
         assetId: id,
         observedAt: updatedAt,
+        retrievedAt,
         value: price,
         currency: "USD",
         sourceUrl: "https://www.coingecko.com/en/coins/" + encodeURIComponent(id),
+        rawResponse: item,
       });
     }
     return evidence;
