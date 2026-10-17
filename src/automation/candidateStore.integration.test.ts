@@ -69,9 +69,11 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
         metric: "price_usd",
         assetId: "bitcoin",
         observedAt: new Date(now.getTime() - 5_000).toISOString(),
+        retrievedAt: now.toISOString(),
         value: 95,
         currency: "USD",
         sourceUrl: "https://www.coingecko.com/en/coins/bitcoin",
+        rawResponse: { usd: 95 },
       },
       quality: { score: 70, reasons: ["integration test"] },
     };
