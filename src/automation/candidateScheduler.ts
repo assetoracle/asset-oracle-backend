@@ -32,7 +32,14 @@ export function startCandidateScheduler(): (() => void) | null {
   const runOnce = async () => {
     if (running || stopped) return;
     running = true;
+    let releaseLock: (() => Promise<void>) | null = null;
     try {
+      const { acquireAutomationRunLock } = await import("./distributedLock.js");
+      releaseLock = await acquireAutomationRunLock();
+      if (!releaseLock) {
+        console.log("Market candidate discovery skipped: another worker holds the automation lock.");
+        return;
+      }
       const evidence = await provider.getUsdPrices(assets);
       const generated = buildPriceThresholdCandidates(evidence);
       const { upsertAutomationCandidates } = await import("./candidateStore.js");
@@ -48,6 +55,12 @@ export function startCandidateScheduler(): (() => void) | null {
     } catch (error) {
       console.error("Scheduled market candidate discovery failed:", error instanceof Error ? error.message : "Unknown error");
     } finally {
+      if (releaseLock) {
+        try { await releaseLock(); }
+        catch (error) {
+          console.error("Failed to release market automation lock:", error instanceof Error ? error.message : "Unknown error");
+        }
+      }
       running = false;
     }
   };
