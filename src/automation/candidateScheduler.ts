@@ -41,6 +41,8 @@ export function startCandidateScheduler(): (() => void) | null {
         return;
       }
       const evidence = await provider.getUsdPrices(assets);
+      const { recordProviderObservations } = await import("./candidateStore.js");
+      await recordProviderObservations(evidence);
       const generated = buildPriceThresholdCandidates(evidence);
       const { upsertAutomationCandidates } = await import("./candidateStore.js");
       const persistence = await upsertAutomationCandidates(generated.candidates);
@@ -65,12 +67,42 @@ export function startCandidateScheduler(): (() => void) | null {
     }
   };
 
+  const configuredCaptureMinutes = Number(process.env.MARKET_AUTOMATION_CAPTURE_INTERVAL_MINUTES ?? "5");
+  const captureIntervalMinutes = Number.isFinite(configuredCaptureMinutes)
+    ? Math.max(1, Math.min(60, Math.trunc(configuredCaptureMinutes)))
+    : 5;
+
+  const captureOnce = async () => {
+    if (stopped) return;
+    let releaseLock: (() => Promise<void>) | null = null;
+    try {
+      const { acquireAutomationRunLock } = await import("./distributedLock.js");
+      releaseLock = await acquireAutomationRunLock();
+      if (!releaseLock) return;
+      const evidence = await provider.getUsdPrices(assets);
+      const { recordProviderObservations } = await import("./candidateStore.js");
+      const result = await recordProviderObservations(evidence);
+      console.log("Price evidence capture completed:", JSON.stringify({
+        evidenceReturned: evidence.length, inserted: result.inserted, existing: result.existing,
+      }));
+    } catch (error) {
+      console.error("Price evidence capture failed:", error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      if (releaseLock) {
+        try { await releaseLock(); }
+        catch (error) { console.error("Failed to release evidence-capture lock:", error instanceof Error ? error.message : "Unknown error"); }
+      }
+    }
+  };
+
   const timer = setInterval(() => { void runOnce(); }, intervalMinutes * 60_000);
+  const captureTimer = setInterval(() => { void captureOnce(); }, captureIntervalMinutes * 60_000);
   timer.unref();
   // Run once at startup, then on the configured interval.
   void runOnce();
   console.log("Market candidate scheduler started:", JSON.stringify({
     intervalMinutes,
+    captureIntervalMinutes,
     assets,
     mode: "proposal-only",
   }));
@@ -78,5 +110,6 @@ export function startCandidateScheduler(): (() => void) | null {
   return () => {
     stopped = true;
     clearInterval(timer);
+    clearInterval(captureTimer);
   };
 }
