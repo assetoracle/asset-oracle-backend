@@ -130,6 +130,43 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
       [stored.id],
     );
     assert.deepEqual(audits.rows.map((row) => row.action), ["DISMISS", "RESTORE"]);
+
+    // The configured policy is one approval out of Admin + two market makers.
+    const firstApproval = await store.approveAutomationCandidate({
+      id: stored.id,
+      approverWallet: "0x0000000000000000000000000000000000000001",
+      approverRole: "ADMIN",
+    });
+    assert.equal(firstApproval?.approvalCount, 1);
+    assert.equal(firstApproval?.newlyApproved, true);
+    assert.equal(firstApproval?.candidate.status, "APPROVED_FOR_PUBLICATION");
+
+    // A repeated approval from the same wallet is idempotent and cannot inflate the count.
+    const duplicateApproval = await store.approveAutomationCandidate({
+      id: stored.id,
+      approverWallet: "0x0000000000000000000000000000000000000001",
+      approverRole: "ADMIN",
+    });
+    assert.equal(duplicateApproval?.approvalCount, 1);
+    assert.equal(duplicateApproval?.newlyApproved, false);
+
+    // Dismissed candidates cannot be approved.
+    const dismissedKey = "integration-dismissed-" + randomUUID();
+    await store.upsertAutomationCandidates([{ ...first, key: dismissedKey }]);
+    const dismissedCandidate = (await store.listAutomationCandidates({ limit: 100 }))
+      .find((item) => item.key === dismissedKey);
+    assert.ok(dismissedCandidate);
+    assert.equal((await store.reviewAutomationCandidate({
+      id: dismissedCandidate.id,
+      adminWallet: "0x0000000000000000000000000000000000000001",
+      action: "DISMISS",
+      reason: "must remain ineligible for approval",
+    }))?.status, "DISMISSED");
+    assert.equal(await store.approveAutomationCandidate({
+      id: dismissedCandidate.id,
+      approverWallet: "0x0000000000000000000000000000000000000002",
+      approverRole: "MARKET_MAKER",
+    }), null);
   } finally {
     if (scopedPool) await scopedPool.end();
     if (closeStorePool) await closeStorePool();
