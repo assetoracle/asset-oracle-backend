@@ -92,10 +92,12 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
     assert.equal(stored.evidence.value, 95, "original evidence must remain immutable");
 
     const observations = await scopedPool.query(
-      "SELECT value FROM automation_candidate_observations WHERE candidate_id = $1 ORDER BY observed_at",
+      "SELECT value, retrieved_at, raw_response FROM automation_candidate_observations WHERE candidate_id = $1 ORDER BY observed_at",
       [stored.id],
     );
     assert.deepEqual(observations.rows.map((row) => Number(row.value)), [95, 96]);
+    assert.ok(observations.rows.every((row) => row.retrieved_at));
+    assert.deepEqual(observations.rows.map((row) => row.raw_response.usd), [95, 96]);
 
     const rollbackKey = "integration-rollback-" + randomUUID();
     await assert.rejects(
