@@ -5,9 +5,11 @@ export type ProviderEvidence = {
   metric: string;
   assetId: string;
   observedAt: string;
+  retrievedAt: string;
   value: number;
   currency: string;
   sourceUrl: string;
+  rawResponse: unknown;
 };
 
 export type MarketCandidate = {
