@@ -19,6 +19,7 @@ type MarketProposalRow = {
   question: string;
   description: string;
   category: MarketProposalInput["category"];
+  sport?: MarketProposalInput["sport"];
   closesAt: string | Date;
   resolvesAt: string | Date;
   resolutionRule: MarketProposalInput["resolutionRule"];
@@ -37,6 +38,7 @@ function mapProposal(row: MarketProposalRow): StoredMarketProposal {
     question: row.question,
     description: row.description,
     category: row.category,
+    ...(row.sport ? { sport: row.sport } : {}),
     closesAt: new Date(row.closesAt).toISOString(),
     resolvesAt: new Date(row.resolvesAt).toISOString(),
     resolutionRule:
@@ -73,6 +75,10 @@ export async function initializeMarketStore(): Promise<void> {
   `);
   await database.query(`
     ALTER TABLE market_proposals
+    ADD COLUMN IF NOT EXISTS sport TEXT
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals
       ADD COLUMN IF NOT EXISTS onchain_market_id TEXT,
       ADD COLUMN IF NOT EXISTS onchain_tx_hash TEXT,
       ADD COLUMN IF NOT EXISTS onchain_manager_address TEXT,
@@ -95,15 +101,16 @@ export async function createMarketProposal(
 ): Promise<StoredMarketProposal> {
   const result = await database.query<MarketProposalRow>(
     `INSERT INTO market_proposals
-  (id, question, description, category, "closesAt", "resolvesAt",
+  (id, question, description, category, sport, "closesAt", "resolvesAt",
    "resolutionRule", "walletAddress", status)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING_APPROVAL')
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING_APPROVAL')
  RETURNING *`,
     [
   randomUUID(),
   input.question,
   input.description,
   input.category,
+  input.sport ?? null,
   input.closesAt,
   input.resolvesAt,
   JSON.stringify(input.resolutionRule),
@@ -124,9 +131,10 @@ export async function updateOwnedMarketProposal(
      SET question = $3,
          description = $4,
          category = $5,
-         "closesAt" = $6,
-         "resolvesAt" = $7,
-         "resolutionRule" = $8,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
          status = 'PENDING_APPROVAL',
          "submittedAt" = NOW()
      WHERE id = $1
@@ -140,6 +148,7 @@ export async function updateOwnedMarketProposal(
       input.question,
       input.description,
       input.category,
+      input.sport ?? null,
       input.closesAt,
       input.resolvesAt,
       JSON.stringify(input.resolutionRule),
