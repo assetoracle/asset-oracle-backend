@@ -95,6 +95,21 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
     );
     assert.deepEqual(observations.rows.map((row) => Number(row.value)), [95, 96]);
 
+    const rollbackKey = "integration-rollback-" + randomUUID();
+    await assert.rejects(
+      store.upsertAutomationCandidates([{
+        ...first,
+        key: rollbackKey,
+        evidence: { ...first.evidence, observedAt: "not-a-timestamp" },
+      }]),
+      "invalid observation timestamps must fail the transaction",
+    );
+    const rolledBackCandidate = await scopedPool.query(
+      "SELECT id FROM automation_market_candidates WHERE candidate_key = $1",
+      [rollbackKey],
+    );
+    assert.equal(rolledBackCandidate.rowCount, 0, "candidate row must roll back when observation persistence fails");
+
     const dismissed = await store.reviewAutomationCandidate({
       id: stored.id, adminWallet: "0x0000000000000000000000000000000000000001",
       action: "DISMISS", reason: "integration test dismissal",
