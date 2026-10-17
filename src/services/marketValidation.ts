@@ -34,6 +34,7 @@ export const marketProposalSchema = z
       "RWA",
       "Regional",
     ]),
+    sport: z.enum(["football", "basketball", "tennis"]).optional(),
 
     closesAt: z.string().datetime({
       offset: true,
@@ -48,6 +49,12 @@ export const marketProposalSchema = z
     resolutionRule: resolutionRuleSchema,
   })
   .superRefine((market, context) => {
+    if (market.category === "Sports" && !market.sport) {
+      context.addIssue({ code: "custom", path: ["sport"], message: "Choose football, basketball, or tennis for a sports market." });
+    }
+    if (market.category !== "Sports" && market.sport) {
+      context.addIssue({ code: "custom", path: ["sport"], message: "Sport can only be set for Sports markets." });
+    }
     const now = Date.now();
     const closingTime = Date.parse(market.closesAt);
     const resolutionTime = Date.parse(market.resolvesAt);
