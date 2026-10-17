@@ -66,6 +66,7 @@ test("candidate key changes on a new UTC observation day", () => {
   const nextDayEvidence = {
     ...evidence,
     observedAt: "2026-10-17T11:59:30.000Z",
+    retrievedAt: "2026-10-17T12:00:00.000Z",
   };
   const first = buildPriceThresholdCandidates([evidence], { now: () => now });
   const nextDayNow = new Date("2026-10-17T12:00:00.000Z");
