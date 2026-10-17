@@ -43,3 +43,16 @@ test("market proposal schema requires resolution after closing", () => {
   const parsed = marketProposalSchema.safeParse(proposal);
   assert.equal(parsed.success, false);
 });
+
+
+test("sports markets require a supported sport", () => {
+  const proposal = { ...validProposal(), category: "Sports" };
+  assert.equal(marketProposalSchema.safeParse(proposal).success, false);
+  for (const sport of ["football", "basketball", "tennis"] as const) {
+    assert.equal(marketProposalSchema.safeParse({ ...proposal, sport }).success, true);
+  }
+});
+
+test("non-sports markets reject a sport selection", () => {
+  assert.equal(marketProposalSchema.safeParse({ ...validProposal(), sport: "football" }).success, false);
+});
