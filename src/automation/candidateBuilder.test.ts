@@ -9,9 +9,11 @@ const evidence: ProviderEvidence = {
   metric: "price_usd",
   assetId: "bitcoin",
   observedAt: new Date(now.getTime() - 30_000).toISOString(),
+  retrievedAt: now.toISOString(),
   value: 100_000,
   currency: "USD",
   sourceUrl: "https://www.coingecko.com/en/coins/bitcoin",
+  rawResponse: { usd: 100000 },
 };
 
 test("candidate builder creates a validated, review-only proposal with deterministic key", () => {
