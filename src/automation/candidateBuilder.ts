@@ -47,12 +47,15 @@ export function buildPriceThresholdCandidates(
   for (const item of evidence) {
     const key = candidateKey(item.assetId, item.observedAt, thresholdPercent);
     const observedAt = Date.parse(item.observedAt);
+    const retrievedAt = Date.parse(item.retrievedAt);
     if (item.provider !== "coingecko" || item.metric !== "price_usd" || item.currency !== "USD") {
       skipped.push({ key, reason: "Unsupported evidence type." });
       continue;
     }
-    if (!Number.isFinite(item.value) || item.value <= 0 || !Number.isFinite(observedAt)) {
-      skipped.push({ key, reason: "Evidence value or timestamp is invalid." });
+    if (!Number.isFinite(item.value) || item.value <= 0 || !Number.isFinite(observedAt)
+      || !Number.isFinite(retrievedAt) || retrievedAt > now.getTime() + 60_000
+      || retrievedAt < observedAt - 60_000) {
+      skipped.push({ key, reason: "Evidence value, observation timestamp, or retrieval timestamp is invalid." });
       continue;
     }
     const ageMs = now.getTime() - observedAt;
