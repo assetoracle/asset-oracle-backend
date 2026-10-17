@@ -1,6 +1,5 @@
 import { CoinGeckoProvider } from "./coingeckoProvider.js";
 import { buildPriceThresholdCandidates } from "./candidateBuilder.js";
-import { upsertAutomationCandidates } from "./candidateStore.js";
 
 /**
  * Starts proposal discovery on an interval only when both explicit feature flags
@@ -36,6 +35,7 @@ export function startCandidateScheduler(): (() => void) | null {
     try {
       const evidence = await provider.getUsdPrices(assets);
       const generated = buildPriceThresholdCandidates(evidence);
+      const { upsertAutomationCandidates } = await import("./candidateStore.js");
       const persistence = await upsertAutomationCandidates(generated.candidates);
       console.log("Market candidate discovery completed:", JSON.stringify({
         assetsRequested: assets.length,
