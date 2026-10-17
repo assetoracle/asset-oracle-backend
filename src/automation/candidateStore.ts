@@ -120,6 +120,26 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
       ADD COLUMN IF NOT EXISTS raw_response JSONB NOT NULL DEFAULT '{}'::jsonb
   `);
   await database.query(`
+    CREATE TABLE IF NOT EXISTS automation_price_observations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      provider TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      observed_at TIMESTAMPTZ NOT NULL,
+      retrieved_at TIMESTAMPTZ NOT NULL,
+      value DOUBLE PRECISION NOT NULL CHECK (value > 0),
+      currency TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      raw_response JSONB NOT NULL,
+      recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (provider, metric, asset_id, observed_at, value)
+    )
+  `);
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS automation_price_observations_lookup_idx
+    ON automation_price_observations (provider, metric, asset_id, observed_at DESC)
+  `);
+  await database.query(`
     CREATE INDEX IF NOT EXISTS automation_candidate_observations_candidate_idx
     ON automation_candidate_observations (candidate_id, observed_at DESC)
   `);
@@ -282,4 +302,61 @@ export async function approveAutomationCandidate(input: {
   } finally {
     client.release();
   }
+}
+
+
+/** Persists provider observations independently of candidate generation for future resolution. */
+export async function recordProviderObservations(evidence: MarketCandidate["evidence"][]): Promise<{ inserted: number; existing: number }> {
+  if (evidence.length === 0) return { inserted: 0, existing: 0 };
+  const client = await database.connect();
+  let inserted = 0;
+  let existing = 0;
+  try {
+    await client.query("BEGIN");
+    for (const item of evidence) {
+      const result = await client.query(
+        `INSERT INTO automation_price_observations
+          (provider, metric, asset_id, observed_at, retrieved_at, value, currency, source_url, raw_response)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+         ON CONFLICT (provider, metric, asset_id, observed_at, value) DO NOTHING
+         RETURNING id`,
+        [item.provider,item.metric,item.assetId,item.observedAt,item.retrievedAt,item.value,item.currency,item.sourceUrl,JSON.stringify(item.rawResponse)],
+      );
+      if (result.rowCount) inserted++;
+      else existing++;
+    }
+    await client.query("COMMIT");
+    return { inserted, existing };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Returns only observations within the caller-specified tolerance; no nearest-value guessing. */
+export async function findPriceObservations(input: {
+  provider: string; metric: string; assetId: string; targetAt: string; toleranceSeconds: number;
+}): Promise<Array<{ observedAt: string; retrievedAt: string; value: number; currency: string; rawResponse: unknown }>> {
+  if (!Number.isFinite(Date.parse(input.targetAt)) || !Number.isInteger(input.toleranceSeconds)
+    || input.toleranceSeconds < 0 || input.toleranceSeconds > 3600) {
+    throw new Error("Invalid observation target or tolerance.");
+  }
+  const result = await database.query<{
+    observed_at: string | Date; retrieved_at: string | Date; value: number; currency: string; raw_response: unknown;
+  }>(
+    `SELECT observed_at, retrieved_at, value, currency, raw_response
+     FROM automation_price_observations
+     WHERE provider = $1 AND metric = $2 AND asset_id = $3
+       AND observed_at BETWEEN $4::timestamptz - ($5 * INTERVAL '1 second')
+                           AND $4::timestamptz + ($5 * INTERVAL '1 second')
+     ORDER BY ABS(EXTRACT(EPOCH FROM (observed_at - $4::timestamptz))) ASC, observed_at ASC`,
+    [input.provider,input.metric,input.assetId,input.targetAt,input.toleranceSeconds],
+  );
+  return result.rows.map(row => ({
+    observedAt: new Date(row.observed_at).toISOString(),
+    retrievedAt: new Date(row.retrieved_at).toISOString(),
+    value: Number(row.value), currency: row.currency, rawResponse: row.raw_response,
+  }));
 }
