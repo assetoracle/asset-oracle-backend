@@ -18,6 +18,7 @@ The workflows share provider adapters, evidence storage, retry policy, audit log
 - PostgreSQL persistence for candidate proposals, immutable initial evidence, distinct later observations, raw provider payloads, and retrieval timestamps.
 - Independent `automation_price_observations` history for resolution-time evidence, with bounded-tolerance queries that do not silently select a distant observation.
 - PostgreSQL session advisory lock to prevent scheduled discovery/capture passes from running concurrently across backend instances.
+- A pure settlement evidence evaluator that enforces source/metric/asset matching, an explicit bounded observation tolerance, time validity, and a fail-closed manual-review result for missing or conflicting outcomes. It creates a deterministic SHA-256 evidence hash but does not submit an on-chain outcome.
 - Separate periodic evidence capture (`MARKET_AUTOMATION_CAPTURE_INTERVAL_MINUTES`, default 5 minutes, bounded to 1–60) from candidate discovery (default 180 minutes). Both remain opt-in behind the existing feature flags.
 - Integration tests against an isolated PostgreSQL test database in CI.
 - Discovery is gated by `MARKET_AUTOMATION_ENABLED=true`; the gate is off unless explicitly set. Asset IDs must come from `MARKET_AUTOMATION_COINGECKO_ASSETS` in production.
@@ -25,7 +26,7 @@ The workflows share provider adapters, evidence storage, retry policy, audit log
 ## Current limitations
 
 - The approval endpoint currently marks a candidate ready for publication; it does not submit an on-chain transaction. End-to-end publication remains blocked on a verified, authorized transaction path and must not be represented as published until the existing publication-verification route confirms the transaction.
-- Automatic settlement has not yet been implemented; no outcome is submitted on-chain by this workflow.
+- The settlement evaluator is implemented and unit-tested, but the scheduled settlement orchestrator and authorized on-chain validator-consensus submission are not implemented. No outcome is submitted on-chain by this workflow.
 - Periodic evidence capture now records observations, but it does not guarantee an observation exactly at the future resolution timestamp. A product-approved observation window/tolerance and adequate capture cadence are still required before price markets can be safely published or resolved. Missing/out-of-window observations must remain unresolved.
 - Candidate threshold/timing defaults are engineering placeholders, not approved production market policy.
 - No liquidity/market-making workflow is included.
@@ -45,6 +46,8 @@ The workflows share provider adapters, evidence storage, retry policy, audit log
 - `GET /api/automation/candidates`: list stored candidates.
 - `POST /api/automation/candidates/:id/review`: dismiss or restore a candidate with an audit reason.
 - `POST /api/automation/candidates/:id/approve`: approve with a verified wallet session. Requires `ADMIN_WALLET_ADDRESS` and exactly two distinct `MARKET_MAKER_WALLET_ADDRESSES`.
+
+The settlement evaluator is a library entry point (`evaluateSettlementEvidence`) for orchestration/tests, not a public API or transaction submitter. The caller must supply the approved observation tolerance; missing, stale, out-of-window, wrong-asset, or conflicting evidence returns `MANUAL_REVIEW`.
 
 Additional scheduler settings:
 
