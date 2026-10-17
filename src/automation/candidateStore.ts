@@ -50,6 +50,17 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
       last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Upgrade databases created by earlier proposal-only versions. CREATE TABLE IF NOT EXISTS
+  // does not update an existing CHECK constraint when a new status is introduced.
+  await database.query(`
+    ALTER TABLE automation_market_candidates
+      DROP CONSTRAINT IF EXISTS automation_market_candidates_status_check
+  `);
+  await database.query(`
+    ALTER TABLE automation_market_candidates
+      ADD CONSTRAINT automation_market_candidates_status_check
+      CHECK (status IN ('PENDING_REVIEW', 'DISMISSED', 'APPROVED_FOR_PUBLICATION', 'PUBLISHED'))
+  `);
   await database.query(`
     CREATE INDEX IF NOT EXISTS automation_market_candidates_status_last_seen_idx
     ON automation_market_candidates (status, last_seen_at DESC)
