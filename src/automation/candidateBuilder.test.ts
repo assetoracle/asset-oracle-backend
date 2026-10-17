@@ -72,3 +72,11 @@ test("candidate key changes on a new UTC observation day", () => {
   const second = buildPriceThresholdCandidates([nextDayEvidence], { now: () => nextDayNow });
   assert.notEqual(first.candidates[0].key, second.candidates[0].key);
 });
+
+
+test("candidate builder rejects missing or inconsistent retrieval timestamps", () => {
+  const missingRetrieval = { ...evidence, retrievedAt: "invalid" };
+  const result = buildPriceThresholdCandidates([missingRetrieval], { now: () => now });
+  assert.equal(result.candidates.length, 0);
+  assert.match(result.skipped[0].reason, /retrieval timestamp is invalid/);
+});
