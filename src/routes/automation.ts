@@ -6,6 +6,7 @@ import { isAdminWallet } from "../services/adminAuth.js";
 import { CoinGeckoProvider } from "../automation/coingeckoProvider.js";
 import { buildPriceThresholdCandidates } from "../automation/candidateBuilder.js";
 import {
+  approveAutomationCandidate,
   listAutomationCandidates,
   reviewAutomationCandidate,
   upsertAutomationCandidates,
@@ -13,7 +14,7 @@ import {
 import type { StoredAutomationCandidate } from "../automation/candidateStore.js";
 
 const automationRouter = Router();
-const candidateStatus = z.enum(["PENDING_REVIEW", "DISMISSED", "PUBLISHED"]);
+const candidateStatus = z.enum(["PENDING_REVIEW", "DISMISSED", "APPROVED_FOR_PUBLICATION", "PUBLISHED"]);
 
 function sessionToken(req: import("express").Request): string {
   const header = req.header("authorization") ?? "";
@@ -101,6 +102,52 @@ automationRouter.get("/candidates", async (req, res, next) => {
       limit: parsed.data.limit,
     });
     return res.status(200).json({ candidates, count: candidates.length });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/** Any one of the configured admin or two market makers can approve a candidate. */
+automationRouter.post("/candidates/:id/approve", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string() }).safeParse(req.body);
+    const id = z.string().uuid().safeParse(req.params.id);
+    if (!parsed.success || !id.success || !isAddress(parsed.data.address)) {
+      return res.status(400).json({ error: "A valid candidate ID and approver address are required." });
+    }
+    const address = getAddress(parsed.data.address);
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+    const makers = (process.env.MARKET_MAKER_WALLET_ADDRESSES ?? "")
+      .split(",").map((value) => value.trim()).filter(isAddress).map(getAddress);
+    const isAdmin = Boolean(adminAddress && isAddress(adminAddress) && getAddress(adminAddress) === address);
+    const isMaker = makers.includes(address);
+    if (!isAdmin && !isMaker) {
+      return res.status(403).json({ error: "Only the configured admin or one of the two market makers can approve candidates." });
+    }
+    if (new Set([...(adminAddress && isAddress(adminAddress) ? [getAddress(adminAddress)] : []), ...makers]).size !== 3) {
+      return res.status(503).json({ error: "Configure one admin wallet and exactly two distinct market-maker wallets before enabling approvals." });
+    }
+    const result = await approveAutomationCandidate({
+      id: id.data,
+      approverWallet: address,
+      approverRole: isAdmin ? "ADMIN" : "MARKET_MAKER",
+    });
+    if (!result) {
+      return res.status(409).json({ error: "Candidate is unavailable for approval or is already dismissed/published." });
+    }
+    return res.status(200).json({
+      message: result.newlyApproved
+        ? "Candidate approved by the 1-of-3 threshold. It is ready for the authorized publication step."
+        : "Approval recorded; the candidate remains approved for publication.",
+      approvalCount: result.approvalCount,
+      requiredApprovals: 1,
+      status: result.candidate.status,
+      candidate: result.candidate,
+      publishedOnchain: false,
+    });
   } catch (error) {
     return next(error);
   }
