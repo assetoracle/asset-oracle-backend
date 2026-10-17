@@ -105,9 +105,19 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
       value DOUBLE PRECISION NOT NULL,
       currency TEXT NOT NULL,
       source_url TEXT NOT NULL,
+      retrieved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      raw_response JSONB NOT NULL DEFAULT '{}'::jsonb,
       recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (candidate_id, observed_at, value)
     )
+  `);
+  await database.query(`
+    ALTER TABLE automation_candidate_observations
+      ADD COLUMN IF NOT EXISTS retrieved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  `);
+  await database.query(`
+    ALTER TABLE automation_candidate_observations
+      ADD COLUMN IF NOT EXISTS raw_response JSONB NOT NULL DEFAULT '{}'::jsonb
   `);
   await database.query(`
     CREATE INDEX IF NOT EXISTS automation_candidate_observations_candidate_idx
@@ -148,8 +158,8 @@ export async function upsertAutomationCandidates(
       // Preserve the first candidate basis; append later observations atomically.
       await client.query(
         `INSERT INTO automation_candidate_observations
-          (candidate_id, provider, metric, asset_id, observed_at, value, currency, source_url)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          (candidate_id, provider, metric, asset_id, observed_at, value, currency, source_url, retrieved_at, raw_response)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (candidate_id, observed_at, value) DO NOTHING`,
         [
           stored.id,
@@ -160,6 +170,8 @@ export async function upsertAutomationCandidates(
           candidate.evidence.value,
           candidate.evidence.currency,
           candidate.evidence.sourceUrl,
+          candidate.evidence.retrievedAt,
+          JSON.stringify(candidate.evidence.rawResponse),
         ],
       );
     }
