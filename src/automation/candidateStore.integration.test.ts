@@ -30,6 +30,8 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
   const schema = "automation_it_" + randomUUID().replace(/-/g, "");
   const quoteIdentifier = (value: string) => '"' + value.replace(/"/g, '""') + '"';
   let scopedPool: pg.Pool | undefined;
+  let closeStorePool: (() => Promise<void>) | undefined;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
   try {
     await adminPool.query("CREATE SCHEMA " + quoteIdentifier(schema));
     const scopedUrl = new URL(parsed.toString());
@@ -37,6 +39,8 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
     process.env.DATABASE_URL = scopedUrl.toString();
     // Import only after setting DATABASE_URL so the store uses the isolated schema.
     const store = await import("./candidateStore.js");
+    const databaseModule = await import("../config/database.js");
+    closeStorePool = () => databaseModule.database.end();
     scopedPool = new pg.Pool({ connectionString: scopedUrl.toString(), max: 1 });
     // The store's pool and this scoped pool share the same isolated schema.
     await store.initializeAutomationCandidateStore();
@@ -113,6 +117,9 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
     assert.deepEqual(audits.rows.map((row) => row.action), ["DISMISS", "RESTORE"]);
   } finally {
     if (scopedPool) await scopedPool.end();
+    if (closeStorePool) await closeStorePool();
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
     await adminPool.query("DROP SCHEMA IF EXISTS " + quoteIdentifier(schema) + " CASCADE");
     await adminPool.end();
   }
