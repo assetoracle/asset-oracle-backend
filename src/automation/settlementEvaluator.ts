@@ -21,6 +21,7 @@ export type SettlementEvaluation =
  */
 export function evaluateSettlementEvidence(input: {
   rule: SettlementRule;
+  assetId: string;
   evidence: ProviderEvidence[];
   toleranceSeconds: number;
   now?: Date;
@@ -37,7 +38,7 @@ export function evaluateSettlementEvidence(input: {
   const eligible = input.evidence.filter((item) => {
     const observedMs = Date.parse(item.observedAt);
     const retrievedMs = Date.parse(item.retrievedAt);
-    return item.provider === rule.sourceId && item.metric === rule.metric
+    return item.provider === rule.sourceId && item.metric === rule.metric && item.assetId === input.assetId
       && item.currency === rule.currency && Number.isFinite(item.value) && item.value > 0
       && Number.isFinite(observedMs) && Number.isFinite(retrievedMs)
       && Math.abs(observedMs - targetMs) <= input.toleranceSeconds * 1000
