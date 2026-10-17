@@ -14,13 +14,14 @@ The workflows share provider adapters, evidence storage, retry policy, audit log
 - CoinGecko USD price adapter with response validation, freshness checks, bounded retries, and retryable error handling.
 - Deterministic proposal candidate generation using the existing market proposal schema.
 - Admin-authenticated discovery, candidate listing, and audited dismiss/restore review endpoints.
+- Candidate approval endpoint: one approval from the configured admin or either of two configured market makers moves the candidate to `APPROVED_FOR_PUBLICATION`; duplicate approvals from the same wallet are idempotent.
 - PostgreSQL persistence for candidate proposals, immutable initial evidence, distinct later observations, and review events.
 - Integration tests against an isolated PostgreSQL test database in CI.
 - Discovery is gated by `MARKET_AUTOMATION_ENABLED=true`; the gate is off unless explicitly set. Asset IDs must come from `MARKET_AUTOMATION_COINGECKO_ASSETS` in production.
 
 ## Current limitations
 
-- This is not yet end-to-end automatic market creation: it generates and stores reviewable candidates, but has no publisher or scheduler.
+- The approval endpoint currently marks a candidate ready for publication; it does not submit an on-chain transaction. End-to-end publication remains blocked on a verified, authorized transaction path and must not be represented as published until the existing publication-verification route confirms the transaction.
 - Automatic settlement has not yet been implemented.
 - The current CoinGecko spot-price response is not sufficient by itself to prove a price at a future, exact resolution timestamp. A timestamped observation-capture and missing-evidence policy must be designed and tested before any price market is publishable or automatically resolvable.
 - Candidate threshold/timing defaults are engineering placeholders, not approved production market policy.
@@ -40,5 +41,6 @@ The workflows share provider adapters, evidence storage, retry policy, audit log
 - `POST /api/automation/candidates/run`: manually run candidate discovery.
 - `GET /api/automation/candidates`: list stored candidates.
 - `POST /api/automation/candidates/:id/review`: dismiss or restore a candidate with an audit reason.
+- `POST /api/automation/candidates/:id/approve`: approve with a verified wallet session. Requires `ADMIN_WALLET_ADDRESS` and exactly two distinct `MARKET_MAKER_WALLET_ADDRESSES`.
 
 Protected endpoints require the existing wallet session token in `Authorization: Bearer <token>` and the configured owner wallet address. Discovery is proposal-only and cannot publish a market.
