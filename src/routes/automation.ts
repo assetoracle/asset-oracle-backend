@@ -62,27 +62,38 @@ automationRouter.post("/candidates/run", async (req, res, next) => {
       return res.status(400).json({ error: "Requested assets must be selected from MARKET_AUTOMATION_COINGECKO_ASSETS." });
     }
 
-    const provider = new CoinGeckoProvider({ apiKey: process.env.COINGECKO_API_KEY });
-    let evidence;
-    try {
-      evidence = await provider.getUsdPrices(assets);
-    } catch (error) {
-      console.error("Market automation provider failure:", error instanceof Error ? error.message : "Unknown error");
-      return res.status(502).json({ error: "The configured market data provider is temporarily unavailable." });
+    const { acquireAutomationRunLock } = await import("../automation/distributedLock.js");
+    const releaseLock = await acquireAutomationRunLock();
+    if (!releaseLock) {
+      return res.status(409).json({ error: "Another automation run is active. Retry after it completes." });
     }
-    const generated = buildPriceThresholdCandidates(evidence);
-    const persistence = await upsertAutomationCandidates(generated.candidates);
-    return res.status(200).json({
-      mode: "proposal-only",
-      provider: generated.provider,
-      generatedAt: generated.generatedAt,
-      assetsRequested: assets.length,
-      evidenceReturned: evidence.length,
-      candidatesGenerated: generated.candidates.length,
-      candidatesInserted: persistence.inserted,
-      existingCandidates: persistence.existing,
-      skipped: generated.skipped,
-    });
+    try {
+      const provider = new CoinGeckoProvider({ apiKey: process.env.COINGECKO_API_KEY });
+      let evidence;
+      try {
+        evidence = await provider.getUsdPrices(assets);
+      } catch (error) {
+        console.error("Market automation provider failure:", error instanceof Error ? error.message : "Unknown error");
+        return res.status(502).json({ error: "The configured market data provider is temporarily unavailable." });
+      }
+      const { recordProviderObservations } = await import("../automation/candidateStore.js");
+      await recordProviderObservations(evidence);
+      const generated = buildPriceThresholdCandidates(evidence);
+      const persistence = await upsertAutomationCandidates(generated.candidates);
+      return res.status(200).json({
+        mode: "proposal-only",
+        provider: generated.provider,
+        generatedAt: generated.generatedAt,
+        assetsRequested: assets.length,
+        evidenceReturned: evidence.length,
+        candidatesGenerated: generated.candidates.length,
+        candidatesInserted: persistence.inserted,
+        existingCandidates: persistence.existing,
+        skipped: generated.skipped,
+      });
+    } finally {
+      await releaseLock();
+    }
   } catch (error) {
     return next(error);
   }
