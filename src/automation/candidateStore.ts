@@ -3,7 +3,7 @@ import type { MarketCandidate } from "./types.js";
 
 export type StoredAutomationCandidate = MarketCandidate & {
   id: string;
-  status: "PENDING_REVIEW" | "DISMISSED" | "PUBLISHED";
+  status: "PENDING_REVIEW" | "DISMISSED" | "APPROVED_FOR_PUBLICATION" | "PUBLISHED";
   firstSeenAt: string;
   lastSeenAt: string;
 };
@@ -45,7 +45,7 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
       evidence JSONB NOT NULL,
       quality JSONB NOT NULL,
       status TEXT NOT NULL DEFAULT 'PENDING_REVIEW'
-        CHECK (status IN ('PENDING_REVIEW', 'DISMISSED', 'PUBLISHED')),
+        CHECK (status IN ('PENDING_REVIEW', 'DISMISSED', 'APPROVED_FOR_PUBLICATION', 'PUBLISHED')),
       first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -67,6 +67,21 @@ export async function initializeAutomationCandidateStore(): Promise<void> {
   await database.query(`
     CREATE INDEX IF NOT EXISTS automation_candidate_review_events_candidate_idx
     ON automation_candidate_review_events (candidate_id, created_at DESC)
+  `);
+
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS automation_candidate_approvals (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      candidate_id UUID NOT NULL REFERENCES automation_market_candidates(id),
+      approver_wallet TEXT NOT NULL,
+      approver_role TEXT NOT NULL CHECK (approver_role IN ('ADMIN', 'MARKET_MAKER')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (candidate_id, approver_wallet)
+    )
+  `);
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS automation_candidate_approvals_candidate_idx
+    ON automation_candidate_approvals (candidate_id, created_at ASC)
   `);
   await database.query(`
     CREATE TABLE IF NOT EXISTS automation_candidate_observations (
@@ -189,4 +204,59 @@ export async function reviewAutomationCandidate(input: {
     [input.id, targetStatus, expectedStatus, input.adminWallet, input.action, input.reason],
   );
   return result.rows[0] ? mapRow(result.rows[0]) : null;
+}
+
+/** Records one of the three eligible approvals. The first approval reaches the threshold. */
+export async function approveAutomationCandidate(input: {
+  id: string;
+  approverWallet: string;
+  approverRole: "ADMIN" | "MARKET_MAKER";
+}): Promise<{ candidate: StoredAutomationCandidate; approvalCount: number; newlyApproved: boolean } | null> {
+  const client = await database.connect();
+  try {
+    await client.query("BEGIN");
+    const candidateResult = await client.query<CandidateRow>(
+      "SELECT * FROM automation_market_candidates WHERE id = $1 FOR UPDATE",
+      [input.id],
+    );
+    if (!candidateResult.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const candidate = candidateResult.rows[0];
+    if (candidate.status === "DISMISSED" || candidate.status === "PUBLISHED") {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const approval = await client.query(
+      `INSERT INTO automation_candidate_approvals (candidate_id, approver_wallet, approver_role)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (candidate_id, approver_wallet) DO NOTHING
+       RETURNING id`,
+      [input.id, input.approverWallet.toLowerCase(), input.approverRole],
+    );
+    const countResult = await client.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM automation_candidate_approvals WHERE candidate_id = $1",
+      [input.id],
+    );
+    const approvalCount = Number(countResult.rows[0]?.count ?? 0);
+    const newlyApproved = candidate.status !== "APPROVED_FOR_PUBLICATION" && approvalCount >= 1;
+    if (newlyApproved) {
+      await client.query(
+        "UPDATE automation_market_candidates SET status = 'APPROVED_FOR_PUBLICATION' WHERE id = $1 AND status = 'PENDING_REVIEW'",
+        [input.id],
+      );
+    }
+    const refreshed = await client.query<CandidateRow>(
+      "SELECT * FROM automation_market_candidates WHERE id = $1",
+      [input.id],
+    );
+    await client.query("COMMIT");
+    return { candidate: mapRow(refreshed.rows[0]), approvalCount, newlyApproved };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
