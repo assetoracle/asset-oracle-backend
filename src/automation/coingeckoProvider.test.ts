@@ -19,6 +19,8 @@ test("CoinGecko provider normalizes valid USD prices and deduplicates requested 
   assert.equal(result[0].assetId, "bitcoin");
   assert.equal(result[0].value, 65000);
   assert.equal(result[0].currency, "USD");
+  assert.ok(Number.isFinite(Date.parse(result[0].retrievedAt)));
+  assert.deepEqual(result[0].rawResponse, { usd: 65000, last_updated_at: recentTimestamp });
   assert.equal(new URL(requestedUrl).searchParams.get("ids"), "bitcoin");
 });
 
