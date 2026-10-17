@@ -22,10 +22,10 @@ export function startCandidateScheduler(): (() => void) | null {
     return null;
   }
 
-  const configuredMinutes = Number(process.env.MARKET_AUTOMATION_INTERVAL_MINUTES ?? "5");
+  const configuredMinutes = Number(process.env.MARKET_AUTOMATION_INTERVAL_MINUTES ?? "180");
   const intervalMinutes = Number.isFinite(configuredMinutes)
-    ? Math.max(5, Math.min(60, Math.trunc(configuredMinutes)))
-    : 5;
+    ? Math.max(5, Math.min(1440, Math.trunc(configuredMinutes)))
+    : 180;
   const provider = new CoinGeckoProvider({ apiKey: process.env.COINGECKO_API_KEY });
   let running = false;
   let stopped = false;
