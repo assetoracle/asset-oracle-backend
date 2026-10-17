@@ -6,7 +6,7 @@ export type SettlementRule = {
   metric: string;
   targetValue: number;
   currency: string;
-  comparison: "AT_LEAST" | "ABOVE" | "AT_MOST" | "BELOW";
+  comparison: "AT_LEAST" | "ABOVE" | "BELOW" | "EQUALS";
   observationTime: string;
 };
 
@@ -52,8 +52,8 @@ export function evaluateSettlementEvidence(input: {
     switch (rule.comparison) {
       case "AT_LEAST": return value >= rule.targetValue ? "YES" : "NO";
       case "ABOVE": return value > rule.targetValue ? "YES" : "NO";
-      case "AT_MOST": return value <= rule.targetValue ? "YES" : "NO";
       case "BELOW": return value < rule.targetValue ? "YES" : "NO";
+      case "EQUALS": return value === rule.targetValue ? "YES" : "NO";
     }
   };
   const outcomes = new Set(eligible.map((item) => decide(item.value)));
