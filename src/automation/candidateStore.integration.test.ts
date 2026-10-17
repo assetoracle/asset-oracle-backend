@@ -81,7 +81,7 @@ test("PostgreSQL candidate persistence preserves initial evidence and appends di
     assert.deepEqual(await store.upsertAutomationCandidates([first]), { inserted: 1, existing: 0 });
     const changedObservation = {
       ...first,
-      evidence: { ...first.evidence, observedAt: new Date(now.getTime() - 1_000).toISOString(), value: 96 },
+      evidence: { ...first.evidence, observedAt: new Date(now.getTime() - 1_000).toISOString(), value: 96, rawResponse: { usd: 96 } },
     };
     assert.deepEqual(await store.upsertAutomationCandidates([changedObservation]), { inserted: 0, existing: 1 });
     assert.deepEqual(await store.upsertAutomationCandidates([changedObservation]), { inserted: 0, existing: 1 });
