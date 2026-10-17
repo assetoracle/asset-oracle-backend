@@ -121,7 +121,7 @@ automationRouter.post("/candidates/:id/approve", async (req, res, next) => {
     }
     const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
     const makers = (process.env.MARKET_MAKER_WALLET_ADDRESSES ?? "")
-      .split(",").map((value) => value.trim()).filter(isAddress).map(getAddress);
+      .split(",").map((value) => value.trim()).filter((value) => isAddress(value)).map((value) => getAddress(value));
     const isAdmin = Boolean(adminAddress && isAddress(adminAddress) && getAddress(adminAddress) === address);
     const isMaker = makers.includes(address);
     if (!isAdmin && !isMaker) {
