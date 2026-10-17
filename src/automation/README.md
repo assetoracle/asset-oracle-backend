@@ -15,15 +15,18 @@ The workflows share provider adapters, evidence storage, retry policy, audit log
 - Deterministic proposal candidate generation using the existing market proposal schema.
 - Admin-authenticated discovery, candidate listing, and audited dismiss/restore review endpoints.
 - Candidate approval endpoint: one approval from the configured admin or either of two configured market makers moves the candidate to `APPROVED_FOR_PUBLICATION`; duplicate approvals from the same wallet are idempotent.
-- PostgreSQL persistence for candidate proposals, immutable initial evidence, distinct later observations, and review events.
+- PostgreSQL persistence for candidate proposals, immutable initial evidence, distinct later observations, raw provider payloads, and retrieval timestamps.
+- Independent `automation_price_observations` history for resolution-time evidence, with bounded-tolerance queries that do not silently select a distant observation.
+- PostgreSQL session advisory lock to prevent scheduled discovery/capture passes from running concurrently across backend instances.
+- Separate periodic evidence capture (`MARKET_AUTOMATION_CAPTURE_INTERVAL_MINUTES`, default 5 minutes, bounded to 1–60) from candidate discovery (default 180 minutes). Both remain opt-in behind the existing feature flags.
 - Integration tests against an isolated PostgreSQL test database in CI.
 - Discovery is gated by `MARKET_AUTOMATION_ENABLED=true`; the gate is off unless explicitly set. Asset IDs must come from `MARKET_AUTOMATION_COINGECKO_ASSETS` in production.
 
 ## Current limitations
 
 - The approval endpoint currently marks a candidate ready for publication; it does not submit an on-chain transaction. End-to-end publication remains blocked on a verified, authorized transaction path and must not be represented as published until the existing publication-verification route confirms the transaction.
-- Automatic settlement has not yet been implemented.
-- The current CoinGecko spot-price response is not sufficient by itself to prove a price at a future, exact resolution timestamp. A timestamped observation-capture and missing-evidence policy must be designed and tested before any price market is publishable or automatically resolvable.
+- Automatic settlement has not yet been implemented; no outcome is submitted on-chain by this workflow.
+- Periodic evidence capture now records observations, but it does not guarantee an observation exactly at the future resolution timestamp. A product-approved observation window/tolerance and adequate capture cadence are still required before price markets can be safely published or resolved. Missing/out-of-window observations must remain unresolved.
 - Candidate threshold/timing defaults are engineering placeholders, not approved production market policy.
 - No liquidity/market-making workflow is included.
 
@@ -42,5 +45,11 @@ The workflows share provider adapters, evidence storage, retry policy, audit log
 - `GET /api/automation/candidates`: list stored candidates.
 - `POST /api/automation/candidates/:id/review`: dismiss or restore a candidate with an audit reason.
 - `POST /api/automation/candidates/:id/approve`: approve with a verified wallet session. Requires `ADMIN_WALLET_ADDRESS` and exactly two distinct `MARKET_MAKER_WALLET_ADDRESSES`.
+
+Additional scheduler settings:
+
+- `MARKET_AUTOMATION_SCHEDULE_ENABLED=true` enables scheduled discovery/capture only when `MARKET_AUTOMATION_ENABLED=true`.
+- `MARKET_AUTOMATION_INTERVAL_MINUTES` controls candidate discovery (default 180, bounded to 5–1440).
+- `MARKET_AUTOMATION_CAPTURE_INTERVAL_MINUTES` controls evidence capture (default 5, bounded to 1–60). Respect provider rate limits when configuring it.
 
 Protected endpoints require the existing wallet session token in `Authorization: Bearer <token>` and the configured owner wallet address. Discovery is proposal-only and cannot publish a market.
