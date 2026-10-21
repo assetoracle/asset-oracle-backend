@@ -1,9 +1,7 @@
 name: Enugu Read-Only Contract Preflight
 
 on:
-  push:
-    branches:
-      - "audit/enugu-readonly-preflight-2026-10-21"
+  workflow_dispatch:
 
 permissions:
   contents: read
