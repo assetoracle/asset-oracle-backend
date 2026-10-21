@@ -1,0 +1,30 @@
+name: Enugu Read-Only Contract Preflight
+
+on:
+  push:
+    branches:
+      - "audit/enugu-readonly-preflight-2026-10-21"
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    env:
+      ASSET_ORACLE_MARKET_MANAGER_ADDRESS: "0x5fc327f55cf533ed5d05337f835be37ff1e0db1f"
+      ASSET_CHAIN_RPC_URL: "https://enugu-rpc.assetchain.org"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install contract test dependencies
+        run: npm install --include=dev
+      - name: Run read-only Enugu preflight
+        run: npm run preflight:enugu
