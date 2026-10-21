@@ -28,3 +28,13 @@ jobs:
         run: npm install --include=dev
       - name: Run read-only Enugu preflight
         run: npm run preflight:enugu
+      - name: Smoke-test deployed backend health and database
+        working-directory: .
+        run: |
+          curl --fail --show-error --silent --retry 3 --retry-delay 5 https://asset-oracle-backend.onrender.com/api/health
+          echo
+          curl --fail --show-error --silent --retry 3 --retry-delay 5 https://asset-oracle-backend.onrender.com/api/health/database
+          echo
+      - name: Smoke-test deployed frontend
+        working-directory: .
+        run: curl --fail --show-error --silent --head --retry 3 --retry-delay 5 https://asset-oracle.onrender.com
