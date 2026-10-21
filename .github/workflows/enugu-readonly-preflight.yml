@@ -35,6 +35,34 @@ jobs:
           echo
           curl --fail --show-error --silent --retry 3 --retry-delay 5 https://asset-oracle-backend.onrender.com/api/health/database
           echo
+      - name: Verify deployed public role configuration
+        working-directory: .
+        shell: bash
+        run: |
+          check_role() {
+            local address="$1"
+            local expected="$2"
+            local response
+            response="$(curl --fail --show-error --silent --retry 3 --retry-delay 5 \
+              -H 'Content-Type: application/json' \
+              -d "{\\"address\\":\\"$address\\"}" \
+              https://asset-oracle-backend.onrender.com/api/markets/auth/role/public)"
+            printf '%s' "$response" | node -e '
+              let input = "";
+              process.stdin.on("data", chunk => input += chunk);
+              process.stdin.on("end", () => {
+                const result = JSON.parse(input);
+                if (result.role !== process.argv[1]) {
+                  console.error("Role mismatch: expected " + process.argv[1] + ", received " + result.role);
+                  process.exit(1);
+                }
+                console.log("PASS deployed role " + result.role + " for " + result.address);
+              });
+            ' "$expected"
+          }
+          check_role "0x3d3724d20d9d5db5a40819869057b37465a0c67d" "OWNER"
+          check_role "0xb94185491c78e7331c5d53e9b0df74970b3c9b8a" "VALIDATOR_2"
+          check_role "0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01" "VALIDATOR_3"
       - name: Smoke-test deployed frontend
         working-directory: .
         run: curl --fail --show-error --silent --head --retry 3 --retry-delay 5 https://asset-oracle.onrender.com
