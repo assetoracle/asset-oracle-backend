@@ -2,7 +2,9 @@
 
 **Purpose:** Verify the deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
 
-## Current deployment record
+## Legacy deployment record (historical; do not use for new markets)
+
+The address and transaction evidence in this section refer to the earlier manager deployment only. They are retained for audit/history and are **not** the approved manager for new market creation or validator-consensus settlement. Use the current 2-of-3 manager listed under **Current gate** below, and independently verify its deployment transaction/block and live configuration before any lifecycle transaction.
 
 - Network: Asset Chain Enugu testnet, chain ID `42421`
 - RPC: `https://enugu-rpc.assetchain.org`
