@@ -47,7 +47,7 @@ jobs:
             local response
             response="$(curl --fail --show-error --silent --retry 3 --retry-delay 5 \
               -H 'Content-Type: application/json' \
-              -d "{\\"address\\":\\"$address\\"}" \
+              -d "$(printf '{"address":"%s"}' "$address")" \
               https://asset-oracle-backend.onrender.com/api/markets/auth/role/public)"
             printf '%s' "$response" | node -e '
               let input = "";
