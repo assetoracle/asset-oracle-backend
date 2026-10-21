@@ -64,7 +64,22 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
   if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {
     throw new Error("On-chain stats indexer requires valid current and legacy manager addresses.");
   }
-  for (const managerAddress of managers) await initializeManagerIndexer(managerAddress);
+  // The canonical manager is the active source for new markets and validator
+  // settlement. A retired manager's RPC/code failure must not prevent indexing
+  // the canonical manager; legacy account reads remain available independently.
+  for (const managerAddress of managers) {
+    try {
+      await initializeManagerIndexer(managerAddress);
+    } catch (error) {
+      console.error(
+        `On-chain stats indexer could not initialize manager ${managerAddress}:`,
+        error instanceof Error ? error.message : "Unknown error",
+      );
+      if (managerAddress === current.toLowerCase()) {
+        throw error;
+      }
+    }
+  }
 }
 
 async function initializeManagerIndexer(managerAddress: string): Promise<void> {
