@@ -26,6 +26,8 @@ jobs:
           node-version: 20
       - name: Install contract test dependencies
         run: npm install --include=dev
+      - name: Run local smart-contract test suite
+        run: npm test
       - name: Run read-only Enugu preflight
         run: npm run preflight:enugu
       - name: Smoke-test deployed backend health and database
