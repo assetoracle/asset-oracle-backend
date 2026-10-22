@@ -106,6 +106,25 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     )).to.be.reverted;
   });
 
+  it("prevents owner cancellation after close and preserves timeout refunds", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+
+    await expect(
+      f.manager.cancelMarket(1, ethers.keccak256(ethers.toUtf8Bytes("cancel after close")))
+    ).to.be.revertedWithCustomError(f.manager, "InvalidStatus");
+
+    await time.increaseTo(closeTime + 3600);
+    await f.manager.refundTimedOutMarket(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(4); // REFUNDABLE.
+  });
+
   it("charges the 0.25% trading fee and records the net USDC stake", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
