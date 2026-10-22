@@ -1,9 +1,9 @@
 import { getAddress, isAddress } from "viem";
 import { ASSET_CHAIN_TESTNET_ID, ASSET_CHAIN_TESTNET_RPC_URL } from "../config/assetOracle.js";
 
-/** Official Asset Chain Testnet Bridged USDC address from Asset Chain documentation. */
+/** Approved Asset Chain Enugu testnet USDC address confirmed by the project preflight. */
 export const ASSET_CHAIN_TESTNET_USDC_ADDRESS =
-  getAddress("0x39C6b75fAeAb6B54541BE34860AE6250263377e9");
+  getAddress("0xc33741fddEBeA854d265db6F9707900Efb0211a2");
 
 export type PaidSubmissionTokenConfig = {
   address: `0x${string}`;
@@ -20,7 +20,7 @@ export type PaidSubmissionTestnetConfig = {
 };
 
 /**
- * Testnet-only, fail-closed configuration. USDC is pinned to the official documented
+ * Testnet-only, fail-closed configuration. USDC is pinned to the project-approved
  * Asset Chain Testnet bridged-USDC address; the payment verifier also checks on-chain decimals.
  */
 export function getPaidSubmissionTestnetConfig(
