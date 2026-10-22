@@ -28,7 +28,7 @@ export type PaidSubmission = {
 };
 
 const TOKEN_SET: Record<SubmissionNetwork, readonly SubmissionToken[]> = {
-  MAINNET: ["USDC", "USDT", "cNGN"],
+  MAINNET: [],
   TESTNET: ["USDC"],
 };
 
@@ -45,7 +45,7 @@ export function validateSubmissionPayment(input: {
   if (!/^[1-9][0-9]*$/.test(input.amountAtomic) ||
       !/^[1-9][0-9]*$/.test(input.expectedAmountAtomic) ||
       input.amountAtomic !== input.expectedAmountAtomic) {
-    throw new Error("Payment amount does not match the verified $10-equivalent quote.");
+    throw new Error("Payment amount does not match the exact 10 USDC testnet proposal fee.");
   }
 }
 
