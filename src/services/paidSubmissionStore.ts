@@ -401,12 +401,13 @@ export async function getSubmissionRefundContext(id: string): Promise<{
   token: SubmissionToken;
   amountAtomic: string;
   status: PaidSubmissionStatus;
+  refundTxHash: string | null;
 } | null> {
   const result = await database.query<{
     id: string; wallet_address: string; network: SubmissionNetwork; token: SubmissionToken;
-    amount_atomic: string; status: PaidSubmissionStatus;
+    amount_atomic: string; status: PaidSubmissionStatus; refund_tx_hash: string | null;
   }>(
-    `SELECT id, wallet_address, network, token, amount_atomic, status
+    `SELECT id, wallet_address, network, token, amount_atomic, status, refund_tx_hash
      FROM paid_market_submissions WHERE id = $1`,
     [id],
   );
@@ -415,6 +416,7 @@ export async function getSubmissionRefundContext(id: string): Promise<{
   return {
     id: row.id, walletAddress: row.wallet_address, network: row.network,
     token: row.token, amountAtomic: row.amount_atomic, status: row.status,
+    refundTxHash: row.refund_tx_hash,
   };
 }
 
