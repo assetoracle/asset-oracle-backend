@@ -628,6 +628,7 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
     if (!stored) {
       return res.status(409).json({ error: "Publication could not be recorded. Confirm the proposal is still approved and has not already been published." });
     }
+    await markPaidSubmissionPublishedForProposal({ proposalId: proposal.id, marketId });
 
     return res.status(200).json({
       message: "Verified on-chain publication recorded.",
@@ -735,6 +736,7 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
     if (!stored) {
       return res.status(409).json({ error: "Publication could not be recorded. Confirm the proposal is still approved and has not already been published." });
     }
+    await markPaidSubmissionPublishedForProposal({ proposalId: proposal.id, marketId });
 
     return res.status(200).json({
       message: "Verified on-chain publication recorded.",
