@@ -43,7 +43,7 @@ export async function persistSubmissionQuote(input: {
     [id, input.walletAddress.toLowerCase(), input.quote.network, input.quote.token,
       input.quote.tokenAddress, input.quote.tokenDecimals, input.quote.amountAtomic,
       input.quote.usdValue, input.quote.issuedAtMs, input.quote.expiresAtMs,
-      input.quote.rateSource, input.quote.ngnPerUsd ?? null],
+      input.quote.rateSource, null],
   );
   return id;
 }
