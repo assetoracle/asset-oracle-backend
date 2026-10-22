@@ -1,4 +1,5 @@
 import { database } from "../config/database.js";
+import type { PoolClient } from "pg";
 
 export type PointEventType = "MARKET_PROPOSAL_SUBMITTED" | "MARKET_PARTICIPATION" | "QUALIFIED_REFERRAL";
 export type PointAwardInput = {
@@ -55,13 +56,14 @@ export async function initializePointsStore(): Promise<void> {
   `);
 }
 
-export async function awardLeaderboardPoints(input: PointAwardInput): Promise<PointAwardResult> {
+export async function awardLeaderboardPoints(input: PointAwardInput, client?: PoolClient): Promise<PointAwardResult> {
+  const executor = client ?? database;
   const walletAddress = input.walletAddress.trim().toLowerCase();
   const eventKey = input.eventKey.trim();
   if (!/^0x[a-f0-9]{40}$/.test(walletAddress)) throw new Error("A valid normalized EVM wallet address is required.");
   if (!eventKey || eventKey.length > 256) throw new Error("A non-empty event key of at most 256 characters is required.");
   if (input.points !== expectedPoints[input.eventType]) throw new Error("Point value does not match the configured policy for this event type.");
-  const inserted = await database.query<{ points: number }>(
+  const inserted = await executor.query<{ points: number }>(
     `INSERT INTO leaderboard_point_events (wallet_address, event_type, event_key, points, metadata)
      VALUES ($1, $2, $3, $4, $5::jsonb)
      ON CONFLICT (event_type, event_key) DO NOTHING
@@ -70,7 +72,7 @@ export async function awardLeaderboardPoints(input: PointAwardInput): Promise<Po
   );
   const awarded = (inserted.rowCount ?? inserted.rows.length) > 0;
   if (!awarded) {
-    const existing = await database.query<{ wallet_address: string; points: number }>(
+    const existing = await executor.query<{ wallet_address: string; points: number }>(
       "SELECT wallet_address, points FROM leaderboard_point_events WHERE event_type = $1 AND event_key = $2",
       [input.eventType, eventKey],
     );
@@ -79,7 +81,7 @@ export async function awardLeaderboardPoints(input: PointAwardInput): Promise<Po
       throw new Error("The event key is already associated with a different points award.");
     }
   }
-  const total = await database.query<{ total_points: string }>(
+  const total = await executor.query<{ total_points: string }>(
     "SELECT COALESCE(SUM(points), 0)::text AS total_points FROM leaderboard_point_events WHERE lower(wallet_address) = $1",
     [walletAddress],
   );
