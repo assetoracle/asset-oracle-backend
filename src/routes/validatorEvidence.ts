@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createPublicClient, getAddress, http, isAddress } from "viem";
+import { createPublicClient, decodeFunctionData, getAddress, http, isAddress } from "viem";
 import { z } from "zod";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { getHumanValidatorNumber } from "../services/adminAuth.js";
@@ -9,6 +9,7 @@ import { listValidatorSourceLinks, recordValidatorSourceLink } from "../services
 const router = Router();
 const managerAddress = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
 const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || ASSET_CHAIN_TESTNET_RPC_URL;
+const voteAbi = [{ type: "function", name: "resolveMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }, { name: "outcome", type: "uint8" }, { name: "evidenceHash", type: "bytes32" }], outputs: [] }] as const;
 const managerAbi = [{
   type: "function", name: "hasVoted", stateMutability: "view",
   inputs: [{ name: "marketId", type: "uint256" }, { name: "validator", type: "address" }],
@@ -66,6 +67,12 @@ router.post("/", async (req, res, next) => {
     const transaction = await client.getTransaction({ hash: input.transactionHash as `0x${string}` });
     if (!transaction.to || getAddress(transaction.to) !== managerAddress || getAddress(transaction.from) !== getAddress(input.address)) {
       return res.status(400).json({ error: "The transaction does not match this validator and market manager." });
+    }
+    let decoded;
+    try { decoded = decodeFunctionData({ abi: voteAbi, data: transaction.input }); }
+    catch { return res.status(400).json({ error: "The transaction is not a recognized validation vote." }); }
+    if (decoded.functionName !== "resolveMarket" || decoded.args[0].toString() !== input.marketId || Number(decoded.args[1]) !== input.outcome) {
+      return res.status(400).json({ error: "The transaction market and outcome do not match the submitted source record." });
     }
     const hasVoted = await client.readContract({
       address: managerAddress, abi: managerAbi, functionName: "hasVoted",
