@@ -8,7 +8,7 @@ const validEnv: NodeJS.ProcessEnv = {
   ASSET_ORACLE_TESTNET_RPC_URL: "https://enugu-rpc.assetchain.org",
 };
 
-test("testnet paid submissions fail closed without explicit enablement and verified addresses", () => {
+test("testnet paid submissions fail closed without explicit enablement and configured treasury", () => {
   const config = getPaidSubmissionTestnetConfig({});
   assert.equal(config.enabled, false);
   assert.equal(config.chainId, 42421);
@@ -17,7 +17,7 @@ test("testnet paid submissions fail closed without explicit enablement and verif
   assert.ok(config.disabledReasons.length >= 2);
 });
 
-test("testnet config pins the official bridged-USDC address with six decimals", () => {
+test("testnet config pins the project-approved Enugu USDC address with six decimals", () => {
   const config = getPaidSubmissionTestnetConfig(validEnv);
   assert.equal(config.enabled, true);
   assert.equal(config.chainId, 42421);
