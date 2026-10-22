@@ -293,14 +293,7 @@ marketsRouter.post("/proposals", async (req, res, next) => {
       walletAuth.address,
     );
 
-    await awardLeaderboardPoints({
-      walletAddress: walletAuth.address,
-      eventType: "MARKET_PROPOSAL_SUBMITTED",
-      eventKey: `proposal:${stored.id}`,
-      points: 50,
-      metadata: { proposalId: stored.id, status: stored.status },
-    });
-
+    // Submission alone is not eligible for the paid-publication award.
     return res.status(201).json({
       message: "Market proposal submitted for approval.",
       proposal: stored,
