@@ -1,0 +1,32 @@
+name: Enugu Paid Submission Read-only Preflight
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/verify-enugu-paid-submission-preflight.ts"
+      - ".github/workflows/enugu-paid-submission-preflight.yml"
+      - "package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-preflight:
+    name: Verify testnet USDC metadata and candidate treasury
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ASSET_ORACLE_TESTNET_RPC_URL: https://enugu-rpc.assetchain.org
+      ASSET_ORACLE_TESTNET_USDC_ADDRESS: 0xc33741fddEBeA854d265db6F9707900Efb0211a2
+      ASSET_ORACLE_TESTNET_PAID_SUBMISSION_TREASURY_ADDRESS: 0x650fBE31b1710b27Ea9eBe03862BC93145Fb3d77
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --include=dev
+      - name: Read-only chain and token preflight
+        run: npx tsx scripts/verify-enugu-paid-submission-preflight.ts
