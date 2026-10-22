@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { ethers } from "hardhat";
+import { artifacts, ethers } from "hardhat";
 
 const EXPECTED_CHAIN_ID = 42421n;
 const EXPECTED_OWNER = "0x3d3724d20d9d5db5a40819869057b37465a0c67d";
@@ -57,6 +57,20 @@ async function main() {
   const normalizedManager = ethers.getAddress(managerAddress);
   const managerCode = await ethers.provider.getCode(normalizedManager);
   if (managerCode === "0x") throw new Error("No contract code at ASSET_ORACLE_MARKET_MANAGER_ADDRESS.");
+
+  // Configuration checks alone cannot prove the deployed contract runs the
+  // audited source. Compare the complete runtime bytecode to this build's
+  // artifact before trusting the manager's state or permitting market activity.
+  const artifact = await artifacts.readArtifact("AssetOracleMarketManager");
+  const deployedRuntimeHash = ethers.keccak256(managerCode);
+  const expectedRuntimeHash = ethers.keccak256(artifact.deployedBytecode);
+  if (deployedRuntimeHash !== expectedRuntimeHash) {
+    throw new Error(
+      `Manager runtime bytecode does not match the current AssetOracleMarketManager artifact. Expected ${expectedRuntimeHash}, received ${deployedRuntimeHash}. Redeploy and verify the manager before continuing.`,
+    );
+  }
+  console.log(`PASS manager runtime bytecode matches current source artifact: ${expectedRuntimeHash}`);
+
   const manager = new ethers.Contract(normalizedManager, MANAGER_ABI, ethers.provider);
 
   assertAddress("manager owner", await manager.owner(), EXPECTED_OWNER);
