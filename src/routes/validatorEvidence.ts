@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createPublicClient, decodeFunctionData, getAddress, http, isAddress } from "viem";
+import { createPublicClient, decodeFunctionData, getAddress, http, isAddress, keccak256, toBytes } from "viem";
 import { z } from "zod";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { getHumanValidatorNumber } from "../services/adminAuth.js";
@@ -80,6 +80,10 @@ router.post("/", async (req, res, next) => {
     catch { return res.status(400).json({ error: "The transaction is not a recognized validation vote." }); }
     if (decoded.functionName !== "resolveMarket" || decoded.args[0].toString() !== input.marketId || Number(decoded.args[1]) !== input.outcome) {
       return res.status(400).json({ error: "The transaction market and outcome do not match the submitted source record." });
+    }
+    const expectedEvidenceHash = keccak256(toBytes(input.sourceUrl.trim()));
+    if (decoded.args[2].toLowerCase() !== expectedEvidenceHash.toLowerCase()) {
+      return res.status(400).json({ error: "The on-chain evidence hash does not commit to the submitted source URL." });
     }
     const hasVoted = await client.readContract({
       address: managerAddress, abi: managerAbi, functionName: "hasVoted",
