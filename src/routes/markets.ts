@@ -57,6 +57,35 @@ marketsRouter.post("/auth/nonce", async (req, res, next) => {
 });
 
 
+// Public role lookup is informational only; proposal routes enforce permissions server-side.
+marketsRouter.post("/auth/role/public", (req, res) => {
+  const result = z.object({
+    address: z.string().refine(isAddress, "Invalid wallet address"),
+  }).safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: "A valid wallet address is required." });
+  }
+  const address = getAddress(result.data.address);
+  const role = getWalletRole(address);
+  const createMarketProposal = isMarketCreatorWallet(address);
+  return res.status(200).json({
+    address,
+    role,
+    isOwner: role === "OWNER",
+    humanValidator: role === "VALIDATOR_2" || role === "VALIDATOR_3" || role === "OWNER",
+    validatorNumber: role === "VALIDATOR_2" ? 2 : role === "VALIDATOR_3" ? 3 : null,
+    permissions: {
+      createMarketProposal,
+      submitPaidMarketProposal: !createMarketProposal,
+      viewOwnProposals: true,
+      reviewAllProposals: role === "OWNER",
+      approveOrRejectProposals: role === "OWNER",
+      isHumanValidator: role === "VALIDATOR_2" || role === "VALIDATOR_3" || role === "OWNER",
+      validatorNumber: role === "VALIDATOR_2" ? 2 : role === "VALIDATOR_3" ? 3 : null,
+    },
+  });
+});
+
 marketsRouter.post("/auth/role", async (req, res, next) => {
   try {
     const result = walletAuthSchema.safeParse(req.body);
