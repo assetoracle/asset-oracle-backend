@@ -30,6 +30,6 @@ test("rejects a quote when testnet payment configuration is disabled", () => {
 
 test("the quote API's token type cannot represent USDT or cNGN", () => {
   assert.throws(() => createPaidSubmissionQuote({
-    token: "USDC", nowMs: 1_000_000, config: { ...config, tokens: { USDC: null } },
+    token: "USDC", nowMs: 1_000_000, config: { ...config, tokens: { USDC: null as unknown as PaidSubmissionTestnetConfig["tokens"]["USDC"] } },
   }), /USDC/);
 });
