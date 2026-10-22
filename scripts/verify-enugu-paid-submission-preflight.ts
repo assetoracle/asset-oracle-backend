@@ -10,7 +10,8 @@ import {
 const RPC_URL = process.env.ASSET_ORACLE_TESTNET_RPC_URL || "https://enugu-rpc.assetchain.org";
 // Read-only preflight: never requests signatures or broadcasts transactions.
 const EXPECTED_CHAIN_ID = 42421;
-const TOKEN_RAW = process.env.ASSET_ORACLE_TESTNET_USDC_ADDRESS || "0xc33741fddEBeA854d265db6F9707900Efb0211a2";
+const APPROVED_TOKEN_ADDRESS = getAddress("0xc33741fddEBeA854d265db6F9707900Efb0211a2");
+const TOKEN_RAW = process.env.ASSET_ORACLE_TESTNET_USDC_ADDRESS || APPROVED_TOKEN_ADDRESS;
 const TREASURY_RAW = process.env.ASSET_ORACLE_TESTNET_PAID_SUBMISSION_TREASURY_ADDRESS || "";
 
 const erc20Abi = parseAbi([
@@ -28,6 +29,10 @@ async function main() {
   requireCheck(RPC_URL.startsWith("https://"), "Refusing non-HTTPS testnet RPC.");
   requireCheck(isAddress(TOKEN_RAW), "USDC contract address is invalid.");
   const token = getAddress(TOKEN_RAW);
+  requireCheck(
+    token.toLowerCase() === APPROVED_TOKEN_ADDRESS.toLowerCase(),
+    `Refusing unapproved USDC contract. Expected ${APPROVED_TOKEN_ADDRESS}, received ${token}.`,
+  );
   const client = createPublicClient({ transport: http(RPC_URL) });
 
   const chainId = await client.getChainId();
