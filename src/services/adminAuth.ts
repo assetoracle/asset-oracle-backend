@@ -70,6 +70,7 @@ export function getWalletRoleDetails(address: string) {
     validatorNumber,
     permissions: {
       createMarketProposal: isMarketCreatorWallet(address),
+      submitPaidMarketProposal: !isMarketCreatorWallet(address),
       viewOwnProposals: true,
       reviewAllProposals: isOwner,
       approveOrRejectProposals: isOwner,
