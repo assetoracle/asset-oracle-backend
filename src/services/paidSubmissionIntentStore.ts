@@ -74,11 +74,12 @@ export async function createPaidSubmissionIntent(input: {
       id: string; question: string; status: "PENDING_APPROVAL"; submittedAt: Date | string;
     }>(
       `INSERT INTO market_proposals
-       (id, question, description, category, "closesAt", "resolvesAt", "resolutionRule", "walletAddress", status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING_APPROVAL')
+       (id, question, description, category, sport, "closesAt", "resolvesAt", "resolutionRule", "walletAddress", status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PENDING_APPROVAL')
        RETURNING id, question, status, "submittedAt"`,
       [proposalId, input.proposal.question, input.proposal.description, input.proposal.category,
-       input.proposal.closesAt, input.proposal.resolvesAt, JSON.stringify(input.proposal.resolutionRule), wallet],
+       input.proposal.sport ?? null, input.proposal.closesAt, input.proposal.resolvesAt,
+       JSON.stringify(input.proposal.resolutionRule), wallet],
     );
     await client.query(
       `INSERT INTO paid_market_submissions
