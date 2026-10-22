@@ -1,48 +1,35 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPaidSubmissionQuote } from "./paidSubmissionQuote.js";
-import type { PaidSubmissionMainnetConfig } from "./paidSubmissionConfig.js";
+import type { PaidSubmissionTestnetConfig } from "./paidSubmissionConfig.js";
 
-const config: PaidSubmissionMainnetConfig = {
+const config: PaidSubmissionTestnetConfig = {
   enabled: true,
+  chainId: 42421,
+  rpcUrl: "https://enugu-rpc.assetchain.org",
   treasuryAddress: "0x1111111111111111111111111111111111111111",
-  tokens: {
-    USDC: { address: "0x2222222222222222222222222222222222222222", decimals: 6 },
-    USDT: { address: "0x26E490d30e73c36800788DC6d6315946C4BbEa24", decimals: 6 },
-    cNGN: { address: "0x3333333333333333333333333333333333333333", decimals: 2 },
-  },
+  tokens: { USDC: { address: "0x2222222222222222222222222222222222222222", decimals: 6 } },
   disabledReasons: [],
 };
 
-test("creates a $10 USDC/USDT quote in atomic units with expiry", () => {
-  const usdc = createPaidSubmissionQuote({ token: "USDC", nowMs: 1_000_000, config });
-  assert.equal(usdc.amountAtomic, "10000000");
-  assert.equal(usdc.expiresAtMs, 1_120_000);
-  const usdt = createPaidSubmissionQuote({ token: "USDT", nowMs: 1_000_000, config });
-  assert.equal(usdt.amountAtomic, "10000000");
-  assert.equal(usdt.tokenAddress, config.tokens.USDT?.address);
+test("creates an exact 10 USDC testnet quote in atomic units with expiry", () => {
+  const quote = createPaidSubmissionQuote({ token: "USDC", nowMs: 1_000_000, config });
+  assert.equal(quote.network, "TESTNET");
+  assert.equal(quote.token, "USDC");
+  assert.equal(quote.amountAtomic, "10000000");
+  assert.equal(quote.tokenDecimals, 6);
+  assert.equal(quote.expiresAtMs, 1_120_000);
+  assert.equal(quote.tokenAddress, config.tokens.USDC?.address);
 });
 
-test("cNGN quote requires a fresh trusted rate and uses configured decimals", () => {
-  assert.throws(() => createPaidSubmissionQuote({ token: "cNGN", nowMs: 1_000_000, config }), /fresh trusted/);
-  const quote = createPaidSubmissionQuote({
-    token: "cNGN",
-    nowMs: 1_000_000,
-    config,
-    cngnRate: { ngnPerUsd: 1500, observedAtMs: 999_000, source: "trusted-provider" },
-  });
-  assert.equal(quote.amountAtomic, "1500000");
-  assert.equal(quote.ngnPerUsd, 1500);
-  assert.equal(quote.rateSource, "trusted-provider");
+test("rejects a quote when testnet payment configuration is disabled", () => {
+  assert.throws(() => createPaidSubmissionQuote({
+    token: "USDC", nowMs: 1_000_000, config: { ...config, enabled: false },
+  }), /disabled/);
 });
 
-test("rejects stale, future-dated, or invalid cNGN rates", () => {
+test("the quote API's token type cannot represent USDT or cNGN", () => {
   assert.throws(() => createPaidSubmissionQuote({
-    token: "cNGN", nowMs: 1_000_000, config,
-    cngnRate: { ngnPerUsd: 1500, observedAtMs: 600_000, source: "provider" },
-  }), /fresh trusted/);
-  assert.throws(() => createPaidSubmissionQuote({
-    token: "cNGN", nowMs: 1_000_000, config,
-    cngnRate: { ngnPerUsd: 1500, observedAtMs: 1_000_001, source: "provider" },
-  }), /fresh trusted/);
+    token: "USDC", nowMs: 1_000_000, config: { ...config, tokens: { USDC: null } },
+  }), /USDC/);
 });
