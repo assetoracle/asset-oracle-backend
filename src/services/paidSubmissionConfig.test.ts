@@ -13,11 +13,11 @@ test("testnet paid submissions fail closed without explicit enablement and verif
   assert.equal(config.enabled, false);
   assert.equal(config.chainId, 42421);
   assert.equal(config.treasuryAddress, null);
-  assert.equal(config.tokens.USDC, null);
+  assert.equal(config.tokens.USDC.address, ASSET_CHAIN_TESTNET_USDC_ADDRESS);
   assert.ok(config.disabledReasons.length >= 2);
 });
 
-test("testnet config accepts only configured USDC with six decimals", () => {
+test("testnet config pins the official bridged-USDC address with six decimals", () => {
   const config = getPaidSubmissionTestnetConfig(validEnv);
   assert.equal(config.enabled, true);
   assert.equal(config.chainId, 42421);
