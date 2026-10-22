@@ -5,7 +5,7 @@ import { verifyErc20SubmissionPayment } from "./verifyErc20SubmissionPayment.js"
 import type { SubmissionQuote } from "./paidSubmissionQuote.js";
 
 const quote: SubmissionQuote = {
-  network: "MAINNET",
+  network: "TESTNET",
   token: "USDC",
   tokenAddress: "0x2222222222222222222222222222222222222222",
   tokenDecimals: 6,
@@ -13,7 +13,7 @@ const quote: SubmissionQuote = {
   usdValue: "10.00",
   issuedAtMs: 1_000_000,
   expiresAtMs: 1_120_000,
-  rateSource: "fixed-usd-stablecoin-assumption",
+  rateSource: "fixed-usdc-testnet-fee",
 };
 
 const baseInput = {
