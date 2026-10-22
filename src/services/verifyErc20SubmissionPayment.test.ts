@@ -48,11 +48,11 @@ function transferLog(to: Address, amount = 10_000_000n) {
     topics: encodeEventTopics({
       abi: transferEventAbi,
       eventName: "Transfer",
-      args: { from: baseInput.authenticatedWallet, to },
+      args: { from: baseInput.authenticatedWallet as Address, to },
     }),
     data: encodeAbiParameters([{ type: "uint256" }], [amount]),
     blockNumber: 100n,
-    transactionHash: baseInput.transactionHash,
+    transactionHash: baseInput.transactionHash as `0x${string}`,
     transactionIndex: 0,
     blockHash: `0x${"b".repeat(64)}`,
     logIndex: 0,
