@@ -3,7 +3,7 @@ import { createPublicClient, decodeFunctionData, getAddress, http, isAddress } f
 import { z } from "zod";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { getHumanValidatorNumber } from "../services/adminAuth.js";
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, ASSET_CHAIN_TESTNET_RPC_URL } from "../config/assetOracle.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, ASSET_CHAIN_TESTNET_ID, ASSET_CHAIN_TESTNET_RPC_URL } from "../config/assetOracle.js";
 import { listValidatorSourceLinks, recordValidatorSourceLink } from "../services/validatorEvidenceStore.js";
 
 const router = Router();
@@ -18,7 +18,7 @@ const managerAbi = [{
 const client = createPublicClient({ transport: http(rpcUrl) });
 
 async function isConfiguredEnuguRpc(): Promise<boolean> {
-  return Number(await client.getChainId()) === 42421;
+  return Number(await client.getChainId()) === ASSET_CHAIN_TESTNET_ID;
 }
 
 function sessionToken(req: import("express").Request): string {
