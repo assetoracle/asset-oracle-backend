@@ -166,7 +166,12 @@ router.post("/:id/verify-refund", async (req, res, next) => {
 
     const context = await getSubmissionRefundContext(id.data);
     if (!context) return res.status(404).json({ error: "Paid submission not found." });
-    if (context.status === "REFUNDED") return res.status(409).json({ error: "This submission is already marked refunded." });
+    if (context.status === "REFUNDED") {
+      if (context.refundTxHash?.toLowerCase() === parsed.data.transactionHash.toLowerCase()) {
+        return res.status(200).json({ status: "REFUNDED", refundTxHash: context.refundTxHash, message: "This refund was already reconciled." });
+      }
+      return res.status(409).json({ error: "This submission is already marked refunded with a different transaction." });
+    }
     if (context.status !== "REJECTED_REFUND_PENDING" && context.status !== "REFUND_FAILED") {
       return res.status(409).json({ error: "Only rejected submissions awaiting refund can be reconciled.", status: context.status });
     }
