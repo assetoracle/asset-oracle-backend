@@ -21,7 +21,6 @@ import {
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
-import { awardLeaderboardPoints } from "../services/pointsStore.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
@@ -84,25 +83,8 @@ marketsRouter.post("/proposals/session", async (req, res, next) => {
     const { address, proposal } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     if (!isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured market creators can submit market proposals." });
-    const client = await database.connect();
-    try {
-      await client.query("BEGIN");
-      const stored = await createMarketProposal(proposal, address, client);
-      await awardLeaderboardPoints({
-        walletAddress: address,
-        eventType: "MARKET_PROPOSAL_SUBMITTED",
-        eventKey: `proposal:${stored.id}`,
-        points: 50,
-        metadata: { proposalId: stored.id, status: stored.status },
-      }, client);
-      await client.query("COMMIT");
-      return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
-    } catch (error) {
-      await client.query("ROLLBACK").catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
+    const stored = await createMarketProposal(proposal, address);
+    return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
   } catch (error) { return next(error); }
 });
 
@@ -309,14 +291,6 @@ marketsRouter.post("/proposals", async (req, res, next) => {
       input,
       walletAuth.address,
     );
-
-    await awardLeaderboardPoints({
-      walletAddress: walletAuth.address,
-      eventType: "MARKET_PROPOSAL_SUBMITTED",
-      eventKey: `proposal:${stored.id}`,
-      points: 50,
-      metadata: { proposalId: stored.id, status: stored.status },
-    });
 
     return res.status(201).json({
       message: "Market proposal submitted for approval.",
