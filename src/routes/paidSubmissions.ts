@@ -3,7 +3,8 @@ import { isAddress } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
 import { verifyWalletSignature } from "../services/walletAuth.js";
-import { getPaidSubmissionMainnetConfig } from "../services/paidSubmissionConfig.js";
+import { getPaidSubmissionTestnetConfig } from "../services/paidSubmissionConfig.js";
+import { isMarketCreatorWallet } from "../services/adminAuth.js";
 import { createPaidSubmissionIntent, getPaidSubmissionPaymentContext } from "../services/paidSubmissionIntentStore.js";
 import { getActiveSubmissionQuote } from "../services/submissionQuoteStore.js";
 import { verifyErc20SubmissionPayment } from "../services/verifyErc20SubmissionPayment.js";
@@ -29,10 +30,13 @@ router.post("/intent", async (req, res, next) => {
     if (!await verifyWalletSignature(walletAuth.address, walletAuth.signature as `0x${string}`, walletAuth.message)) {
       return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
     }
+    if (isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({ error: "Market makers submit proposals for free and cannot create paid submission intents." });
+    }
 
-    const config = getPaidSubmissionMainnetConfig();
+    const config = getPaidSubmissionTestnetConfig();
     if (!config.enabled || !config.treasuryAddress) {
-      return res.status(503).json({ error: "Paid market submissions are disabled until mainnet configuration is verified.", disabledReasons: config.disabledReasons });
+      return res.status(503).json({ error: "Testnet USDC paid submissions are disabled until the testnet USDC contract and treasury are verified.", network: "TESTNET", chainId: config.chainId, disabledReasons: config.disabledReasons });
     }
     const quote = await getActiveSubmissionQuote({ quoteId, walletAddress: walletAuth.address });
     if (!quote) return res.status(409).json({ error: "Quote is missing, expired, already used, or belongs to another wallet. Request a new quote." });
@@ -74,6 +78,9 @@ router.post("/verify-payment", async (req, res, next) => {
     if (!await verifyWalletSignature(walletAuth.address, walletAuth.signature as `0x${string}`, walletAuth.message)) {
       return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
     }
+    if (isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({ error: "Market makers do not pay proposal fees." });
+    }
     const context = await getPaidSubmissionPaymentContext({ submissionId, walletAddress: walletAuth.address });
     if (!context) return res.status(404).json({ error: "Paid submission not found for this wallet." });
     if (context.status === "PAID_PENDING_REVIEW" && context.paymentTxHash?.toLowerCase() === transactionHash.toLowerCase()) {
@@ -83,14 +90,12 @@ router.post("/verify-payment", async (req, res, next) => {
       return res.status(409).json({ error: "This submission is not awaiting payment.", status: context.status });
     }
 
-    const config = getPaidSubmissionMainnetConfig();
-    const rpcUrl = process.env.ASSET_ORACLE_MAINNET_RPC_URL?.trim();
-    const chainId = Number(process.env.ASSET_ORACLE_MAINNET_CHAIN_ID);
-    const confirmations = Number(process.env.ASSET_ORACLE_MAINNET_PAYMENT_CONFIRMATIONS || "12");
-    if (!config.enabled || !config.treasuryAddress || !rpcUrl ||
-        !Number.isSafeInteger(chainId) || chainId <= 0 ||
-        !Number.isSafeInteger(confirmations) || confirmations < 1) {
-      return res.status(503).json({ error: "Mainnet payment verification is disabled until RPC, chain ID, treasury, token identity, and confirmation policy are verified." });
+    const config = getPaidSubmissionTestnetConfig();
+    const rpcUrl = config.rpcUrl;
+    const chainId = config.chainId;
+    const confirmations = Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2");
+    if (!config.enabled || !config.treasuryAddress || !Number.isSafeInteger(confirmations) || confirmations < 1) {
+      return res.status(503).json({ error: "Testnet payment verification is disabled until USDC, treasury, RPC, and confirmation policy are verified.", network: "TESTNET", chainId });
     }
     const tokenConfig = config.tokens[context.quote.token];
     if (!tokenConfig || tokenConfig.address.toLowerCase() !== context.quote.tokenAddress.toLowerCase() ||
