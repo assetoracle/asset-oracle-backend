@@ -20,7 +20,6 @@ import {
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
-import { awardLeaderboardPoints } from "../services/pointsStore.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
@@ -84,13 +83,8 @@ marketsRouter.post("/proposals/session", async (req, res, next) => {
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     if (!isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured market creators can submit market proposals." });
     const stored = await createMarketProposal(proposal, address);
-    await awardLeaderboardPoints({
-      walletAddress: address,
-      eventType: "MARKET_PROPOSAL_SUBMITTED",
-      eventKey: `proposal:${stored.id}`,
-      points: 50,
-      metadata: { proposalId: stored.id, status: stored.status },
-    });
+    // Proposal submission is not a paid, on-chain-qualified event. The 50-point
+    // award is reserved for a verified payment plus successful publication.
     return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
   } catch (error) { return next(error); }
 });
