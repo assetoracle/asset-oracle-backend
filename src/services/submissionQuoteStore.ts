@@ -13,8 +13,8 @@ export async function initializeSubmissionQuoteStore(): Promise<void> {
     CREATE TABLE IF NOT EXISTS paid_submission_quotes (
       id UUID PRIMARY KEY,
       wallet_address TEXT NOT NULL,
-      network TEXT NOT NULL CHECK (network = 'MAINNET'),
-      token TEXT NOT NULL CHECK (token IN ('USDC', 'USDT', 'cNGN')),
+      network TEXT NOT NULL CHECK (network = 'TESTNET'),
+      token TEXT NOT NULL CHECK (token = 'USDC'),
       token_address TEXT NOT NULL,
       token_decimals INTEGER NOT NULL CHECK (token_decimals BETWEEN 0 AND 36),
       amount_atomic NUMERIC(78, 0) NOT NULL CHECK (amount_atomic > 0),
@@ -55,7 +55,7 @@ export async function getActiveSubmissionQuote(input: {
   nowMs?: number;
 }): Promise<StoredSubmissionQuote | null> {
   const result = await database.query<{
-    id: string; wallet_address: string; token: "USDC" | "USDT" | "cNGN";
+    id: string; wallet_address: string; token: "USDC";
     token_address: string; token_decimals: number; amount_atomic: string;
     usd_value: string; issued_at_ms: string; expires_at_ms: string;
     rate_source: string; ngn_per_usd: string | null; used_at: string | null;
@@ -71,7 +71,7 @@ export async function getActiveSubmissionQuote(input: {
   return {
     id: row.id,
     walletAddress: row.wallet_address,
-    network: "MAINNET",
+    network: "TESTNET",
     token: row.token,
     tokenAddress: row.token_address as `0x${string}`,
     tokenDecimals: row.token_decimals,
