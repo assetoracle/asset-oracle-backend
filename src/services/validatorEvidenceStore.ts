@@ -22,7 +22,7 @@ export async function initializeValidatorEvidenceStore(): Promise<void> {
       source_url TEXT NOT NULL,
       transaction_hash TEXT NOT NULL,
       recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (chain_id, lower(manager_address), market_id, lower(validator_address))
+      UNIQUE (chain_id, manager_address, market_id, validator_address)
     )
   `);
 }
@@ -42,7 +42,7 @@ export async function recordValidatorSourceLink(input: {
     INSERT INTO validator_source_links
       (chain_id, manager_address, market_id, validator_address, outcome, source_url, transaction_hash)
     VALUES (42421, lower($1), $2, lower($3), $4, $5, lower($6))
-    ON CONFLICT (chain_id, lower(manager_address), market_id, lower(validator_address))
+    ON CONFLICT (chain_id, manager_address, market_id, validator_address)
     DO NOTHING
     RETURNING market_id, manager_address, validator_address, outcome, source_url, transaction_hash, recorded_at
   `, [input.managerAddress, input.marketId, input.validatorAddress, input.outcome, input.sourceUrl, input.transactionHash]);
@@ -53,8 +53,8 @@ export async function recordValidatorSourceLink(input: {
     }>(`
       SELECT market_id, manager_address, validator_address, outcome, source_url, transaction_hash, recorded_at
       FROM validator_source_links
-      WHERE chain_id = 42421 AND lower(manager_address) = lower($1)
-        AND market_id = $2 AND lower(validator_address) = lower($3)
+      WHERE chain_id = 42421 AND manager_address = lower($1)
+        AND market_id = $2 AND validator_address = lower($3)
     `, [input.managerAddress, input.marketId, input.validatorAddress]);
     const row = existing.rows[0];
     if (!row || row.transaction_hash.toLowerCase() !== input.transactionHash.toLowerCase()
@@ -88,7 +88,7 @@ export async function listValidatorSourceLinks(marketId: string, managerAddress:
   }>(`
     SELECT market_id, manager_address, validator_address, outcome, source_url, transaction_hash, recorded_at
     FROM validator_source_links
-    WHERE chain_id = 42421 AND lower(manager_address) = lower($1) AND market_id = $2
+    WHERE chain_id = 42421 AND manager_address = lower($1) AND market_id = $2
     ORDER BY recorded_at ASC
   `, [managerAddress, marketId]);
   return result.rows.map(mapRow);
