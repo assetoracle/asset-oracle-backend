@@ -8,7 +8,15 @@ import { isMarketCreatorWallet } from "../services/adminAuth.js";
 import { createPaidSubmissionIntent, getPaidSubmissionPaymentContext } from "../services/paidSubmissionIntentStore.js";
 import { getActiveSubmissionQuote } from "../services/submissionQuoteStore.js";
 import { verifyErc20SubmissionPayment } from "../services/verifyErc20SubmissionPayment.js";
-import { recordConfirmedSubmissionPayment } from "../services/paidSubmissionStore.js";
+import {
+  getSubmissionRefundContext,
+  listSubmissionRefundQueue,
+  recordConfirmedSubmissionPayment,
+  recordSubmissionRefund,
+} from "../services/paidSubmissionStore.js";
+import { isAdminWallet } from "../services/adminAuth.js";
+import { verifyWalletSession } from "../services/walletAuth.js";
+import { verifyErc20SubmissionRefund } from "../services/verifyErc20SubmissionRefund.js";
 
 const router = Router();
 const walletAuthSchema = z.object({
@@ -127,3 +135,74 @@ router.post("/verify-payment", async (req, res, next) => {
 });
 
 export default router;
+
+
+// Refunds are sent manually from the configured treasury wallet. These endpoints only
+// expose the queue and verify an already-broadcast refund; they never sign or send funds.
+function sessionToken(req: import("express").Request): string {
+  const header = req.header("authorization") ?? "";
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+}
+
+async function authorizeRefundAdmin(req: import("express").Request, address: string): Promise<boolean> {
+  return isAdminWallet(address) && await verifyWalletSession(sessionToken(req), address);
+}
+
+router.post("/admin/refunds/queue", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string().refine(isAddress) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid admin wallet address is required." });
+    if (!await authorizeRefundAdmin(req, parsed.data.address)) return res.status(403).json({ error: "An authenticated admin wallet session is required." });
+    return res.status(200).json({ refunds: await listSubmissionRefundQueue() });
+  } catch (error) { return next(error); }
+});
+
+router.post("/:id/verify-refund", async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      address: z.string().refine(isAddress),
+      transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+    }).safeParse(req.body);
+    const id = z.string().uuid().safeParse(req.params.id);
+    if (!parsed.success || !id.success) return res.status(400).json({ error: "A valid submission ID, admin wallet, and refund transaction hash are required." });
+    if (!await authorizeRefundAdmin(req, parsed.data.address)) return res.status(403).json({ error: "An authenticated admin wallet session is required." });
+
+    const context = await getSubmissionRefundContext(id.data);
+    if (!context) return res.status(404).json({ error: "Paid submission not found." });
+    if (context.status === "REFUNDED") return res.status(409).json({ error: "This submission is already marked refunded." });
+    if (context.status !== "REJECTED_REFUND_PENDING" && context.status !== "REFUND_FAILED") {
+      return res.status(409).json({ error: "Only rejected submissions awaiting refund can be reconciled.", status: context.status });
+    }
+
+    const config = getPaidSubmissionTestnetConfig();
+    if (!config.treasuryAddress || !config.rpcUrl.startsWith("https://") ||
+        context.network !== "TESTNET" || context.token !== "USDC") {
+      return res.status(503).json({ error: "Refund verification requires a configured treasury and HTTPS Enugu testnet RPC." });
+    }
+    const confirmations = Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2");
+    const verified = await verifyErc20SubmissionRefund({
+      rpcUrl: config.rpcUrl,
+      expectedChainId: config.chainId,
+      minimumConfirmations: confirmations,
+      transactionHash: parsed.data.transactionHash,
+      treasuryAddress: config.treasuryAddress,
+      recipientWallet: context.walletAddress,
+      tokenAddress: config.tokens.USDC.address,
+      amountAtomic: context.amountAtomic,
+    });
+    await recordSubmissionRefund({ id: context.id, refundTxHash: verified.transactionHash });
+    return res.status(200).json({
+      status: "REFUNDED",
+      refundTxHash: verified.transactionHash,
+      amountAtomic: verified.amountAtomic,
+      tokenAddress: verified.tokenAddress,
+      recipient: verified.recipient,
+      confirmations: verified.confirmations.toString(),
+    });
+  } catch (error) {
+    if (error instanceof Error && /wrong chain|did not succeed|sender does not match|not sent to|confirmation depth|exact USDC Transfer|valid refund transaction hash/i.test(error.message)) {
+      return res.status(409).json({ error: error.message });
+    }
+    return next(error);
+  }
+});
