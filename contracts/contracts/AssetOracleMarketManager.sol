@@ -327,11 +327,10 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         market.outcome = outcome;
         market.evidenceHash = evidenceHash;
         market.resolvedAt = uint64(block.timestamp);
-        // Initial 2-of-3 human consensus is final for this market. Payouts are
-        // transferred in bounded permissionless batches to avoid an unbounded loop.
-        market.status = Status.SETTLED;
+        // Initial consensus starts the challenge period. Payouts remain locked until
+        // the challenge period elapses and anyone finalizes the market.
+        market.status = Status.DISPUTED;
         emit MarketResolved(marketId, outcome, evidenceHash, msg.sender);
-        emit MarketFinalized(marketId, outcome);
     }
 
     function disputeResolution(uint256 marketId, bytes32 evidenceHash) external {

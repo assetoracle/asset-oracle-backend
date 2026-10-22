@@ -29,6 +29,9 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
   ) {
     await f.manager.connect(f.owner).resolveMarket(marketId, outcome, evidenceHash);
     await f.manager.connect(f.resolver).resolveMarket(marketId, outcome, evidenceHash);
+    const market = await f.manager.getMarket(marketId);
+    await time.increaseTo(Number(market.resolvedAt + market.challengePeriod));
+    await f.manager.finalizeMarket(marketId);
   }
 
   async function resolveDisputeByConsensus(
@@ -503,12 +506,16 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect((await f.manager.getMarket(1)).status).to.equal(1); // Conflicting outcome does not reach consensus.
     await f.manager.connect(f.bob).resolveMarket(1, 1, evidence);
     const market = await f.manager.getMarket(1);
-    expect(market.status).to.equal(3); // SETTLED after two matching votes.
+    expect(market.status).to.equal(2); // DISPUTED during the initial challenge window.
     expect(market.outcome).to.equal(1); // YES
     expect(market.evidenceHash).to.equal(evidence);
+    await expect(f.manager.finalizeMarket(1)).to.be.revertedWithCustomError(f.manager, "ChallengeWindowActive");
+    await time.increaseTo(Number(market.resolvedAt + market.challengePeriod));
+    await f.manager.finalizeMarket(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(3); // SETTLED after the challenge window.
   });
 
-  it("automatically finalizes the outcome when the second matching validator votes", async function () {
+  it("starts the challenge period when the second matching validator votes", async function () {
     const f = await deployFixture();
     await createAndClose(f);
     const evidence = ethers.keccak256(ethers.toUtf8Bytes("evidence"));
@@ -516,9 +523,47 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect((await f.manager.getMarket(1)).status).to.equal(1); // CLOSED after the first vote.
     await f.manager.connect(f.resolver).resolveMarket(1, 1, evidence);
     const market = await f.manager.getMarket(1);
-    expect(market.status).to.equal(3); // SETTLED after the second matching vote.
+    expect(market.status).to.equal(2); // DISPUTED until challenge window expires.
     expect(market.outcome).to.equal(1); // YES
     expect(market.evidenceHash).to.equal(evidence);
+    await expect(f.manager.finalizeMarket(1)).to.be.revertedWithCustomError(f.manager, "ChallengeWindowActive");
+    await time.increaseTo(Number(market.resolvedAt + market.challengePeriod));
+    await f.manager.finalizeMarket(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(3); // SETTLED after challenge period.
   });
 
+  it("allows a participant to dispute initial consensus and restarts the challenge window after arbitration", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if the official source confirms the event by the deadline.",
+      "https://official.example/result", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await f.manager.connect(f.bob).stake(1, false, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+
+    const initialEvidence = ethers.keccak256(ethers.toUtf8Bytes("initial evidence"));
+    await f.manager.connect(f.owner).resolveMarket(1, 1, initialEvidence);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, initialEvidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(2);
+
+    const disputeEvidence = ethers.keccak256(ethers.toUtf8Bytes("dispute evidence"));
+    await expect(f.manager.connect(f.outsider).disputeResolution(1, disputeEvidence)).to.be.reverted;
+    await f.manager.connect(f.alice).disputeResolution(1, disputeEvidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(6); // ARBITRATION.
+
+    await f.manager.connect(f.owner).resolveDispute(1, 2, disputeEvidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(6); // One arbitration vote is insufficient.
+    await f.manager.connect(f.resolver).resolveDispute(1, 2, disputeEvidence);
+    const disputed = await f.manager.getMarket(1);
+    expect(disputed.status).to.equal(2); // Arbitration consensus starts a fresh challenge window.
+    expect(disputed.outcome).to.equal(2); // NO
+    expect(disputed.evidenceHash).to.equal(disputeEvidence);
+    await expect(f.manager.finalizeMarket(1)).to.be.revertedWithCustomError(f.manager, "ChallengeWindowActive");
+    await time.increaseTo(Number(disputed.resolvedAt + disputed.challengePeriod));
+    await f.manager.finalizeMarket(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(3);
+  });
 });
