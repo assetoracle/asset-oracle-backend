@@ -1,6 +1,12 @@
 name: Enugu Paid Submission Read-only Preflight
 
 on:
+  push:
+    branches: [fix/rebase-paid-submission-lifecycle]
+    paths:
+      - "scripts/verify-enugu-paid-submission-preflight.ts"
+      - ".github/workflows/enugu-paid-submission-preflight.yml"
+      - "package.json"
   pull_request:
     branches: [main]
     paths:
