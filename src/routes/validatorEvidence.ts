@@ -5,6 +5,7 @@ import { verifyWalletSession } from "../services/walletAuth.js";
 import { getHumanValidatorNumber } from "../services/adminAuth.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, ASSET_CHAIN_TESTNET_ID, ASSET_CHAIN_TESTNET_RPC_URL } from "../config/assetOracle.js";
 import { listValidatorSourceLinks, recordValidatorSourceLink } from "../services/validatorEvidenceStore.js";
+import { evidenceHashMatchesSourceUrl } from "../services/validatorEvidenceVerification.js";
 
 const router = Router();
 const managerAddress = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
@@ -80,6 +81,9 @@ router.post("/", async (req, res, next) => {
     catch { return res.status(400).json({ error: "The transaction is not a recognized validation vote." }); }
     if (decoded.functionName !== "resolveMarket" || decoded.args[0].toString() !== input.marketId || Number(decoded.args[1]) !== input.outcome) {
       return res.status(400).json({ error: "The transaction market and outcome do not match the submitted source record." });
+    }
+    if (!evidenceHashMatchesSourceUrl(decoded.args[2], input.sourceUrl)) {
+      return res.status(400).json({ error: "The on-chain evidence hash does not commit to the submitted source URL." });
     }
     const hasVoted = await client.readContract({
       address: managerAddress, abi: managerAbi, functionName: "hasVoted",
