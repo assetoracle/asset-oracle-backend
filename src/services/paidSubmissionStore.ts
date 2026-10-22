@@ -351,3 +351,86 @@ export async function decideMarketProposalAtomically(input: {
     client.release();
   }
 }
+
+
+export type SubmissionRefundQueueItem = {
+  id: string;
+  proposalId: string;
+  walletAddress: string;
+  network: SubmissionNetwork;
+  token: SubmissionToken;
+  amountAtomic: string;
+  status: PaidSubmissionStatus;
+  paymentTxHash: string | null;
+  refundTxHash: string | null;
+  createdAt: string;
+};
+
+/** Admin reconciliation view: only rejected submissions needing a refund or retry. */
+export async function listSubmissionRefundQueue(): Promise<SubmissionRefundQueueItem[]> {
+  const result = await database.query<{
+    id: string; proposal_id: string; wallet_address: string; network: SubmissionNetwork;
+    token: SubmissionToken; amount_atomic: string; status: PaidSubmissionStatus;
+    payment_tx_hash: string | null; refund_tx_hash: string | null; created_at: Date | string;
+  }>(
+    `SELECT id, proposal_id, wallet_address, network, token, amount_atomic, status,
+            payment_tx_hash, refund_tx_hash, created_at
+     FROM paid_market_submissions
+     WHERE status IN ('REJECTED_REFUND_PENDING', 'REFUND_FAILED')
+     ORDER BY created_at ASC`,
+  );
+  return result.rows.map(row => ({
+    id: row.id,
+    proposalId: row.proposal_id,
+    walletAddress: row.wallet_address,
+    network: row.network,
+    token: row.token,
+    amountAtomic: row.amount_atomic,
+    status: row.status,
+    paymentTxHash: row.payment_tx_hash,
+    refundTxHash: row.refund_tx_hash,
+    createdAt: new Date(row.created_at).toISOString(),
+  }));
+}
+
+/** Load the exact expected refund recipient/token/amount for an admin-supplied tx hash. */
+export async function getSubmissionRefundContext(id: string): Promise<{
+  id: string;
+  walletAddress: string;
+  network: SubmissionNetwork;
+  token: SubmissionToken;
+  amountAtomic: string;
+  status: PaidSubmissionStatus;
+} | null> {
+  const result = await database.query<{
+    id: string; wallet_address: string; network: SubmissionNetwork; token: SubmissionToken;
+    amount_atomic: string; status: PaidSubmissionStatus;
+  }>(
+    `SELECT id, wallet_address, network, token, amount_atomic, status
+     FROM paid_market_submissions WHERE id = $1`,
+    [id],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id, walletAddress: row.wallet_address, network: row.network,
+    token: row.token, amountAtomic: row.amount_atomic, status: row.status,
+  };
+}
+
+/** Keep failed refunds visible and retryable without pretending a refund was sent. */
+export async function markSubmissionRefundFailed(id: string): Promise<void> {
+  const result = await database.query(
+    `UPDATE paid_market_submissions SET status = 'REFUND_FAILED', updated_at = NOW()
+     WHERE id = $1 AND status = 'REJECTED_REFUND_PENDING' RETURNING id`,
+    [id],
+  );
+  if ((result.rowCount ?? result.rows.length) > 0) return;
+  const existing = await database.query<{ status: string }>(
+    "SELECT status FROM paid_market_submissions WHERE id = $1", [id],
+  );
+  if (!existing.rows[0]) throw new Error("Paid submission not found.");
+  if (existing.rows[0].status !== "REFUND_FAILED") {
+    throw new Error("Only a refund-pending submission can be marked as refund failed.");
+  }
+}
