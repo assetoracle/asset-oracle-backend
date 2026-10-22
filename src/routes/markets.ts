@@ -58,6 +58,7 @@ marketsRouter.post("/auth/nonce", async (req, res, next) => {
 
 
 // Public role lookup is informational only; proposal routes enforce permissions server-side.
+// Public role lookup is informational only; proposal routes enforce permissions server-side.
 marketsRouter.post("/auth/role/public", (req, res) => {
   const result = z.object({
     address: z.string().refine(isAddress, "Invalid wallet address"),
@@ -72,16 +73,16 @@ marketsRouter.post("/auth/role/public", (req, res) => {
     address,
     role,
     isOwner: role === "OWNER",
-    humanValidator: role === "VALIDATOR_2" || role === "VALIDATOR_3" || role === "OWNER",
-    validatorNumber: role === "VALIDATOR_2" ? 2 : role === "VALIDATOR_3" ? 3 : null,
+    humanValidator: false,
+    validatorNumber: null,
     permissions: {
       createMarketProposal,
       submitPaidMarketProposal: !createMarketProposal,
       viewOwnProposals: true,
       reviewAllProposals: role === "OWNER",
       approveOrRejectProposals: role === "OWNER",
-      isHumanValidator: role === "VALIDATOR_2" || role === "VALIDATOR_3" || role === "OWNER",
-      validatorNumber: role === "VALIDATOR_2" ? 2 : role === "VALIDATOR_3" ? 3 : null,
+      isHumanValidator: false,
+      validatorNumber: null,
     },
   });
 });
