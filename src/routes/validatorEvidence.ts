@@ -3,7 +3,7 @@ import { createPublicClient, decodeFunctionData, getAddress, http, isAddress } f
 import { z } from "zod";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { getHumanValidatorNumber } from "../services/adminAuth.js";
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, ASSET_CHAIN_TESTNET_RPC_URL } from "../config/assetOracle.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, ASSET_CHAIN_TESTNET_ID, ASSET_CHAIN_TESTNET_RPC_URL } from "../config/assetOracle.js";
 import { listValidatorSourceLinks, recordValidatorSourceLink } from "../services/validatorEvidenceStore.js";
 
 const router = Router();
@@ -16,6 +16,10 @@ const managerAbi = [{
   outputs: [{ name: "", type: "bool" }],
 }] as const;
 const client = createPublicClient({ transport: http(rpcUrl) });
+
+async function isConfiguredEnuguRpc(): Promise<boolean> {
+  return Number(await client.getChainId()) === ASSET_CHAIN_TESTNET_ID;
+}
 
 function sessionToken(req: import("express").Request): string {
   const header = req.header("authorization") ?? "";
@@ -61,6 +65,9 @@ router.post("/", async (req, res, next) => {
     }
     if (!getHumanValidatorNumber(input.address)) return res.status(403).json({ error: "Only configured validators can record vote evidence." });
     if (getAddress(input.managerAddress) !== managerAddress) return res.status(400).json({ error: "Unsupported market manager." });
+    if (!await isConfiguredEnuguRpc()) {
+      return res.status(503).json({ error: "Validator evidence verification RPC is not Asset Chain Enugu testnet (chain ID 42421)." });
+    }
 
     const receipt = await client.getTransactionReceipt({ hash: input.transactionHash as `0x${string}` });
     if (receipt.status !== "success") return res.status(400).json({ error: "The vote transaction did not succeed." });

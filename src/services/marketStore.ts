@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
 import { database } from "../config/database.js";
 import type { MarketProposalInput } from "./marketValidation.js";
 
@@ -98,8 +99,10 @@ export async function initializeMarketStore(): Promise<void> {
 export async function createMarketProposal(
   input: MarketProposalInput,
   walletAddress: string,
+  client?: PoolClient,
 ): Promise<StoredMarketProposal> {
-  const result = await database.query<MarketProposalRow>(
+  const executor = client ?? database;
+  const result = await executor.query<MarketProposalRow>(
     `INSERT INTO market_proposals
   (id, question, description, category, sport, "closesAt", "resolvesAt",
    "resolutionRule", "walletAddress", status)

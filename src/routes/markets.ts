@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { database } from "../config/database.js";
 import { createPublicClient, getAddress, http, isAddress, parseEventLogs } from "viem";
 import { z } from "zod";
 import { marketProposalSchema } from "../services/marketValidation.js";
@@ -83,15 +84,25 @@ marketsRouter.post("/proposals/session", async (req, res, next) => {
     const { address, proposal } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     if (!isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured market creators can submit market proposals." });
-    const stored = await createMarketProposal(proposal, address);
-    await awardLeaderboardPoints({
-      walletAddress: address,
-      eventType: "MARKET_PROPOSAL_SUBMITTED",
-      eventKey: `proposal:${stored.id}`,
-      points: 50,
-      metadata: { proposalId: stored.id, status: stored.status },
-    });
-    return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
+    const client = await database.connect();
+    try {
+      await client.query("BEGIN");
+      const stored = await createMarketProposal(proposal, address, client);
+      await awardLeaderboardPoints({
+        walletAddress: address,
+        eventType: "MARKET_PROPOSAL_SUBMITTED",
+        eventKey: `proposal:${stored.id}`,
+        points: 50,
+        metadata: { proposalId: stored.id, status: stored.status },
+      }, client);
+      await client.query("COMMIT");
+      return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) { return next(error); }
 });
 
