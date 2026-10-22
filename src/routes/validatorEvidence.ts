@@ -17,6 +17,10 @@ const managerAbi = [{
 }] as const;
 const client = createPublicClient({ transport: http(rpcUrl) });
 
+async function isConfiguredEnuguRpc(): Promise<boolean> {
+  return Number(await client.getChainId()) === 42421;
+}
+
 function sessionToken(req: import("express").Request): string {
   const header = req.header("authorization") ?? "";
   return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
@@ -61,6 +65,9 @@ router.post("/", async (req, res, next) => {
     }
     if (!getHumanValidatorNumber(input.address)) return res.status(403).json({ error: "Only configured validators can record vote evidence." });
     if (getAddress(input.managerAddress) !== managerAddress) return res.status(400).json({ error: "Unsupported market manager." });
+    if (!await isConfiguredEnuguRpc()) {
+      return res.status(503).json({ error: "Validator evidence verification RPC is not Asset Chain Enugu testnet (chain ID 42421)." });
+    }
 
     const receipt = await client.getTransactionReceipt({ hash: input.transactionHash as `0x${string}` });
     if (receipt.status !== "success") return res.status(400).json({ error: "The vote transaction did not succeed." });
