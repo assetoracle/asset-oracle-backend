@@ -17,7 +17,7 @@ import {
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
 import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
-import { getPaidSubmissionMainnetConfig } from "../services/paidSubmissionConfig.js";
+import { getPaidSubmissionTestnetConfig } from "../services/paidSubmissionConfig.js";
 import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
 import {
   decideMarketProposalAtomically,
@@ -84,7 +84,8 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
       address,
       role: getWalletRole(address),
       permissions: {
-        createMarketProposal: true,
+        createMarketProposal: isMarketCreatorWallet(address),
+        submitPaidMarketProposal: !isMarketCreatorWallet(address),
         viewOwnProposals: true,
         reviewAllProposals: getWalletRole(address) === "OWNER",
         approveOrRejectProposals: getWalletRole(address) === "OWNER",
@@ -96,12 +97,11 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
 });
 
 
-// Paid-submission quote endpoint. Public activation is fail-closed until mainnet
-// token addresses/decimals and treasury are configured and explicitly enabled.
+// Paid-submission quote endpoint. Testnet only; USDC is the sole accepted fee token.
 marketsRouter.post("/paid-submissions/quote", async (req, res, next) => {
   try {
     const parsed = z.object({
-      token: z.enum(["USDC", "USDT", "cNGN"]),
+      token: z.literal("USDC"),
       walletAuth: walletAuthSchema,
     }).safeParse(req.body);
     if (!parsed.success) {
@@ -116,14 +116,18 @@ marketsRouter.post("/paid-submissions/quote", async (req, res, next) => {
     if (!verified) {
       return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
     }
-    const config = getPaidSubmissionMainnetConfig();
+    if (isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({ error: "Market makers submit proposals for free and do not need a paid submission quote." });
+    }
+    const config = getPaidSubmissionTestnetConfig();
     if (!config.enabled) {
       return res.status(503).json({
-        error: "Paid market submissions are not enabled on mainnet yet.",
+        error: "Testnet USDC proposal payments are not enabled until the testnet USDC contract and treasury are verified.",
+        network: "TESTNET",
+        chainId: config.chainId,
         disabledReasons: config.disabledReasons,
       });
     }
-    // cNGN stays unavailable until a real trusted rate provider is configured.
     const quote = createPaidSubmissionQuote({ token, config });
     const quoteId = await persistSubmissionQuote({ walletAddress: walletAuth.address, quote });
     return res.status(201).json({
@@ -197,6 +201,10 @@ marketsRouter.post("/proposals", async (req, res, next) => {
       return res.status(401).json({
         error: "Wallet verification failed. Request a new nonce and sign again.",
       });
+    }
+
+    if (!isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({ error: "Regular users must pay the 10 USDC testnet proposal fee. Use the paid-submission flow." });
     }
 
     const stored = await createMarketProposal(
