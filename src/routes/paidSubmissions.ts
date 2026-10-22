@@ -134,9 +134,6 @@ router.post("/verify-payment", async (req, res, next) => {
   }
 });
 
-export default router;
-
-
 // Refunds are sent manually from the configured treasury wallet. These endpoints only
 // expose the queue and verify an already-broadcast refund; they never sign or send funds.
 function sessionToken(req: import("express").Request): string {
@@ -206,3 +203,5 @@ router.post("/:id/verify-refund", async (req, res, next) => {
     return next(error);
   }
 });
+
+export default router;
