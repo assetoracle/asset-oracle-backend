@@ -4,12 +4,12 @@ export type SubmissionQuote = {
   network: "TESTNET";
   token: "USDC";
   tokenAddress: `0x${string}`;
-  tokenDecimals: 6;
-  amountAtomic: "10000000";
+  tokenDecimals: number;
+  amountAtomic: string;
   usdValue: "10.00";
   issuedAtMs: number;
   expiresAtMs: number;
-  rateSource: "fixed-usdc-testnet-fee";
+  rateSource: string;
 };
 
 const QUOTE_TTL_MS = 2 * 60 * 1000;
