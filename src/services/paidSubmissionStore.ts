@@ -189,17 +189,36 @@ export async function markSubmissionPublished(input: { id: string; marketId: str
 
   // Award only after publication is confirmed in the lifecycle store. Stable event key
   // makes retries safe if the database update succeeded but the points write failed.
-  const submission = await database.query<{ wallet_address: string; proposal_id: string }>(
-    "SELECT wallet_address, proposal_id FROM paid_market_submissions WHERE id = $1 AND status = 'PUBLISHED' AND published_market_id = $2",
+  const submission = await database.query<{
+    wallet_address: string;
+    proposal_id: string;
+    payment_tx_hash: string | null;
+    publication_tx_hash: string | null;
+  }>(
+    `SELECT s.wallet_address, s.proposal_id, s.payment_tx_hash, p.onchain_tx_hash AS publication_tx_hash
+     FROM paid_market_submissions s
+     JOIN market_proposals p ON p.id = s.proposal_id
+     WHERE s.id = $1 AND s.status = 'PUBLISHED' AND s.published_market_id = $2`,
     [input.id, input.marketId],
   );
-  if (!submission.rows[0]) throw new Error("Published submission could not be reloaded for its points award.");
+  const publishedSubmission = submission.rows[0];
+  if (!publishedSubmission) throw new Error("Published submission could not be reloaded for its points award.");
+  if (!publishedSubmission.payment_tx_hash || !publishedSubmission.publication_tx_hash) {
+    throw new Error("Paid-submission points require both verified payment and publication transaction hashes.");
+  }
   await awardLeaderboardPoints({
-    walletAddress: submission.rows[0].wallet_address,
-    eventType: "PAID_MARKET_SUBMISSION",
+    walletAddress: publishedSubmission.wallet_address,
+    eventType: "QUALIFIED_PAID_SUBMISSION",
     eventKey: `paid-submission:${input.id}`,
     points: 50,
-    metadata: { submissionId: input.id, proposalId: submission.rows[0].proposal_id, marketId: input.marketId },
+    metadata: {
+      paidSubmissionVerified: true,
+      paymentTxHash: publishedSubmission.payment_tx_hash,
+      publicationTxHash: publishedSubmission.publication_tx_hash,
+      submissionId: input.id,
+      proposalId: publishedSubmission.proposal_id,
+      marketId: input.marketId,
+    },
   });
 }
 
