@@ -522,7 +522,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     function cancelMarket(uint256 marketId, bytes32 reasonHash) external onlyOwner {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
-        if (market.status != Status.OPEN && market.status != Status.CLOSED) revert InvalidStatus();
+        if (market.status != Status.OPEN) revert InvalidStatus();
         market.status = Status.CANCELLED;
         market.evidenceHash = reasonHash;
         emit MarketCancelled(marketId, reasonHash);
