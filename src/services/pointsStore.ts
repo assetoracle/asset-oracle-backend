@@ -1,6 +1,6 @@
 import { database } from "../config/database.js";
 
-export type PointEventType = "MARKET_PROPOSAL_SUBMITTED" | "MARKET_PARTICIPATION" | "QUALIFIED_REFERRAL";
+export type PointEventType = "QUALIFIED_PAID_SUBMISSION" | "MARKET_PARTICIPATION" | "QUALIFIED_REFERRAL";
 export type PointAwardInput = {
   walletAddress: string;
   eventType: PointEventType;
@@ -11,7 +11,7 @@ export type PointAwardInput = {
 export type PointAwardResult = { awarded: boolean; points: number; totalPoints: number };
 
 const expectedPoints: Record<PointEventType, number> = {
-  MARKET_PROPOSAL_SUBMITTED: 50,
+  QUALIFIED_PAID_SUBMISSION: 50,
   MARKET_PARTICIPATION: 10,
   QUALIFIED_REFERRAL: 5,
 };
@@ -21,7 +21,7 @@ export async function initializePointsStore(): Promise<void> {
     CREATE TABLE IF NOT EXISTS leaderboard_point_events (
       id BIGSERIAL PRIMARY KEY,
       wallet_address TEXT NOT NULL,
-      event_type TEXT NOT NULL CHECK (event_type IN ('MARKET_PROPOSAL_SUBMITTED', 'MARKET_PARTICIPATION', 'QUALIFIED_REFERRAL')),
+      event_type TEXT NOT NULL CHECK (event_type IN ('QUALIFIED_PAID_SUBMISSION', 'MARKET_PARTICIPATION', 'QUALIFIED_REFERRAL')),
       event_key TEXT NOT NULL,
       points INTEGER NOT NULL CHECK (points > 0),
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -29,18 +29,24 @@ export async function initializePointsStore(): Promise<void> {
       UNIQUE (event_type, event_key)
     )
   `);
+  // Remove the legacy proposal-submission event type: it awarded points before
+  // payment and on-chain publication had been verified.
+  await database.query(`
+    ALTER TABLE leaderboard_point_events
+    DROP CONSTRAINT IF EXISTS leaderboard_point_events_event_type_check
+  `);
+  await database.query(`
+    DELETE FROM leaderboard_point_events
+    WHERE event_type = 'MARKET_PROPOSAL_SUBMITTED'
+  `);
+  await database.query(`
+    ALTER TABLE leaderboard_point_events
+    ADD CONSTRAINT leaderboard_point_events_event_type_check
+    CHECK (event_type IN ('QUALIFIED_PAID_SUBMISSION', 'MARKET_PARTICIPATION', 'QUALIFIED_REFERRAL'))
+  `);
   await database.query(`
     CREATE INDEX IF NOT EXISTS leaderboard_point_events_wallet_idx
     ON leaderboard_point_events (lower(wallet_address))
-  `);
-  // Backfill existing proposals so earlier proposers appear in the points leaderboard.
-  await database.query(`
-    INSERT INTO leaderboard_point_events (wallet_address, event_type, event_key, points, metadata)
-    SELECT lower("walletAddress"), 'MARKET_PROPOSAL_SUBMITTED', 'proposal:' || id::text, 50,
-           jsonb_build_object('proposalId', id, 'backfilled', true)
-    FROM market_proposals
-    WHERE "walletAddress" IS NOT NULL AND "walletAddress" ~* '^0x[a-f0-9]{40}$'
-    ON CONFLICT (event_type, event_key) DO NOTHING
   `);
   // Backfill qualified referrals; pending and flagged referrals earn no points.
   await database.query(`
@@ -61,6 +67,16 @@ export async function awardLeaderboardPoints(input: PointAwardInput): Promise<Po
   if (!/^0x[a-f0-9]{40}$/.test(walletAddress)) throw new Error("A valid normalized EVM wallet address is required.");
   if (!eventKey || eventKey.length > 256) throw new Error("A non-empty event key of at most 256 characters is required.");
   if (input.points !== expectedPoints[input.eventType]) throw new Error("Point value does not match the configured policy for this event type.");
+  if (input.eventType === "QUALIFIED_PAID_SUBMISSION") {
+    const metadata = input.metadata ?? {};
+    const paymentTxHash = typeof metadata.paymentTxHash === "string" ? metadata.paymentTxHash : "";
+    const publicationTxHash = typeof metadata.publicationTxHash === "string" ? metadata.publicationTxHash : "";
+    if (metadata.paidSubmissionVerified !== true ||
+        !/^0x[0-9a-fA-F]{64}$/.test(paymentTxHash) ||
+        !/^0x[0-9a-fA-F]{64}$/.test(publicationTxHash)) {
+      throw new Error("Paid-submission points require verified payment and publication transaction hashes.");
+    }
+  }
   const inserted = await database.query<{ points: number }>(
     `INSERT INTO leaderboard_point_events (wallet_address, event_type, event_key, points, metadata)
      VALUES ($1, $2, $3, $4, $5::jsonb)
