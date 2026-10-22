@@ -159,7 +159,7 @@ test("accepts payment only when the exact 10 USDC Transfer reaches the configure
     getTransactionReceipt: async () => ({
       status: "success",
       blockNumber: 100n,
-      logs: [transferLog(baseInput.treasuryAddress)],
+      logs: [transferLog(baseInput.treasuryAddress as Address)],
     }),
   }));
 
@@ -187,7 +187,7 @@ test("rejects a transfer to the treasury for the wrong amount", async () => {
       getTransactionReceipt: async () => ({
         status: "success",
         blockNumber: 100n,
-        logs: [transferLog(baseInput.treasuryAddress, 9_000_000n)],
+        logs: [transferLog(baseInput.treasuryAddress as Address, 9_000_000n)],
       }),
     })),
     /exact Transfer event from the payer to the configured treasury/,
