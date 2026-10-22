@@ -96,8 +96,13 @@ test("publication retry is recoverable and published market ID cannot silently c
     if (sql.includes("SELECT status, published_market_id")) return {
       rows: [{ status: "PUBLISHED", published_market_id: values?.[0] === "submission-1" ? "12" : null }], rowCount: 1,
     };
-    if (sql.includes("SELECT wallet_address, proposal_id")) return {
-      rows: [{ wallet_address: "0x" + "1".repeat(40), proposal_id: "proposal-1" }], rowCount: 1,
+    if (sql.includes("JOIN market_proposals p ON p.id = s.proposal_id")) return {
+      rows: [{
+        wallet_address: "0x" + "1".repeat(40),
+        proposal_id: "proposal-1",
+        payment_tx_hash: "0x" + "a".repeat(64),
+        publication_tx_hash: "0x" + "b".repeat(64),
+      }], rowCount: 1,
     };
     if (sql.includes("INSERT INTO leaderboard_point_events")) {
       pointsInsertCalls++;
@@ -144,8 +149,13 @@ test("publication reward bridge ignores ordinary proposals and delegates paid pr
       return { rows: lookupRows, rowCount: lookupRows.length };
     }
     if (sql.includes("UPDATE paid_market_submissions")) return { rows: [{ id: "submission-3" }], rowCount: 1 };
-    if (sql.includes("SELECT wallet_address, proposal_id")) {
-      return { rows: [{ wallet_address: "0x" + "2".repeat(40), proposal_id: "proposal-3" }], rowCount: 1 };
+    if (sql.includes("JOIN market_proposals p ON p.id = s.proposal_id")) {
+      return { rows: [{
+        wallet_address: "0x" + "2".repeat(40),
+        proposal_id: "proposal-3",
+        payment_tx_hash: "0x" + "a".repeat(64),
+        publication_tx_hash: "0x" + "b".repeat(64),
+      }], rowCount: 1 };
     }
     if (sql.includes("INSERT INTO leaderboard_point_events")) return { rows: [{ points: 50 }], rowCount: 1 };
     if (sql.includes("SELECT COALESCE(SUM(points)")) return { rows: [{ total_points: "50" }], rowCount: 1 };
