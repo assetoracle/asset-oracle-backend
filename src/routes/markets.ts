@@ -24,6 +24,7 @@ import { verifyPublicationEvidence } from "../services/publicationVerification.j
 import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
 import { getPaidSubmissionTestnetConfig } from "../services/paidSubmissionConfig.js";
 import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
+import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal } from "../services/paidSubmissionStore.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
@@ -160,12 +161,17 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
     const { address, status } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     if (!isAdminWallet(address)) return res.status(403).json({ error: "Only the configured owner wallet can decide proposals." });
-    const proposal = await updateMarketProposalStatus(idResult.data, status);
-    if (!proposal) {
+    const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+    if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
+    if (decision === "CONFLICT") {
       const existing = await getMarketProposal(idResult.data);
-      if (!existing) return res.status(404).json({ error: "Market proposal not found" });
-      return res.status(409).json({ error: "Only pending proposals can receive a decision", status: existing.status });
+      return res.status(409).json({
+        error: "Only pending proposals with confirmed payment can receive a decision.",
+        status: existing?.status ?? null,
+      });
     }
+    const proposal = await getMarketProposal(idResult.data);
+    if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
   } catch (error) { return next(error); }
 });
