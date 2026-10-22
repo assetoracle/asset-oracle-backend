@@ -5,10 +5,12 @@ import helmet from "helmet";
 import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import marketsRouter from "./routes/markets.js";
+import validatorEvidenceRouter from "./routes/validatorEvidence.js";
 import referralsRouter from "./routes/referrals.js";
 import statsRouter from "./routes/stats.js";
 import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
+import { initializeValidatorEvidenceStore } from "./services/validatorEvidenceStore.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
 import { initializeOnchainStatsIndexer } from "./services/onchainStatsIndexer.js";
 import { initializePointsStore } from "./services/pointsStore.js";
@@ -43,6 +45,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "100kb" }));
 app.use("/api/markets", marketsRouter);
+app.use("/api/validator-evidence", validatorEvidenceRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/stats", statsRouter);
 
@@ -56,6 +59,7 @@ app.use(errorHandler);
 async function startServer(): Promise<void> {
   try {
     await initializeMarketStore();
+    await initializeValidatorEvidenceStore();
     await initializeWalletAuth();
     await initializeReferralStore();
     await initializePointsStore();
