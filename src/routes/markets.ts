@@ -11,7 +11,6 @@ import {
   listPublishedMarkets,
   listMarketProposals,
   listMarketProposalsByWallet,
-  updateMarketProposalStatus,
   recordOnchainPublication,
 } from "../services/marketStore.js";
 import {
@@ -509,26 +508,17 @@ marketsRouter.post(
         });
       }
 
-      const proposal = await updateMarketProposalStatus(
-        idResult.data,
-        status,
-      );
-
-      if (!proposal) {
+      const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+      if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
+      if (decision === "CONFLICT") {
         const existing = await getMarketProposal(idResult.data);
-
-        if (!existing) {
-          return res.status(404).json({
-            error: "Market proposal not found",
-          });
-        }
-
         return res.status(409).json({
-          error: "Only pending proposals can receive a decision",
-          status: existing.status,
+          error: "Only pending proposals with confirmed payment can receive a decision.",
+          status: existing?.status ?? null,
         });
       }
-
+      const proposal = await getMarketProposal(idResult.data);
+      if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
       return res.status(200).json({
         message: `Market proposal ${status.toLowerCase()}.`,
         proposal,
