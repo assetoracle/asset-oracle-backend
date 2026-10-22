@@ -20,20 +20,20 @@ const db = database as unknown as { query: Query };
 const originalQuery = db.query;
 afterEach(() => { db.query = originalQuery; });
 
-test("allows only mainnet approved stablecoins and testnet USDC", () => {
-  for (const token of ["USDC", "USDT", "cNGN"] as const) {
-    assert.doesNotThrow(() => validateSubmissionPayment({
-      network: "MAINNET", token, amountAtomic: "10000000", expectedAmountAtomic: "10000000",
-    }));
-  }
+test("allows only exact 10 USDC testnet proposal payments", () => {
   assert.doesNotThrow(() => validateSubmissionPayment({
     network: "TESTNET", token: "USDC", amountAtomic: "10000000", expectedAmountAtomic: "10000000",
   }));
+  for (const token of ["USDT", "cNGN"] as const) {
+    assert.throws(() => validateSubmissionPayment({
+      network: "TESTNET", token, amountAtomic: "10000000", expectedAmountAtomic: "10000000",
+    }), /not enabled/);
+  }
   assert.throws(() => validateSubmissionPayment({
-    network: "TESTNET", token: "USDT", amountAtomic: "10000000", expectedAmountAtomic: "10000000",
+    network: "MAINNET", token: "USDC", amountAtomic: "10000000", expectedAmountAtomic: "10000000",
   }), /not enabled/);
   assert.throws(() => validateSubmissionPayment({
-    network: "MAINNET", token: "USDC", amountAtomic: "999", expectedAmountAtomic: "10000000",
+    network: "TESTNET", token: "USDC", amountAtomic: "999", expectedAmountAtomic: "10000000",
   }), /does not match/);
 });
 
