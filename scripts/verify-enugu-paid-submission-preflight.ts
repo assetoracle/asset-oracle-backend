@@ -8,6 +8,7 @@ import {
 } from "viem";
 
 const RPC_URL = process.env.ASSET_ORACLE_TESTNET_RPC_URL || "https://enugu-rpc.assetchain.org";
+// Read-only preflight: never requests signatures or broadcasts transactions.
 const EXPECTED_CHAIN_ID = 42421;
 const TOKEN_RAW = process.env.ASSET_ORACLE_TESTNET_USDC_ADDRESS || "0xc33741fddEBeA854d265db6F9707900Efb0211a2";
 const TREASURY_RAW = process.env.ASSET_ORACLE_TESTNET_PAID_SUBMISSION_TREASURY_ADDRESS || "";
