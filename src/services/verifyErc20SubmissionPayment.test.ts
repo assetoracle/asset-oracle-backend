@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   encodeAbiParameters,
   encodeEventTopics,
+  type Address,
   type PublicClient,
 } from "viem";
 import { verifyErc20SubmissionPayment } from "./verifyErc20SubmissionPayment.js";
@@ -41,7 +42,7 @@ const baseInput = {
   quote,
 };
 
-function transferLog(to: string, amount = 10_000_000n) {
+function transferLog(to: Address, amount = 10_000_000n) {
   return {
     address: quote.tokenAddress,
     topics: encodeEventTopics({
