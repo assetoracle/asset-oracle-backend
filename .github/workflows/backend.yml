@@ -1,11 +1,15 @@
-name: Asset Oracle Backend Build (Manual)
+name: Asset Oracle Backend CI
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
-  build:
-    name: TypeScript Build
+  build-and-test:
+    name: TypeScript Build and Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -18,7 +22,10 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --include=dev
 
       - name: Build backend
         run: npm run build
+
+      - name: Run backend tests
+        run: npm test
