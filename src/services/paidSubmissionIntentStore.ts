@@ -11,8 +11,8 @@ export type PaidSubmissionIntentResult = {
     submittedAt: string;
   };
   payment: {
-    network: "MAINNET";
-    token: "USDC" | "USDT" | "cNGN";
+    network: "TESTNET";
+    token: "USDC";
     tokenAddress: string;
     tokenDecimals: number;
     amountAtomic: string;
@@ -42,7 +42,7 @@ export async function createPaidSubmissionIntent(input: {
     const quoteResult = await client.query<{
       id: string;
       wallet_address: string;
-      token: "USDC" | "USDT" | "cNGN";
+      token: "USDC";
       token_address: string;
       token_decimals: number;
       amount_atomic: string;
@@ -83,7 +83,7 @@ export async function createPaidSubmissionIntent(input: {
     await client.query(
       `INSERT INTO paid_market_submissions
        (id, proposal_id, wallet_address, network, token, amount_atomic, status, quote_id)
-       VALUES ($1,$2,$3,'MAINNET',$4,$5,'AWAITING_PAYMENT',$6)`,
+       VALUES ($1,$2,$3,'TESTNET',$4,$5,'AWAITING_PAYMENT',$6)`,
       [submissionId, proposalId, wallet, quote.token, quote.amount_atomic, input.quoteId],
     );
     await client.query("COMMIT");
@@ -97,7 +97,7 @@ export async function createPaidSubmissionIntent(input: {
         submittedAt: new Date(proposal.submittedAt).toISOString(),
       },
       payment: {
-        network: "MAINNET",
+        network: "TESTNET",
         token: quote.token,
         tokenAddress: quote.token_address,
         tokenDecimals: quote.token_decimals,
@@ -123,8 +123,8 @@ export async function getPaidSubmissionPaymentContext(input: {
   status: string;
   paymentTxHash: string | null;
   quote: {
-    network: "MAINNET";
-    token: "USDC" | "USDT" | "cNGN";
+    network: "TESTNET";
+    token: "USDC";
     tokenAddress: `0x${string}`;
     tokenDecimals: number;
     amountAtomic: string;
@@ -137,7 +137,7 @@ export async function getPaidSubmissionPaymentContext(input: {
 } | null> {
   const result = await database.query<{
     id: string; wallet_address: string; status: string; payment_tx_hash: string | null;
-    token: "USDC" | "USDT" | "cNGN"; token_address: string; token_decimals: number;
+    token: "USDC"; token_address: string; token_decimals: number;
     amount_atomic: string; usd_value: string; issued_at_ms: string; expires_at_ms: string;
     rate_source: string; ngn_per_usd: string | null;
   }>(
@@ -157,7 +157,7 @@ export async function getPaidSubmissionPaymentContext(input: {
     status: row.status,
     paymentTxHash: row.payment_tx_hash,
     quote: {
-      network: "MAINNET",
+      network: "TESTNET",
       token: row.token,
       tokenAddress: row.token_address as `0x${string}`,
       tokenDecimals: row.token_decimals,
