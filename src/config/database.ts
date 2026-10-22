@@ -6,10 +6,16 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is not configured.");
 }
 
+// Keep certificate verification enabled by default. Disabling verification is
+// only acceptable for an isolated test service using a trusted/private network;
+// never set DATABASE_SSL_REJECT_UNAUTHORIZED=false on production.
+const rejectUnauthorized =
+  process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false";
+
 export const database = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: true,
+    rejectUnauthorized,
   },
   max: 10,
   idleTimeoutMillis: 30000,
