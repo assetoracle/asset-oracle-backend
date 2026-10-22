@@ -6,7 +6,8 @@ import { verifyWalletSession, verifyWalletSignature } from "../services/walletAu
 import { isAdminWallet, verifyAdminWallet } from "../services/adminAuth.js";
 import { createReferralCodeValue, fingerprintIp } from "../services/referralStore.js";
 import { awardLeaderboardPoints, getPointsLeaderboard } from "../services/pointsStore.js";
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
+import { ASSET_CHAIN_TESTNET_ID, CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
+import { isStakeAfterReferralAttribution } from "../services/referralQualification.js";
 
 const referralsRouter = Router();
 const walletAuthSchema = z.object({
@@ -167,6 +168,9 @@ referralsRouter.post("/qualify/session", async (req, res, next) => {
     if (!managerAddress || !isAddress(managerAddress)) return res.status(503).json({ error: "Referral prediction verification is not enabled until the verified market manager address is configured." });
 
     const client = createPublicClient({ transport: http(rpcUrl) });
+    if (await client.getChainId() !== ASSET_CHAIN_TESTNET_ID) {
+      return res.status(503).json({ error: "Referral verification RPC is not Asset Chain Enugu testnet." });
+    }
     const receipt = await client.getTransactionReceipt({ hash: transactionHash as `0x${string}` });
     if (receipt.status !== "success") return res.status(400).json({ error: "Prediction transaction did not succeed." });
     const matchingLogs = receipt.logs.filter((log) => log.address.toLowerCase() === managerAddress.toLowerCase()).flatMap((log) => {
@@ -178,6 +182,23 @@ referralsRouter.post("/qualify/session", async (req, res, next) => {
     const wallet = address.toLowerCase();
     if (!matchingLogs.some((log) => getAddress(log.user).toLowerCase() === wallet)) {
       return res.status(400).json({ error: "Transaction does not contain a verified stake by this wallet on the configured market manager." });
+    }
+    const transaction = await client.getTransaction({ hash: transactionHash as `0x${string}` });
+    if (transaction.from.toLowerCase() !== wallet) {
+      return res.status(400).json({ error: "The stake transaction must be sent by the referred wallet." });
+    }
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    const attribution = await database.query<{ status: string; attributed_at: Date | string; first_prediction_tx: string | null }>(
+      "SELECT status, attributed_at, first_prediction_tx FROM referral_attributions WHERE invited_wallet = $1",
+      [wallet],
+    );
+    const existingAttribution = attribution.rows[0];
+    if (!existingAttribution) return res.status(404).json({ error: "No referral attribution exists for this wallet." });
+    if (existingAttribution.status !== "PENDING_PREDICTION" || existingAttribution.first_prediction_tx) {
+      return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification.", status: existingAttribution.status });
+    }
+    if (!isStakeAfterReferralAttribution(block.timestamp, existingAttribution.attributed_at)) {
+      return res.status(400).json({ error: "The qualifying stake must be confirmed after the referral attribution." });
     }
     const updated = await database.query(
       `UPDATE referral_attributions
@@ -211,6 +232,9 @@ referralsRouter.post("/qualify", async (req, res, next) => {
     if (!managerAddress || !isAddress(managerAddress)) return res.status(503).json({ error: "Referral prediction verification is not enabled until the verified market manager address is configured." });
 
     const client = createPublicClient({ transport: http(rpcUrl) });
+    if (await client.getChainId() !== ASSET_CHAIN_TESTNET_ID) {
+      return res.status(503).json({ error: "Referral verification RPC is not Asset Chain Enugu testnet." });
+    }
     const receipt = await client.getTransactionReceipt({ hash: transactionHash as `0x${string}` });
     if (receipt.status !== "success") return res.status(400).json({ error: "Prediction transaction did not succeed" });
     const matchingLogs = receipt.logs.filter((log) => log.address.toLowerCase() === managerAddress.toLowerCase()).flatMap((log) => {
@@ -223,6 +247,23 @@ referralsRouter.post("/qualify", async (req, res, next) => {
     const userStaked = matchingLogs.some((log) => getAddress(log.user).toLowerCase() === wallet);
     if (!userStaked) return res.status(400).json({ error: "Transaction does not contain a verified stake by this wallet on the configured market manager" });
 
+    const transaction = await client.getTransaction({ hash: transactionHash as `0x${string}` });
+    if (transaction.from.toLowerCase() !== wallet) {
+      return res.status(400).json({ error: "The stake transaction must be sent by the referred wallet." });
+    }
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    const attribution = await database.query<{ status: string; attributed_at: Date | string; first_prediction_tx: string | null }>(
+      "SELECT status, attributed_at, first_prediction_tx FROM referral_attributions WHERE invited_wallet = $1",
+      [wallet],
+    );
+    const existingAttribution = attribution.rows[0];
+    if (!existingAttribution) return res.status(404).json({ error: "No referral attribution exists for this wallet." });
+    if (existingAttribution.status !== "PENDING_PREDICTION" || existingAttribution.first_prediction_tx) {
+      return res.status(409).json({ error: "This referral has already been processed or is not eligible for qualification.", status: existingAttribution.status });
+    }
+    if (!isStakeAfterReferralAttribution(block.timestamp, existingAttribution.attributed_at)) {
+      return res.status(400).json({ error: "The qualifying stake must be confirmed after the referral attribution." });
+    }
     const updated = await database.query(
       `UPDATE referral_attributions
        SET status = CASE WHEN ip_shared_flag THEN 'FLAGGED' ELSE 'QUALIFIED' END,
