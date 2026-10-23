@@ -307,7 +307,7 @@ referralsRouter.post("/review/queue/session", async (req, res, next) => {
       `SELECT invited_wallet, referrer_wallet, first_prediction_tx, qualified_at
        FROM referral_attributions
        WHERE status = 'FLAGGED' AND first_prediction_tx IS NOT NULL
-       ORDER BY qualified_at ASC NULLS LAST LIMIT 200`,
+       ORDER BY qualified_at DESC NULLS LAST LIMIT 200`,
     );
     return res.json({ flaggedReferrals: result.rows.map((row) => ({
       invitedWallet: row.invited_wallet,
