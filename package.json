@@ -9,7 +9,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test src/**/*.test.ts",
+    "verify:enugu-preflight": "tsx scripts/verify-enugu-paid-submission-preflight.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

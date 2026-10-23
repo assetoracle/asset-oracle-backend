@@ -11,7 +11,6 @@ import {
   listPublishedMarkets,
   listMarketProposals,
   listMarketProposalsByWallet,
-  updateMarketProposalStatus,
   recordOnchainPublication,
 } from "../services/marketStore.js";
 import {
@@ -21,6 +20,10 @@ import {
   verifyWalletSignature,
 } from "../services/walletAuth.js";
 import { verifyPublicationEvidence } from "../services/publicationVerification.js";
+import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
+import { getPaidSubmissionTestnetConfig } from "../services/paidSubmissionConfig.js";
+import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
+import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal } from "../services/paidSubmissionStore.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
@@ -157,12 +160,17 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
     const { address, status } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     if (!isAdminWallet(address)) return res.status(403).json({ error: "Only the configured owner wallet can decide proposals." });
-    const proposal = await updateMarketProposalStatus(idResult.data, status);
-    if (!proposal) {
+    const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+    if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
+    if (decision === "CONFLICT") {
       const existing = await getMarketProposal(idResult.data);
-      if (!existing) return res.status(404).json({ error: "Market proposal not found" });
-      return res.status(409).json({ error: "Only pending proposals can receive a decision", status: existing.status });
+      return res.status(409).json({
+        error: "Only pending proposals with confirmed payment can receive a decision.",
+        status: existing?.status ?? null,
+      });
     }
+    const proposal = await getMarketProposal(idResult.data);
+    if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
   } catch (error) { return next(error); }
 });
@@ -227,6 +235,60 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
     return next(error);
   }
 });
+
+// Paid-submission quote endpoint. Testnet only; USDC is the sole accepted fee token.
+marketsRouter.post("/paid-submissions/quote", async (req, res, next) => {
+  try {
+    const parsed = z.object({
+      token: z.literal("USDC"),
+      walletAuth: walletAuthSchema,
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "A supported token and valid wallet authentication are required." });
+    }
+    const { token, walletAuth } = parsed.data;
+    const verified = await verifyWalletSignature(
+      walletAuth.address,
+      walletAuth.signature as `0x${string}`,
+      walletAuth.message,
+    );
+    if (!verified) {
+      return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
+    }
+    if (isMarketCreatorWallet(walletAuth.address)) {
+      return res.status(403).json({ error: "Market makers submit proposals for free and do not need a paid submission quote." });
+    }
+    const config = getPaidSubmissionTestnetConfig();
+    if (!config.enabled) {
+      return res.status(503).json({
+        error: "Testnet USDC proposal payments are not enabled until the testnet USDC contract and treasury are verified.",
+        network: "TESTNET",
+        chainId: config.chainId,
+        disabledReasons: config.disabledReasons,
+      });
+    }
+    const quote = createPaidSubmissionQuote({ token, config });
+    const quoteId = await persistSubmissionQuote({ walletAddress: walletAuth.address, quote });
+    return res.status(201).json({
+      quoteId,
+      network: quote.network,
+      token: quote.token,
+      tokenAddress: quote.tokenAddress,
+      tokenDecimals: quote.tokenDecimals,
+      amountAtomic: quote.amountAtomic,
+      usdValue: quote.usdValue,
+      issuedAtMs: quote.issuedAtMs,
+      expiresAtMs: quote.expiresAtMs,
+      rateSource: quote.rateSource,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("cNGN/NGN-per-USD")) {
+      return res.status(503).json({ error: "cNGN quotes are temporarily unavailable until the trusted rate source is configured." });
+    }
+    return next(error);
+  }
+});
+
 
 marketsRouter.post("/proposals/validate", (req, res) => {
   const result = marketProposalSchema.safeParse(req.body);
@@ -446,26 +508,17 @@ marketsRouter.post(
         });
       }
 
-      const proposal = await updateMarketProposalStatus(
-        idResult.data,
-        status,
-      );
-
-      if (!proposal) {
+      const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+      if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
+      if (decision === "CONFLICT") {
         const existing = await getMarketProposal(idResult.data);
-
-        if (!existing) {
-          return res.status(404).json({
-            error: "Market proposal not found",
-          });
-        }
-
         return res.status(409).json({
-          error: "Only pending proposals can receive a decision",
-          status: existing.status,
+          error: "Only pending proposals with confirmed payment can receive a decision.",
+          status: existing?.status ?? null,
         });
       }
-
+      const proposal = await getMarketProposal(idResult.data);
+      if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
       return res.status(200).json({
         message: `Market proposal ${status.toLowerCase()}.`,
         proposal,
@@ -575,6 +628,7 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
     if (!stored) {
       return res.status(409).json({ error: "Publication could not be recorded. Confirm the proposal is still approved and has not already been published." });
     }
+    await markPaidSubmissionPublishedForProposal({ proposalId: proposal.id, marketId });
 
     return res.status(200).json({
       message: "Verified on-chain publication recorded.",
@@ -682,6 +736,7 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
     if (!stored) {
       return res.status(409).json({ error: "Publication could not be recorded. Confirm the proposal is still approved and has not already been published." });
     }
+    await markPaidSubmissionPublishedForProposal({ proposalId: proposal.id, marketId });
 
     return res.status(200).json({
       message: "Verified on-chain publication recorded.",
