@@ -376,8 +376,8 @@ export async function listSubmissionRefundQueue(): Promise<SubmissionRefundQueue
     `SELECT id, proposal_id, wallet_address, network, token, amount_atomic, status,
             payment_tx_hash, refund_tx_hash, created_at
      FROM paid_market_submissions
-     WHERE status IN ('REJECTED_REFUND_PENDING', 'REFUND_FAILED')
-     ORDER BY created_at ASC`,
+     WHERE status IN ('REJECTED_REFUND_PENDING', 'REFUND_FAILED', 'REFUNDED')
+     ORDER BY created_at DESC`,
   );
   return result.rows.map(row => ({
     id: row.id,
