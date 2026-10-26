@@ -203,7 +203,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.outsider).refundTimedOutMarket(1);
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).refundCancelled(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(1_000_000n);
   });
 
   it("refunds 75% and retains 25% to Treasury when a resolved outcome has no winning-side stakes", async function () {
@@ -438,7 +438,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.outsider).refundTimedOutMarket(1);
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).refundCancelled(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(1_000_000n);
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
 
@@ -515,7 +515,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await resolveByConsensus(f, 1, 3, ethers.keccak256(ethers.toUtf8Bytes("invalid evidence")));
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(1_000_000n);
     await expect(f.manager.connect(f.alice).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
