@@ -86,11 +86,6 @@ export async function initializeMarketStore(): Promise<void> {
       ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'PRIVATE'
   `);
   await database.query(`
-    UPDATE market_proposals SET visibility = 'PUBLIC'
-    WHERE status = 'APPROVED' AND onchain_market_id IS NOT NULL
-      AND onchain_tx_hash IS NOT NULL AND onchain_chain_id = 42421
-  `);
-  await database.query(`
     ALTER TABLE market_proposals DROP CONSTRAINT IF EXISTS market_proposals_origin_check
   `);
   await database.query(`
@@ -115,6 +110,12 @@ export async function initializeMarketStore(): Promise<void> {
       ADD COLUMN IF NOT EXISTS onchain_manager_address TEXT,
       ADD COLUMN IF NOT EXISTS onchain_chain_id INTEGER
   `);
+  await database.query(`
+    UPDATE market_proposals SET visibility = 'PUBLIC'
+    WHERE status = 'APPROVED' AND onchain_market_id IS NOT NULL
+      AND onchain_tx_hash IS NOT NULL AND onchain_chain_id = 42421
+  `);
+
   await database.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS market_proposals_onchain_tx_hash_unique
     ON market_proposals (onchain_tx_hash) WHERE onchain_tx_hash IS NOT NULL
