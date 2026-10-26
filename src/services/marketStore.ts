@@ -313,3 +313,22 @@ export async function updateMarketProposalStatus(
 
   return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
 }
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
