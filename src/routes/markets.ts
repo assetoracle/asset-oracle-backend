@@ -414,19 +414,38 @@ marketsRouter.get("/public", async (_req, res, next) => {
 marketsRouter.get("/proposals/:id", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
-
     if (!idResult.success) {
-      return res.status(400).json({
-        error: "Invalid proposal ID",
-      });
+      return res.status(400).json({ error: "Invalid proposal ID" });
     }
 
     const proposal = await getMarketProposal(idResult.data);
-
     if (!proposal) {
-      return res.status(404).json({
-        error: "Market proposal not found",
-      });
+      return res.status(404).json({ error: "Market proposal not found" });
+    }
+
+    // A proposal is public only after owner approval AND confirmed testnet publication.
+    const isPublishedPublicly =
+      proposal.status === "APPROVED" &&
+      proposal.visibility === "PUBLIC" &&
+      Boolean(proposal.onchainMarketId && proposal.onchainTxHash && proposal.onchainChainId === 42421);
+
+    if (!isPublishedPublicly) {
+      const addressResult = z.string().refine(isAddress).safeParse(req.query.address);
+      const address = addressResult.success ? addressResult.data : "";
+      const hasSession = Boolean(address) && await verifyWalletSession(sessionToken(req), address);
+      if (!hasSession) {
+        return res.status(404).json({ error: "Market proposal not found" });
+      }
+
+      const isOwner = isAdminWallet(address);
+      const isAutomatedMarketMaker = proposal.origin === "AUTOMATED" && isMarketCreatorWallet(address);
+      const isSubmittingWallet = proposal.origin !== "AUTOMATED" &&
+        Boolean(proposal.walletAddress) &&
+        proposal.walletAddress?.toLowerCase() === address.toLowerCase();
+
+      if (!isOwner && !isAutomatedMarketMaker && !isSubmittingWallet) {
+        return res.status(404).json({ error: "Market proposal not found" });
+      }
     }
 
     return res.status(200).json({ proposal });
