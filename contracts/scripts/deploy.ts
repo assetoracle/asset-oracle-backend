@@ -171,7 +171,7 @@ async function main() {
       throw new Error(`CRITICAL: final owner lacks the ${label} role after ownership transfer.`);
     }
   }
-  for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["oracle resolver", resolverRole]] as const) {
+  for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["automated market creator", automatedCreatorRole], ["oracle resolver", resolverRole]] as const) {
     if (await manager.hasRole(role, deployer.address)) {
       throw new Error(`CRITICAL: temporary deployer still has the ${label} role after ownership transfer.`);
     }
