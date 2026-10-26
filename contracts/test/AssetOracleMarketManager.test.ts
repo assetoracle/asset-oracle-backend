@@ -75,7 +75,11 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
   it("requires one validator for automated markets but two for manual markets", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
-    await f.manager.connect(f.creator).createAutomatedMarket(
+    await expect(f.manager.connect(f.creator).createAutomatedMarket(
+      0, "Will the automated test event happen?", "YES if official source confirms it.",
+      "https://official.example/result", closeTime, 3600
+    )).to.be.reverted;
+    await f.manager.connect(f.owner).createAutomatedMarket(
       0, "Will the automated test event happen?", "YES if official source confirms it.",
       "https://official.example/result", closeTime, 3600
     );
