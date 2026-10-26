@@ -256,7 +256,8 @@ export async function recordOnchainPublication(input: {
        SET onchain_market_id = $2,
            onchain_tx_hash = $3,
            onchain_manager_address = $4,
-           onchain_chain_id = $5
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
        WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
        RETURNING *`,
       [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
