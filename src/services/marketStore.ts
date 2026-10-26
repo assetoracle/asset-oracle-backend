@@ -12,6 +12,8 @@ export type StoredMarketProposal = MarketProposalInput & {
   onchainTxHash?: string | null;
   onchainManagerAddress?: string | null;
   onchainChainId?: number | null;
+  origin: "MANUAL" | "AUTOMATED";
+  visibility: "PRIVATE" | "PUBLIC";
 };
 
 type MarketProposalRow = {
@@ -30,6 +32,8 @@ type MarketProposalRow = {
   onchain_tx_hash?: string | null;
   onchain_manager_address?: string | null;
   onchain_chain_id?: number | null;
+  origin?: "MANUAL" | "AUTOMATED";
+  visibility?: "PRIVATE" | "PUBLIC";
 };
 
 function mapProposal(row: MarketProposalRow): StoredMarketProposal {
@@ -52,6 +56,8 @@ function mapProposal(row: MarketProposalRow): StoredMarketProposal {
     onchainTxHash: row.onchain_tx_hash ?? null,
     onchainManagerAddress: row.onchain_manager_address ?? null,
     onchainChainId: row.onchain_chain_id ?? null,
+    origin: row.origin ?? "MANUAL",
+    visibility: row.visibility ?? (row.status === "APPROVED" ? "PUBLIC" : "PRIVATE"),
   };
 }
 
@@ -73,6 +79,30 @@ export async function initializeMarketStore(): Promise<void> {
   await database.query(`
     ALTER TABLE market_proposals
     ADD COLUMN IF NOT EXISTS "walletAddress" TEXT
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals
+      ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'MANUAL',
+      ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'PRIVATE'
+  `);
+  await database.query(`
+    UPDATE market_proposals SET visibility = 'PUBLIC'
+    WHERE status = 'APPROVED' AND onchain_market_id IS NOT NULL
+      AND onchain_tx_hash IS NOT NULL AND onchain_chain_id = 42421
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals DROP CONSTRAINT IF EXISTS market_proposals_origin_check
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals ADD CONSTRAINT market_proposals_origin_check
+      CHECK (origin IN ('MANUAL', 'AUTOMATED'))
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals DROP CONSTRAINT IF EXISTS market_proposals_visibility_check
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals ADD CONSTRAINT market_proposals_visibility_check
+      CHECK (visibility IN ('PRIVATE', 'PUBLIC'))
   `);
   await database.query(`
     ALTER TABLE market_proposals
@@ -187,6 +217,7 @@ export async function getMarketProposal(
        AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
        AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
        AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
      ORDER BY "submittedAt" DESC`,
   );
 
@@ -270,7 +301,8 @@ export async function updateMarketProposalStatus(
 ): Promise<StoredMarketProposal | undefined> {
   const result = await database.query<MarketProposalRow>(
     `UPDATE market_proposals
-     SET status = $2
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
      WHERE id = $1
        AND status = 'PENDING_APPROVAL'
      RETURNING *`,
