@@ -339,7 +339,1719 @@ export async function updateMarketProposalStatus(
   const result = await database.query<MarketProposalRow>(
     `UPDATE market_proposals
      SET status = $2,
+         visibility = CASE
+           WHEN $2 = 'APPROVED' AND onchain_market_id ~ '^[1-9][0-9]*
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
          visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_chain_id = 42421 THEN 'PUBLIC'
+           ELSE 'PRIVATE' END
+     WHERE id = $1 AND origin = 'AUTOMATED' AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, decision],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function updateOwnedMarketProposal(
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_chain_id = 42421 THEN 'PUBLIC'
+           ELSE 'PRIVATE' END
+     WHERE id = $1 AND origin = 'AUTOMATED' AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, decision],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function updateOwnedMarketProposal(
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_chain_id = 42421 THEN 'PUBLIC'
+           ELSE 'PRIVATE' END
+     WHERE id = $1 AND origin = 'AUTOMATED' AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, decision],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function updateOwnedMarketProposal(
+  id: string,
+  walletAddress: string,
+  input: MarketProposalInput,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET question = $3,
+         description = $4,
+         category = $5,
+         sport = $6,
+         "closesAt" = $7,
+         "resolvesAt" = $8,
+         "resolutionRule" = $9,
+         status = 'PENDING_APPROVAL',
+         "submittedAt" = NOW()
+     WHERE id = $1
+       AND lower("walletAddress") = lower($2)
+       AND onchain_tx_hash IS NULL
+       AND onchain_market_id IS NULL
+     RETURNING *`,
+    [
+      id,
+      walletAddress,
+      input.question,
+      input.description,
+      input.category,
+      input.sport ?? null,
+      input.closesAt,
+      input.resolvesAt,
+      JSON.stringify(input.resolutionRule),
+    ],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function getMarketProposal(
+  id: string,
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [id],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}export async function listPublishedMarkets(): Promise<
+  StoredMarketProposal[]
+> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
+     ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5,
+           visibility = 'PUBLIC'
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2,
+         visibility = CASE WHEN $2 = 'APPROVED' THEN 'PUBLIC' ELSE 'PRIVATE' END
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+/** A single authorized market maker may publish an already-created automated testnet market. */
+export async function approveAutomatedMarketPublication(id: string): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET visibility = 'PUBLIC'
+     WHERE id = $1
+       AND origin = 'AUTOMATED'
+       AND status = 'APPROVED'
+       AND onchain_market_id ~ '^[1-9][0-9]*$'
+       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+       AND onchain_chain_id = 42421
+     RETURNING *`,
+    [id],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+             AND onchain_chain_id = 42421 THEN 'PUBLIC'
+           ELSE 'PRIVATE' END
      WHERE id = $1
        AND status = 'PENDING_APPROVAL'
      RETURNING *`,
