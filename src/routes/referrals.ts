@@ -68,10 +68,12 @@ referralsRouter.get("/me/session", async (req, res, next) => {
     if (typeof address !== "string" || !isAddress(address)) return res.status(400).json({ error: "A valid wallet address is required" });
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     const wallet = address.toLowerCase();
-    const [codeResult, countsResult, rankResult] = await Promise.all([
+    const [codeResult, countsResult, rankResult, referralPointsResult, allPointsResult] = await Promise.all([
       database.query<{ code: string }>("SELECT code FROM referral_codes WHERE owner_wallet = $1", [wallet]),
       database.query<{ status: string; total: string }>("SELECT status, COUNT(*)::text AS total FROM referral_attributions WHERE referrer_wallet = $1 GROUP BY status", [wallet]),
       database.query<{ rank: string }>("WITH leaderboard AS (SELECT referrer_wallet, RANK() OVER (ORDER BY COUNT(*) DESC, referrer_wallet ASC) AS rank FROM referral_attributions WHERE status = 'QUALIFIED' GROUP BY referrer_wallet) SELECT rank::text AS rank FROM leaderboard WHERE referrer_wallet = $1", [wallet]),
+      database.query<{ points: string }>("SELECT COALESCE(SUM(points), 0)::text AS points FROM leaderboard_point_events WHERE lower(wallet_address) = $1 AND event_type = 'QUALIFIED_REFERRAL'", [wallet]),
+      database.query<{ points: string }>("SELECT COALESCE(SUM(points), 0)::text AS points FROM leaderboard_point_events WHERE lower(wallet_address) = $1", [wallet]),
     ]);
     const counts = Object.fromEntries(countsResult.rows.map((row) => [row.status, Number(row.total)]));
     return res.json({
@@ -81,6 +83,8 @@ referralsRouter.get("/me/session", async (req, res, next) => {
       pendingReferrals: counts.PENDING_PREDICTION ?? 0,
       flaggedReferrals: counts.FLAGGED ?? 0,
       leaderboardRank: rankResult.rows[0] ? Number(rankResult.rows[0].rank) : null,
+      referralPoints: Number(referralPointsResult.rows[0]?.points ?? 0),
+      totalPoints: Number(allPointsResult.rows[0]?.points ?? 0),
       rewardsEarned: null,
       rewardsAvailable: false,
     });
