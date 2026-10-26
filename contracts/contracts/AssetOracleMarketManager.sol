@@ -19,6 +19,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
 
     bytes32 public constant MARKET_CREATOR_ROLE = keccak256("MARKET_CREATOR_ROLE");
     bytes32 public constant ORACLE_RESOLVER_ROLE = keccak256("ORACLE_RESOLVER_ROLE");
+    bytes32 public constant AUTOMATED_MARKET_CREATOR_ROLE = keccak256("AUTOMATED_MARKET_CREATOR_ROLE");
 
     uint256 public constant BPS = 10_000;
     uint256 public constant MAX_TRADING_FEE_BPS = 1_000; // hard cap: 10%
@@ -103,6 +104,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     event SettlementFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
     event MarketCreatorUpdated(address indexed account, bool enabled);
     event OracleResolverUpdated(address indexed account, bool enabled);
+    event AutomatedMarketCreatorUpdated(address indexed account, bool enabled);
     event MarketCreated(uint256 indexed marketId, address indexed creator, Stablecoin stablecoin, uint64 closeTime, string question);
     event Staked(uint256 indexed marketId, address indexed user, bool yesSide, uint256 grossAmount, uint256 fee, uint256 netAmount);
     event MarketClosed(uint256 indexed marketId);
@@ -153,6 +155,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         _grantRole(DEFAULT_ADMIN_ROLE, initialOwner);
         _grantRole(MARKET_CREATOR_ROLE, initialOwner);
         _grantRole(ORACLE_RESOLVER_ROLE, initialOwner);
+        _grantRole(AUTOMATED_MARKET_CREATOR_ROLE, initialOwner);
     }
 
     /// @notice Keep AccessControl administration aligned with Ownable after ownership transfer.
@@ -167,8 +170,10 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             // Explicitly revoke these privileges from the former owner to avoid stale authority.
             _grantRole(MARKET_CREATOR_ROLE, newOwner);
             _grantRole(ORACLE_RESOLVER_ROLE, newOwner);
+            _grantRole(AUTOMATED_MARKET_CREATOR_ROLE, newOwner);
             _revokeRole(MARKET_CREATOR_ROLE, previousOwner);
             _revokeRole(ORACLE_RESOLVER_ROLE, previousOwner);
+            _revokeRole(AUTOMATED_MARKET_CREATOR_ROLE, previousOwner);
         }
     }
 
@@ -215,6 +220,14 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         emit OracleResolverUpdated(account, enabled);
     }
 
+    /// @notice Restrict automated market creation to the trusted automation service and owner.
+    function setAutomatedMarketCreator(address account, bool enabled) external onlyOwner {
+        if (account == address(0)) revert InvalidAddress();
+        if (enabled) _grantRole(AUTOMATED_MARKET_CREATOR_ROLE, account);
+        else _revokeRole(AUTOMATED_MARKET_CREATOR_ROLE, account);
+        emit AutomatedMarketCreatorUpdated(account, enabled);
+    }
+
     function setFeeRecipients(address treasury_, address validatorPool_) external onlyOwner {
         if (marketCreationStarted) revert StablecoinConfigurationLocked();
         if (treasury_ == address(0) || validatorPool_ == address(0)) revert InvalidAddress();
@@ -253,8 +266,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         return _createMarket(MarketType.MANUAL, stablecoin, question, resolutionRules, evidenceSource, closeTime, challengePeriod);
     }
 
-    /// @notice Create an automated market. The caller must still be an authorized market creator,
-    /// and one validator may establish the initial outcome; disputes still require 2-of-3.
+    /// @notice Create an automated market only through the trusted automation role or owner.
+    /// One validator may establish the initial outcome; disputes still require 2-of-3.
     function createAutomatedMarket(
         Stablecoin stablecoin,
         string calldata question,
@@ -262,7 +275,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         string calldata evidenceSource,
         uint64 closeTime,
         uint64 challengePeriod
-    ) external onlyRole(MARKET_CREATOR_ROLE) returns (uint256 marketId) {
+    ) external onlyRole(AUTOMATED_MARKET_CREATOR_ROLE) returns (uint256 marketId) {
         return _createMarket(MarketType.AUTOMATED, stablecoin, question, resolutionRules, evidenceSource, closeTime, challengePeriod);
     }
 
