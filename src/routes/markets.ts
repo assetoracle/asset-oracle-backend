@@ -14,6 +14,7 @@ import {
   recordOnchainPublication,
   createAutomatedMarketProposal,
   decideAutomatedMarketProposal,
+  listAutomatedMarketProposals,
 } from "../services/marketStore.js";
 import {
   createWalletNonce,
@@ -425,6 +426,26 @@ marketsRouter.post("/automated/ingest", async (req, res, next) => {
       message: "Automated market ingested privately and is awaiting approval.",
       proposal,
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+
+
+marketsRouter.post("/automated/private/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid wallet address is required." });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    if (!isMarketCreatorWallet(address)) {
+      return res.status(403).json({ error: "Only the platform owner and configured market makers can view private automated markets." });
+    }
+    const proposals = await listAutomatedMarketProposals();
+    return res.status(200).json({ proposals, count: proposals.length });
   } catch (error) {
     return next(error);
   }
