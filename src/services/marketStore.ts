@@ -216,6 +216,16 @@ export async function decideAutomatedMarketProposal(
   return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
 }
 
+/** Private automated API markets are visible only to the owner and configured market makers. */
+export async function listAutomatedMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE origin = 'AUTOMATED' AND visibility = 'PRIVATE'
+     ORDER BY "submittedAt" DESC`,
+  );
+  return result.rows.map(mapProposal);
+}
+
 export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
   const result = await database.query<MarketProposalRow>(
     `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
