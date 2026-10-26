@@ -21,11 +21,14 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     bytes32 public constant ORACLE_RESOLVER_ROLE = keccak256("ORACLE_RESOLVER_ROLE");
 
     uint256 public constant BPS = 10_000;
-    uint256 public constant TRADING_FEE_BPS = 25; // 0.25% per stake
-    uint256 public constant SETTLEMENT_FEE_BPS = 200; // 2% on eligible winning settlements
-    uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of the 2% fee
+    uint256 public constant MAX_TRADING_FEE_BPS = 1_000; // hard cap: 10%
+    uint256 public constant MAX_SETTLEMENT_FEE_BPS = 1_000; // hard cap: 10%
+    uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of settlement fee
     uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
+    uint256 public tradingFeeBps = 100; // 1%, charged in addition to stake
+    uint256 public settlementFeeBps = 500; // 5%
     enum Stablecoin { USDC }
+    enum MarketType { MANUAL, AUTOMATED }
     enum Outcome { UNRESOLVED, YES, NO, INVALID }
     enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED, ARBITRATION }
 
@@ -38,6 +41,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     struct Market {
         uint256 id;
         address creator;
+        MarketType marketType;
         Stablecoin stablecoin;
         string question;
         string resolutionRules;
@@ -95,6 +99,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     event DisputeVoteSubmitted(uint256 indexed marketId, address indexed validator, Outcome outcome, bytes32 evidenceHash, uint8 matchingVotes);
 
     event StablecoinConfigured(Stablecoin indexed kind, address indexed token, uint8 decimals);
+    event TradingFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
+    event SettlementFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
     event MarketCreatorUpdated(address indexed account, bool enabled);
     event OracleResolverUpdated(address indexed account, bool enabled);
     event MarketCreated(uint256 indexed marketId, address indexed creator, Stablecoin stablecoin, uint64 closeTime, string question);
@@ -134,6 +140,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     error UnauthorizedValidator();
     error DuplicateValidator();
     error DuplicateVote();
+    error FeeOutOfRange();
 
     constructor(address initialOwner, address treasury_, address validatorRewardPool_)
         Ownable(initialOwner)
@@ -215,11 +222,26 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         validatorRewardPool = validatorPool_;
     }
 
+    function setTradingFeeBps(uint256 newFeeBps) external onlyOwner {
+        if (newFeeBps > MAX_TRADING_FEE_BPS) revert FeeOutOfRange();
+        uint256 oldFeeBps = tradingFeeBps;
+        tradingFeeBps = newFeeBps;
+        emit TradingFeeUpdated(oldFeeBps, newFeeBps);
+    }
+
+    function setSettlementFeeBps(uint256 newFeeBps) external onlyOwner {
+        if (newFeeBps > MAX_SETTLEMENT_FEE_BPS) revert FeeOutOfRange();
+        uint256 oldFeeBps = settlementFeeBps;
+        settlementFeeBps = newFeeBps;
+        emit SettlementFeeUpdated(oldFeeBps, newFeeBps);
+    }
+
     function setDefaultChallengePeriod(uint64 seconds_) external onlyOwner {
         if (seconds_ < 1 hours || seconds_ > 7 days) revert InvalidMarketParameters();
         defaultChallengePeriod = seconds_;
     }
 
+    /// @notice Create a manually proposed market. Manual markets require 2-of-3 validator consensus.
     function createMarket(
         Stablecoin stablecoin,
         string calldata question,
@@ -228,6 +250,31 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         uint64 closeTime,
         uint64 challengePeriod
     ) external onlyRole(MARKET_CREATOR_ROLE) returns (uint256 marketId) {
+        return _createMarket(MarketType.MANUAL, stablecoin, question, resolutionRules, evidenceSource, closeTime, challengePeriod);
+    }
+
+    /// @notice Create an automated market. The caller must still be an authorized market creator,
+    /// and one validator may establish the initial outcome; disputes still require 2-of-3.
+    function createAutomatedMarket(
+        Stablecoin stablecoin,
+        string calldata question,
+        string calldata resolutionRules,
+        string calldata evidenceSource,
+        uint64 closeTime,
+        uint64 challengePeriod
+    ) external onlyRole(MARKET_CREATOR_ROLE) returns (uint256 marketId) {
+        return _createMarket(MarketType.AUTOMATED, stablecoin, question, resolutionRules, evidenceSource, closeTime, challengePeriod);
+    }
+
+    function _createMarket(
+        MarketType marketType,
+        Stablecoin stablecoin,
+        string calldata question,
+        string calldata resolutionRules,
+        string calldata evidenceSource,
+        uint64 closeTime,
+        uint64 challengePeriod
+    ) internal returns (uint256 marketId) {
         if (!validatorRosterConfigured) revert ValidatorRosterNotConfigured();
         StablecoinConfig memory tokenConfig = stablecoins[stablecoin];
         if (!tokenConfig.enabled) revert InvalidToken();
@@ -242,6 +289,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         markets[marketId] = Market({
             id: marketId,
             creator: msg.sender,
+            marketType: marketType,
             stablecoin: stablecoin,
             question: question,
             resolutionRules: resolutionRules,
@@ -261,22 +309,22 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         emit MarketCreated(marketId, msg.sender, stablecoin, closeTime, question);
     }
 
-    function stake(uint256 marketId, bool yesSide, uint256 grossAmount) external nonReentrant {
+    /// @notice stakeAmount is the user's actual stake; trading fee is charged separately.
+    /// @dev Caller must approve stakeAmount + fee. Position accounting is never reduced by the fee.
+    function stake(uint256 marketId, bool yesSide, uint256 stakeAmount) external nonReentrant {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
         if (market.status != Status.OPEN || block.timestamp >= market.closeTime) revert MarketNotOpen();
-        if (grossAmount == 0) revert InvalidMarketParameters();
+        if (stakeAmount == 0) revert InvalidMarketParameters();
 
         StablecoinConfig memory tokenConfig = stablecoins[market.stablecoin];
         IERC20 token = IERC20(tokenConfig.token);
+        uint256 tradingFee = (stakeAmount * tradingFeeBps) / BPS;
+        uint256 totalDue = stakeAmount + tradingFee;
         uint256 beforeBalance = token.balanceOf(address(this));
-        token.safeTransferFrom(msg.sender, address(this), grossAmount);
+        token.safeTransferFrom(msg.sender, address(this), totalDue);
         uint256 received = token.balanceOf(address(this)) - beforeBalance;
-        if (received != grossAmount) revert ExactTransferRequired();
-
-        uint256 tradingFee = (grossAmount * TRADING_FEE_BPS) / BPS;
-        uint256 netAmount = grossAmount - tradingFee;
-        if (netAmount == 0) revert InvalidMarketParameters();
+        if (received != totalDue) revert ExactTransferRequired();
 
         Position storage position = positions[marketId][msg.sender];
         if (!participantRegistered[marketId][msg.sender]) {
@@ -285,16 +333,16 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             participantsByMarket[marketId].push(msg.sender);
         }
         if (yesSide) {
-            position.yes += netAmount;
-            market.totalYes += netAmount;
+            position.yes += stakeAmount;
+            market.totalYes += stakeAmount;
         } else {
-            position.no += netAmount;
-            market.totalNo += netAmount;
+            position.no += stakeAmount;
+            market.totalNo += stakeAmount;
         }
-        market.totalStaked += netAmount;
+        market.totalStaked += stakeAmount;
 
         if (tradingFee > 0) token.safeTransfer(treasury, tradingFee);
-        emit Staked(marketId, msg.sender, yesSide, grossAmount, tradingFee, netAmount);
+        emit Staked(marketId, msg.sender, yesSide, stakeAmount, tradingFee, stakeAmount);
     }
 
     function closeMarket(uint256 marketId) external {
@@ -323,7 +371,8 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         uint8 matchingVotes = ++voteCountByKey[marketId][voteKey];
         emit ValidatorVoteSubmitted(marketId, msg.sender, outcome, evidenceHash, matchingVotes);
 
-        if (matchingVotes < 2) return;
+        uint8 requiredVotes = market.marketType == MarketType.AUTOMATED ? 1 : 2;
+        if (matchingVotes < requiredVotes) return;
         market.outcome = outcome;
         market.evidenceHash = evidenceHash;
         market.resolvedAt = uint64(block.timestamp);
@@ -469,7 +518,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             return;
         }
 
-        uint256 fee = (market.totalStaked * SETTLEMENT_FEE_BPS) / BPS;
+        uint256 fee = (market.totalStaked * settlementFeeBps) / BPS;
         uint256 validatorFee = (fee * VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS) / BPS;
         uint256 treasuryFee = fee - validatorFee;
         uint256 userWinningStake = market.outcome == Outcome.YES ? position.yes : position.no;
@@ -506,7 +555,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             // Treasury retains 25% of total net stake plus any unclaimable rounding remainder.
             accounted = claimedPayoutsByMarket[marketId] + retainedNoWinnerByMarket[marketId];
         } else {
-            uint256 settlementFee = (market.totalStaked * SETTLEMENT_FEE_BPS) / BPS;
+            uint256 settlementFee = (market.totalStaked * settlementFeeBps) / BPS;
             accounted = claimedPayoutsByMarket[marketId] + settlementFee;
         }
         if (accounted > market.totalStaked) revert InvalidMarketParameters();
