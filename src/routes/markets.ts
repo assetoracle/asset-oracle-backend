@@ -12,7 +12,8 @@ import {
   listMarketProposals,
   listMarketProposalsByWallet,
   recordOnchainPublication,
-  approveAutomatedMarketPublication,
+  createAutomatedMarketProposal,
+  decideAutomatedMarketProposal,
 } from "../services/marketStore.js";
 import {
   createWalletNonce,
@@ -401,27 +402,63 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
 
 
 
-// Any ONE of the owner or two configured market makers may approve publication
-// of an already-approved, on-chain-published automated market.
-marketsRouter.post("/automated/:id/publication-approval/session", async (req, res, next) => {
+// API workers submit generated markets through this server-to-server endpoint.
+// The API key is configured only on the backend; ingested markets always start private.
+marketsRouter.post("/automated/ingest", async (req, res, next) => {
+  try {
+    const configuredKey = process.env.AUTOMATED_MARKET_INGEST_API_KEY?.trim();
+    if (!configuredKey || configuredKey.length < 32) {
+      return res.status(503).json({ error: "Automated market ingestion is not configured." });
+    }
+    if (req.header("authorization") !== `Bearer ${configuredKey}`) {
+      return res.status(401).json({ error: "Automated market ingestion authorization failed." });
+    }
+    const parsed = marketProposalSchema.safeParse(req.body?.proposal ?? req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "A valid API-generated market is required.",
+        details: parsed.error.issues.map(issue => ({ field: issue.path.join("."), message: issue.message })),
+      });
+    }
+    const proposal = await createAutomatedMarketProposal(parsed.data);
+    return res.status(201).json({
+      message: "Automated market ingested privately and is awaiting approval.",
+      proposal,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Any ONE of the owner or two configured market makers can approve/reject
+// an API-generated market. Manual proposals remain owner-only.
+marketsRouter.post("/automated/:id/decision/session", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
-    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      status: z.enum(["APPROVED", "REJECTED"]),
+    }).safeParse(req.body);
     if (!idResult.success || !parsed.success) {
-      return res.status(400).json({ error: "A valid automated market ID and wallet address are required." });
+      return res.status(400).json({ error: "A valid automated market ID, wallet address, and decision are required." });
     }
-    const { address } = parsed.data;
+    const { address, status } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
     if (!isMarketCreatorWallet(address)) {
-      return res.status(403).json({ error: "Only the platform owner or configured market makers can approve automated-market publication." });
+      return res.status(403).json({ error: "Only the platform owner or either configured market maker can decide an automated market." });
     }
-    const proposal = await approveAutomatedMarketPublication(idResult.data);
+    const proposal = await decideAutomatedMarketProposal(idResult.data, status);
     if (!proposal) {
-      return res.status(409).json({ error: "Automated market must exist, be approved, and have a confirmed Asset Chain testnet publication before it can be made public." });
+      return res.status(409).json({ error: "Automated market was not found or is no longer awaiting approval." });
     }
-    return res.status(200).json({ message: "Automated market publication approved.", proposal });
+    return res.status(200).json({
+      message: status === "APPROVED"
+        ? "Automated market approved. It will become public after confirmed testnet publication."
+        : "Automated market rejected and kept private.",
+      proposal,
+    });
   } catch (error) {
     return next(error);
   }
