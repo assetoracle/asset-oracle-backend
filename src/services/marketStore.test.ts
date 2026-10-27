@@ -78,6 +78,7 @@ test("same proposal, market ID, and transaction are idempotent", async () => {
     onchain_tx_hash: publication.txHash,
     onchain_manager_address: publication.managerAddress.toLowerCase(),
     onchain_chain_id: publication.chainId,
+    visibility: "PUBLIC",
   };
   let calls = 0;
   db.query = async () => {
