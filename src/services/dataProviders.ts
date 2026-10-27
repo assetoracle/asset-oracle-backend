@@ -88,15 +88,3 @@ export function defiLlamaDexOverview() {
   return getJson("defillama", new URL("https://api.llama.fi/overview/dexs"));
 }
 
-export function assetChainRpc(method: string, params: unknown[] = [], rpcUrl = process.env.ASSET_CHAIN_RPC_URL || "https://enugu-rpc.assetchain.org") {
-  if (!/^eth_[a-zA-Z0-9]+$/.test(method)) throw new Error("Invalid JSON-RPC method.");
-  const url = new URL(rpcUrl);
-  if (url.protocol !== "https:") throw new Error("Asset Chain RPC must use HTTPS.");
-  return getJson<{ result?: unknown; error?: { code: number; message: string } }>("asset-chain-rpc", url, { "content-type": "application/json" })
-    .then(async () => {
-      const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-      const envelope = await response.json() as { result?: unknown; error?: { code: number; message: string } };
-      if (envelope.error) throw new Error(`Asset Chain RPC error ${envelope.error.code}: ${envelope.error.message}`);
-      return envelope.result;
-    });
-}
