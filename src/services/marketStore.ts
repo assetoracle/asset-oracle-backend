@@ -110,15 +110,9 @@ export async function initializeMarketStore(): Promise<void> {
       ADD COLUMN IF NOT EXISTS onchain_manager_address TEXT,
       ADD COLUMN IF NOT EXISTS onchain_chain_id INTEGER
   `);
-  await database.query(`
-    UPDATE market_proposals
-       SET visibility = 'PUBLIC'
-     WHERE status = 'APPROVED'
-       AND onchain_market_id ~ '^[1-9][0-9]*$'
-       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
-       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
-       AND onchain_chain_id = 42421
-  `);
+  // Fail closed on startup: stored metadata alone is not proof of a valid on-chain
+  // publication. Public visibility is set only by the publication route after it
+  // verifies the receipt, manager, MarketCreated event, and actual market type.
   await database.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS market_proposals_onchain_tx_hash_unique
     ON market_proposals (onchain_tx_hash) WHERE onchain_tx_hash IS NOT NULL
