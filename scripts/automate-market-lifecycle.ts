@@ -5,7 +5,6 @@ import {
   defineChain,
   getAddress,
   http,
-  isAddress,
   keccak256,
   parseEventLogs,
   toBytes,
@@ -95,8 +94,10 @@ async function main(): Promise<void> {
   if (!role) throw new Error(`Automation wallet ${account.address} does not have MARKET_CREATOR_ROLE on the canonical testnet manager.`);
 
   // Prevent overlapping cron runs from submitting duplicate transactions.
-  const lock = await database.query("SELECT pg_try_advisory_lock($1) AS locked", [42421001]);
+  const lockClient = await database.connect();
+  const lock = await lockClient.query("SELECT pg_try_advisory_lock($1) AS locked", [42421001]);
   if (!lock.rows[0]?.locked) {
+    lockClient.release();
     console.log("Another lifecycle worker is running; exiting without changes.");
     return;
   }
@@ -105,7 +106,6 @@ async function main(): Promise<void> {
     await initializeMarketStore();
     const proposals = await listMarketProposals();
     let marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
-    const upperBound = Number(marketCount > BigInt(MAX_MARKETS_PER_RUN) ? BigInt(MAX_MARKETS_PER_RUN) : marketCount);
 
     // Publish only proposals already explicitly approved by the admin. The proposal UUID
     // is embedded in resolutionRules so a retry can reconcile an on-chain success safely.
@@ -130,7 +130,7 @@ async function main(): Promise<void> {
       for (let id = 1; id <= count; id++) {
         const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
         if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id)) {
-          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[10], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
+          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[9], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
           const created = logs.find((log) => log.args.marketId === BigInt(id));
           if (created?.transactionHash) {
             const stored = await recordOnchainPublication({ id: proposal.id, marketId: String(id), txHash: created.transactionHash, managerAddress: manager, chainId: actualChainId });
@@ -178,7 +178,8 @@ async function main(): Promise<void> {
       }
     }
   } finally {
-    await database.query("SELECT pg_advisory_unlock($1)", [42421001]).catch(() => undefined);
+    await lockClient.query("SELECT pg_advisory_unlock($1)", [42421001]).catch(() => undefined);
+    lockClient.release();
     await database.end();
   }
 }
