@@ -649,6 +649,35 @@ const marketCreatedAbi = [{
   ],
 }] as const;
 
+const marketTypeAbi = [{
+  type: "function",
+  name: "getMarket",
+  stateMutability: "view",
+  inputs: [{ name: "marketId", type: "uint256" }],
+  outputs: [{
+    name: "market",
+    type: "tuple",
+    components: [
+      { name: "id", type: "uint256" },
+      { name: "creator", type: "address" },
+      { name: "marketType", type: "uint8" },
+      { name: "stablecoin", type: "uint8" },
+      { name: "question", type: "string" },
+      { name: "resolutionRules", type: "string" },
+      { name: "evidenceSource", type: "string" },
+      { name: "closeTime", type: "uint64" },
+      { name: "challengePeriod", type: "uint64" },
+      { name: "resolvedAt", type: "uint64" },
+      { name: "totalYes", type: "uint256" },
+      { name: "totalNo", type: "uint256" },
+      { name: "totalStaked", type: "uint256" },
+      { name: "outcome", type: "uint8" },
+      { name: "status", type: "uint8" },
+      { name: "evidenceHash", type: "bytes32" },
+    ],
+  }],
+}] as const;
+
 marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
@@ -692,6 +721,21 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
 
     const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` });
     const transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
+
+    const onchainMarket = await client.readContract({
+      address: getAddress(manager),
+      abi: marketTypeAbi,
+      functionName: "getMarket",
+      args: [BigInt(marketId)],
+    });
+    const expectedMarketType = proposal.origin === "AUTOMATED" ? 1 : 0;
+    if (Number(onchainMarket.marketType) !== expectedMarketType) {
+      return res.status(400).json({
+        error: proposal.origin === "AUTOMATED"
+          ? "The on-chain market is not classified as AUTOMATED by the current contract."
+          : "The on-chain market is not classified as MANUAL by the current contract.",
+      });
+    }
 
     const matching = parseEventLogs({
       abi: marketCreatedAbi,
@@ -800,6 +844,21 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
 
     const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` });
     const transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
+
+    const onchainMarket = await client.readContract({
+      address: getAddress(manager),
+      abi: marketTypeAbi,
+      functionName: "getMarket",
+      args: [BigInt(marketId)],
+    });
+    const expectedMarketType = proposal.origin === "AUTOMATED" ? 1 : 0;
+    if (Number(onchainMarket.marketType) !== expectedMarketType) {
+      return res.status(400).json({
+        error: proposal.origin === "AUTOMATED"
+          ? "The on-chain market is not classified as AUTOMATED by the current contract."
+          : "The on-chain market is not classified as MANUAL by the current contract.",
+      });
+    }
 
     const matching = parseEventLogs({
       abi: marketCreatedAbi,
