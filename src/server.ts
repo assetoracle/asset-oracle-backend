@@ -9,6 +9,7 @@ import paidSubmissionsRouter from "./routes/paidSubmissions.js";
 import validatorEvidenceRouter from "./routes/validatorEvidence.js";
 import referralsRouter from "./routes/referrals.js";
 import statsRouter from "./routes/stats.js";
+import dataSourcesRouter from "./routes/dataSources.js";
 import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeValidatorEvidenceStore } from "./services/validatorEvidenceStore.js";
@@ -52,6 +53,7 @@ app.use("/api/markets/paid-submissions", paidSubmissionsRouter);
 app.use("/api/validator-evidence", validatorEvidenceRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/stats", statsRouter);
+app.use("/api/data-sources", dataSourcesRouter);
 
 app.get("/", (_req, res) => {
   res.json({ name: "Asset Oracle API", status: "online", message: "Real-world truth, on-chain." });
