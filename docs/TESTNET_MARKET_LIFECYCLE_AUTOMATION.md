@@ -7,7 +7,10 @@ This worker is intentionally limited to Asset Chain Enugu testnet (chain ID 4242
 - Publishes only proposals that an admin has already approved in the backend database.
 - Records publication only after a successful transaction receipt and a matching `MarketCreated` event.
 - Closes markets whose on-chain close time has passed.
+- Marks unresolved closed markets refundable after the contract timeout.
+- Marks unresolved arbitration markets refundable after the existing seven-day dispute timeout.
 - Calls `finalizeMarket` only after the existing 2-of-3 validator process has resolved a market and its challenge period has elapsed.
+- Processes eligible payouts in contract-supported batches of up to 50 participants, with database progress tracking and a per-run batch limit.
 
 It never chooses an outcome, generates validator votes, or bypasses the validator consensus/dispute rules. Markets in arbitration are left alone.
 
