@@ -16,7 +16,9 @@ async function getJson<T>(provider: string, url: URL, headers: Record<string, st
     const body = await response.text();
     if (!response.ok) throw new Error(`${provider} returned HTTP ${response.status}: ${body.slice(0, 200)}`);
     const data = JSON.parse(body) as T;
-    return { provider, sourceUrl: url.toString(), retrievedAt: new Date().toISOString(), contentHash: createHash("sha256").update(body).digest("hex"), data };
+    const safeUrl = new URL(url);
+    if (safeUrl.searchParams.has("api_key")) safeUrl.searchParams.set("api_key", "[REDACTED]");
+    return { provider, sourceUrl: safeUrl.toString(), retrievedAt: new Date().toISOString(), contentHash: createHash("sha256").update(body).digest("hex"), data };
   } finally {
     clearTimeout(timer);
   }
