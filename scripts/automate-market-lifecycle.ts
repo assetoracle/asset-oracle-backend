@@ -98,6 +98,7 @@ async function main(): Promise<void> {
   const lock = await lockClient.query("SELECT pg_try_advisory_lock($1) AS locked", [42421001]);
   if (!lock.rows[0]?.locked) {
     lockClient.release();
+    await database.end();
     console.log("Another lifecycle worker is running; exiting without changes.");
     return;
   }
