@@ -154,7 +154,7 @@ async function main(): Promise<void> {
       for (let id = 1; id <= count; id++) {
         const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
         if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id)) {
-          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[14], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
+          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[15], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
           const created = logs.find((log) => log.args.marketId === BigInt(id));
           if (created?.transactionHash) {
             const stored = await recordOnchainPublication({ id: proposal.id, marketId: String(id), txHash: created.transactionHash, managerAddress: manager, chainId: actualChainId });
