@@ -23,7 +23,10 @@ import { initializeMarketStore, listMarketProposals, recordOnchainPublication } 
 const USDC = "0xc33741fddEBeA854d265db6F9707900Efb0211a2" as Address;
 const EXPLORER = process.env.ASSET_CHAIN_EXPLORER_URL || "https://scan-testnet.assetchain.org";
 const CHALLENGE_PERIOD_SECONDS = 3600n;
-const MAX_MARKETS_PER_RUN = 500;\nconst MAX_PAYOUT_BATCHES_PER_RUN = 10;\nconst PAYOUT_BATCH_SIZE = 50n;\nconst DISPUTE_RESOLUTION_TIMEOUT_SECONDS = 7n * 24n * 60n * 60n;
+const MAX_MARKETS_PER_RUN = 500;
+const MAX_PAYOUT_BATCHES_PER_RUN = 10;
+const PAYOUT_BATCH_SIZE = 50n;
+const DISPUTE_RESOLUTION_TIMEOUT_SECONDS = 7n * 24n * 60n * 60n;
 
 const chain = defineChain({
   id: ASSET_CHAIN_TESTNET_ID,
@@ -176,7 +179,8 @@ async function main(): Promise<void> {
     marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
     const currentCount = Number(marketCount > BigInt(MAX_MARKETS_PER_RUN) ? BigInt(MAX_MARKETS_PER_RUN) : marketCount);
     const now = BigInt(Math.floor(Date.now() / 1000));
-    let payoutBatchesProcessed = 0;\n    for (let id = 1; id <= currentCount; id++) {
+    let payoutBatchesProcessed = 0;
+    for (let id = 1; id <= currentCount; id++) {
       const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
       if (market.status === 0 && market.closeTime <= now) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "closeMarket", args: [BigInt(id)] });
