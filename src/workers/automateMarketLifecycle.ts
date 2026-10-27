@@ -17,6 +17,7 @@ import {
   CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS,
   ASSET_CHAIN_TESTNET_ID,
   ASSET_CHAIN_TESTNET_RPC_URL,
+  HUMAN_VALIDATOR_ADDRESSES,
 } from "../config/assetOracle.js";
 import { initializeMarketStore, listMarketProposals, recordOnchainPublication } from "../services/marketStore.js";
 
@@ -54,6 +55,7 @@ const managerAbi = [
   { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "hasRole", stateMutability: "view", inputs: [{ name: "role", type: "bytes32" }, { name: "account", type: "address" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "validatorRosterConfigured", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
+  { type: "function", name: "validators", stateMutability: "view", inputs: [{ name: "index", type: "uint256" }], outputs: [{ type: "address" }] },
   { type: "function", name: "stablecoins", stateMutability: "view", inputs: [{ name: "", type: "uint8" }], outputs: [{ name: "token", type: "address" }, { name: "decimals", type: "uint8" }, { name: "enabled", type: "bool" }] },
   { type: "function", name: "createMarket", stateMutability: "nonpayable", inputs: [
     { name: "stablecoin", type: "uint8" }, { name: "question", type: "string" }, { name: "resolutionRules", type: "string" },
@@ -93,6 +95,12 @@ async function main(): Promise<void> {
   if (!code || code === "0x") throw new Error("No contract bytecode found at the configured market manager.");
   const roster = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "validatorRosterConfigured" });
   if (!roster) throw new Error("Validator roster is not configured; automation stopped.");
+  for (let index = 0; index < HUMAN_VALIDATOR_ADDRESSES.length; index++) {
+    const configuredValidator = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "validators", args: [BigInt(index)] });
+    if (getAddress(configuredValidator) !== getAddress(HUMAN_VALIDATOR_ADDRESSES[index])) {
+      throw new Error(`Validator roster mismatch at index ${index}; expected ${HUMAN_VALIDATOR_ADDRESSES[index]}, got ${configuredValidator}. Automation stopped.`);
+    }
+  }
   const token = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "stablecoins", args: [0] });
   if (!token[2] || getAddress(token[0]) !== getAddress(USDC) || Number(token[1]) !== 6) {
     throw new Error("Canonical manager USDC configuration failed validation; automation stopped.");
