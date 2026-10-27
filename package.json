@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
-    "verify:enugu-preflight": "tsx scripts/verify-enugu-paid-submission-preflight.ts"
+    "verify:enugu-preflight": "tsx scripts/verify-enugu-paid-submission-preflight.ts",
+    "automate:market-lifecycle": "tsx scripts/automate-market-lifecycle.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
