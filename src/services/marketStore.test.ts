@@ -28,6 +28,8 @@ const proposalRow: Row = {
   },
   status: "APPROVED",
   submittedAt: "2026-10-12T00:00:00.000Z",
+  origin: "MANUAL",
+  visibility: "PRIVATE",
   onchain_market_id: null,
   onchain_tx_hash: null,
   onchain_manager_address: null,
@@ -53,6 +55,8 @@ test("records verified publication metadata and returns the stored proposal", as
     onchain_tx_hash: publication.txHash,
     onchain_manager_address: publication.managerAddress.toLowerCase(),
     onchain_chain_id: publication.chainId,
+    origin: "MANUAL",
+    visibility: "PUBLIC",
   };
   db.query = async (sql) => {
     if (sql.includes("UPDATE market_proposals")) return { rows: [published] };
@@ -64,6 +68,7 @@ test("records verified publication metadata and returns the stored proposal", as
   assert.equal(result?.onchainMarketId, publication.marketId);
   assert.equal(result?.onchainTxHash, publication.txHash);
   assert.equal(result?.onchainChainId, publication.chainId);
+  assert.equal(result?.visibility, "PUBLIC", "approved testnet publications become public");
 });
 
 test("same proposal, market ID, and transaction are idempotent", async () => {
