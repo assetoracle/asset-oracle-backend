@@ -25,6 +25,11 @@ function automationEnabled(): boolean {
   return process.env.MARKET_AUTOMATION_ENABLED === "true";
 }
 
+function configuredMarketMakers(): string[] {
+  return (process.env.MARKET_CREATOR_WALLET_ADDRESSES ?? process.env.MARKET_MAKER_WALLET_ADDRESSES ?? "")
+    .split(",").map((value) => value.trim()).filter(isAddress).map((value) => getAddress(value));
+}
+
 async function requireAdmin(req: import("express").Request, res: import("express").Response, address: string): Promise<boolean> {
   if (!isAddress(address)) {
     res.status(400).json({ error: "A valid admin wallet address is required." });
@@ -36,6 +41,22 @@ async function requireAdmin(req: import("express").Request, res: import("express
   }
   if (!isAdminWallet(address)) {
     res.status(403).json({ error: "Only the configured owner wallet can operate market automation." });
+    return false;
+  }
+  return true;
+}
+
+async function requireMarketReviewer(req: import("express").Request, res: import("express").Response, address: string): Promise<boolean> {
+  if (!isAddress(address)) {
+    res.status(400).json({ error: "A valid reviewer wallet address is required." });
+    return false;
+  }
+  if (!await verifyWalletSession(sessionToken(req), address)) {
+    res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    return false;
+  }
+  if (!isAdminWallet(address) && !configuredMarketMakers().includes(getAddress(address))) {
+    res.status(403).json({ error: "Only the owner or configured market creator wallets can review automated candidates." });
     return false;
   }
   return true;
@@ -136,7 +157,7 @@ automationRouter.post("/candidates/:id/approve", async (req, res, next) => {
     const isAdmin = Boolean(adminAddress && isAddress(adminAddress) && getAddress(adminAddress) === address);
     const isMaker = makers.includes(address);
     if (!isAdmin && !isMaker) {
-      return res.status(403).json({ error: "Only the configured admin or one of the two market makers can approve candidates." });
+      return res.status(403).json({ error: "Only the owner or configured market creators can approve candidates." });
     }
     if (new Set([...(adminAddress && isAddress(adminAddress) ? [getAddress(adminAddress)] : []), ...makers]).size !== 3) {
       return res.status(503).json({ error: "Configure one admin wallet and exactly two distinct market-maker wallets before enabling approvals." });
