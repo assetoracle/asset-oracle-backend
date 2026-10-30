@@ -71,8 +71,8 @@ export function getWalletRoleDetails(address: string) {
     permissions: {
       createMarketProposal: isMarketCreatorWallet(address),
       viewOwnProposals: true,
-      reviewAllProposals: isOwner,
-      approveOrRejectProposals: isOwner,
+      reviewAllProposals: isOwner || isMarketCreatorWallet(address),
+      approveOrRejectProposals: isOwner || isMarketCreatorWallet(address),
       isHumanValidator: validatorNumber !== null,
       validatorNumber,
     },
