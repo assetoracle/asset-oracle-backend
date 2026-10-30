@@ -128,7 +128,7 @@ automationRouter.get("/candidates", async (req, res, next) => {
       limit: z.coerce.number().int().min(1).max(100).optional(),
     }).safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid candidate query." });
-    if (!await requireAdmin(req, res, parsed.data.address)) return;
+    if (!await requireMarketReviewer(req, res, parsed.data.address)) return;
     const candidates: StoredAutomationCandidate[] = await listAutomationCandidates({
       status: parsed.data.status,
       limit: parsed.data.limit,
