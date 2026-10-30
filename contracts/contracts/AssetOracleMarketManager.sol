@@ -384,7 +384,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         uint8 matchingVotes = ++voteCountByKey[marketId][voteKey];
         emit ValidatorVoteSubmitted(marketId, msg.sender, outcome, evidenceHash, matchingVotes);
 
-        uint8 requiredVotes = market.marketType == MarketType.AUTOMATED ? 1 : 2;
+        uint8 requiredVotes = 2; // All markets require 2-of-3 validator consensus.
         if (matchingVotes < requiredVotes) return;
         market.outcome = outcome;
         market.evidenceHash = evidenceHash;
