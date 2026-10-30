@@ -72,7 +72,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await expect(f.manager.setSettlementFeeBps(1_001)).to.be.revertedWithCustomError(f.manager, "FeeOutOfRange");
   });
 
-  it("requires one validator for automated markets but two for manual markets", async function () {
+  it("requires two matching validator votes for automated markets", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
     await expect(f.manager.connect(f.creator).createAutomatedMarket(
@@ -87,7 +87,9 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.creator).closeMarket(1);
     const evidence = ethers.keccak256(ethers.toUtf8Bytes("automated evidence"));
     await f.manager.connect(f.owner).resolveMarket(1, 1, evidence);
-    expect((await f.manager.getMarket(1)).status).to.equal(2);
+    expect((await f.manager.getMarket(1)).status).to.equal(1); // One vote is insufficient.
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, evidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(2); // Two matching votes start challenge period.
     expect((await f.manager.getMarket(1)).outcome).to.equal(1);
   });
 
