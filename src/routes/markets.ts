@@ -12,6 +12,9 @@ import {
   listMarketProposals,
   listMarketProposalsByWallet,
   recordOnchainPublication,
+  createAutomatedMarketProposal,
+  decideAutomatedMarketProposal,
+  listAutomatedMarketProposals,
 } from "../services/marketStore.js";
 import {
   createWalletNonce,
@@ -398,6 +401,90 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
 });
 
 
+
+
+// API workers submit generated markets through this server-to-server endpoint.
+// The API key is configured only on the backend; ingested markets always start private.
+marketsRouter.post("/automated/ingest", async (req, res, next) => {
+  try {
+    const configuredKey = process.env.AUTOMATED_MARKET_INGEST_API_KEY?.trim();
+    if (!configuredKey || configuredKey.length < 32) {
+      return res.status(503).json({ error: "Automated market ingestion is not configured." });
+    }
+    if (req.header("authorization") !== `Bearer ${configuredKey}`) {
+      return res.status(401).json({ error: "Automated market ingestion authorization failed." });
+    }
+    const parsed = marketProposalSchema.safeParse(req.body?.proposal ?? req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "A valid API-generated market is required.",
+        details: parsed.error.issues.map(issue => ({ field: issue.path.join("."), message: issue.message })),
+      });
+    }
+    const proposal = await createAutomatedMarketProposal(parsed.data);
+    return res.status(201).json({
+      message: "Automated market ingested privately and is awaiting approval.",
+      proposal,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+
+
+marketsRouter.post("/automated/private/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid wallet address is required." });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    if (!isMarketCreatorWallet(address)) {
+      return res.status(403).json({ error: "Only the platform owner and configured market makers can view private automated markets." });
+    }
+    const proposals = await listAutomatedMarketProposals();
+    return res.status(200).json({ proposals, count: proposals.length });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Any ONE of the owner or two configured market makers can approve/reject
+// an API-generated market. Manual proposals remain owner-only.
+marketsRouter.post("/automated/:id/decision/session", async (req, res, next) => {
+  try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      status: z.enum(["APPROVED", "REJECTED"]),
+    }).safeParse(req.body);
+    if (!idResult.success || !parsed.success) {
+      return res.status(400).json({ error: "A valid automated market ID, wallet address, and decision are required." });
+    }
+    const { address, status } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    if (!isMarketCreatorWallet(address)) {
+      return res.status(403).json({ error: "Only the platform owner or either configured market maker can decide an automated market." });
+    }
+    const proposal = await decideAutomatedMarketProposal(idResult.data, status);
+    if (!proposal) {
+      return res.status(409).json({ error: "Automated market was not found or is no longer awaiting approval." });
+    }
+    return res.status(200).json({
+      message: status === "APPROVED"
+        ? "Automated market approved. It will become public after confirmed testnet publication."
+        : "Automated market rejected and kept private.",
+      proposal,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 marketsRouter.get("/public", async (_req, res, next) => {
   try {
     const markets = await listPublishedMarkets();
@@ -414,19 +501,38 @@ marketsRouter.get("/public", async (_req, res, next) => {
 marketsRouter.get("/proposals/:id", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
-
     if (!idResult.success) {
-      return res.status(400).json({
-        error: "Invalid proposal ID",
-      });
+      return res.status(400).json({ error: "Invalid proposal ID" });
     }
 
     const proposal = await getMarketProposal(idResult.data);
-
     if (!proposal) {
-      return res.status(404).json({
-        error: "Market proposal not found",
-      });
+      return res.status(404).json({ error: "Market proposal not found" });
+    }
+
+    // A proposal is public only after owner approval AND confirmed testnet publication.
+    const isPublishedPublicly =
+      proposal.status === "APPROVED" &&
+      proposal.visibility === "PUBLIC" &&
+      Boolean(proposal.onchainMarketId && proposal.onchainTxHash && proposal.onchainChainId === 42421);
+
+    if (!isPublishedPublicly) {
+      const addressResult = z.string().refine(isAddress).safeParse(req.query.address);
+      const address = addressResult.success ? addressResult.data : "";
+      const hasSession = Boolean(address) && await verifyWalletSession(sessionToken(req), address);
+      if (!hasSession) {
+        return res.status(404).json({ error: "Market proposal not found" });
+      }
+
+      const isOwner = isAdminWallet(address);
+      const isAutomatedMarketMaker = proposal.origin === "AUTOMATED" && isMarketCreatorWallet(address);
+      const isSubmittingWallet = proposal.origin !== "AUTOMATED" &&
+        Boolean(proposal.walletAddress) &&
+        proposal.walletAddress?.toLowerCase() === address.toLowerCase();
+
+      if (!isOwner && !isAutomatedMarketMaker && !isSubmittingWallet) {
+        return res.status(404).json({ error: "Market proposal not found" });
+      }
     }
 
     return res.status(200).json({ proposal });
@@ -543,6 +649,35 @@ const marketCreatedAbi = [{
   ],
 }] as const;
 
+const marketTypeAbi = [{
+  type: "function",
+  name: "getMarket",
+  stateMutability: "view",
+  inputs: [{ name: "marketId", type: "uint256" }],
+  outputs: [{
+    name: "market",
+    type: "tuple",
+    components: [
+      { name: "id", type: "uint256" },
+      { name: "creator", type: "address" },
+      { name: "marketType", type: "uint8" },
+      { name: "stablecoin", type: "uint8" },
+      { name: "question", type: "string" },
+      { name: "resolutionRules", type: "string" },
+      { name: "evidenceSource", type: "string" },
+      { name: "closeTime", type: "uint64" },
+      { name: "challengePeriod", type: "uint64" },
+      { name: "resolvedAt", type: "uint64" },
+      { name: "totalYes", type: "uint256" },
+      { name: "totalNo", type: "uint256" },
+      { name: "totalStaked", type: "uint256" },
+      { name: "outcome", type: "uint8" },
+      { name: "status", type: "uint8" },
+      { name: "evidenceHash", type: "bytes32" },
+    ],
+  }],
+}] as const;
+
 marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
@@ -586,6 +721,21 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
 
     const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` });
     const transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
+
+    const onchainMarket = await client.readContract({
+      address: getAddress(manager),
+      abi: marketTypeAbi,
+      functionName: "getMarket",
+      args: [BigInt(marketId)],
+    });
+    const expectedMarketType = proposal.origin === "AUTOMATED" ? 1 : 0;
+    if (Number(onchainMarket.marketType) !== expectedMarketType) {
+      return res.status(400).json({
+        error: proposal.origin === "AUTOMATED"
+          ? "The on-chain market is not classified as AUTOMATED by the current contract."
+          : "The on-chain market is not classified as MANUAL by the current contract.",
+      });
+    }
 
     const matching = parseEventLogs({
       abi: marketCreatedAbi,
@@ -694,6 +844,21 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
 
     const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` });
     const transaction = await client.getTransaction({ hash: txHash as `0x${string}` });
+
+    const onchainMarket = await client.readContract({
+      address: getAddress(manager),
+      abi: marketTypeAbi,
+      functionName: "getMarket",
+      args: [BigInt(marketId)],
+    });
+    const expectedMarketType = proposal.origin === "AUTOMATED" ? 1 : 0;
+    if (Number(onchainMarket.marketType) !== expectedMarketType) {
+      return res.status(400).json({
+        error: proposal.origin === "AUTOMATED"
+          ? "The on-chain market is not classified as AUTOMATED by the current contract."
+          : "The on-chain market is not classified as MANUAL by the current contract.",
+      });
+    }
 
     const matching = parseEventLogs({
       abi: marketCreatedAbi,

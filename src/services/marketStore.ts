@@ -12,6 +12,8 @@ export type StoredMarketProposal = MarketProposalInput & {
   onchainTxHash?: string | null;
   onchainManagerAddress?: string | null;
   onchainChainId?: number | null;
+  origin: "MANUAL" | "AUTOMATED";
+  visibility: "PRIVATE" | "PUBLIC";
 };
 
 type MarketProposalRow = {
@@ -30,6 +32,8 @@ type MarketProposalRow = {
   onchain_tx_hash?: string | null;
   onchain_manager_address?: string | null;
   onchain_chain_id?: number | null;
+  origin?: "MANUAL" | "AUTOMATED";
+  visibility?: "PRIVATE" | "PUBLIC";
 };
 
 function mapProposal(row: MarketProposalRow): StoredMarketProposal {
@@ -52,6 +56,8 @@ function mapProposal(row: MarketProposalRow): StoredMarketProposal {
     onchainTxHash: row.onchain_tx_hash ?? null,
     onchainManagerAddress: row.onchain_manager_address ?? null,
     onchainChainId: row.onchain_chain_id ?? null,
+    origin: row.origin ?? "MANUAL",
+    visibility: row.visibility ?? "PRIVATE",
   };
 }
 
@@ -76,6 +82,25 @@ export async function initializeMarketStore(): Promise<void> {
   `);
   await database.query(`
     ALTER TABLE market_proposals
+      ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'MANUAL',
+      ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'PRIVATE'
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals DROP CONSTRAINT IF EXISTS market_proposals_origin_check
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals ADD CONSTRAINT market_proposals_origin_check
+      CHECK (origin IN ('MANUAL', 'AUTOMATED'))
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals DROP CONSTRAINT IF EXISTS market_proposals_visibility_check
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals ADD CONSTRAINT market_proposals_visibility_check
+      CHECK (visibility IN ('PRIVATE', 'PUBLIC'))
+  `);
+  await database.query(`
+    ALTER TABLE market_proposals
     ADD COLUMN IF NOT EXISTS sport TEXT
   `);
   await database.query(`
@@ -85,6 +110,9 @@ export async function initializeMarketStore(): Promise<void> {
       ADD COLUMN IF NOT EXISTS onchain_manager_address TEXT,
       ADD COLUMN IF NOT EXISTS onchain_chain_id INTEGER
   `);
+  // Fail closed on startup: stored metadata alone is not proof of a valid on-chain
+  // publication. Public visibility is set only by the publication route after it
+  // verifies the receipt, manager, MarketCreated event, and actual market type.
   await database.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS market_proposals_onchain_tx_hash_unique
     ON market_proposals (onchain_tx_hash) WHERE onchain_tx_hash IS NOT NULL
@@ -122,6 +150,55 @@ export async function createMarketProposal(
   );
 
   return mapProposal(result.rows[0]);
+}
+
+/** API-ingested markets are private and await approval by one authorized market maker. */
+export async function createAutomatedMarketProposal(input: MarketProposalInput): Promise<StoredMarketProposal> {
+  const result = await database.query<MarketProposalRow>(
+    `INSERT INTO market_proposals
+      (id, question, description, category, sport, "closesAt", "resolvesAt",
+       "resolutionRule", "walletAddress", status, origin, visibility)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 'PENDING_APPROVAL', 'AUTOMATED', 'PRIVATE')
+     RETURNING *`,
+    [randomUUID(), input.question, input.description, input.category, input.sport ?? null,
+      input.closesAt, input.resolvesAt, JSON.stringify(input.resolutionRule)],
+  );
+  return mapProposal(result.rows[0]);
+}
+
+/** Any one owner or configured market maker may decide an automated API market. */
+export async function decideAutomatedMarketProposal(
+  id: string,
+  decision: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+        SET status = $2,
+            visibility = CASE
+              WHEN $2 = 'APPROVED'
+               AND onchain_market_id ~ '^[1-9][0-9]*$'
+               AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
+               AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
+               AND onchain_chain_id = 42421
+              THEN 'PUBLIC'
+              ELSE 'PRIVATE'
+            END
+      WHERE id = $1
+        AND origin = 'AUTOMATED'
+        AND status = 'PENDING_APPROVAL'
+      RETURNING *`,
+    [id, decision],
+  );
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+export async function listAutomatedMarketProposals(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+      WHERE origin = 'AUTOMATED' AND visibility = 'PRIVATE'
+      ORDER BY "submittedAt" DESC`,
+  );
+  return result.rows.map(mapProposal);
 }
 
 export async function updateOwnedMarketProposal(
@@ -162,7 +239,7 @@ export async function updateOwnedMarketProposal(
 
 export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
   const result = await database.query<MarketProposalRow>(
-    `SELECT * FROM market_proposals ORDER BY "submittedAt" DESC`,
+    `SELECT * FROM market_proposals WHERE origin = 'MANUAL' ORDER BY "submittedAt" DESC`,
   );
 
   return result.rows.map(mapProposal);
@@ -187,6 +264,7 @@ export async function getMarketProposal(
        AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
        AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
        AND onchain_chain_id = 42421
+       AND visibility = 'PUBLIC'
      ORDER BY "submittedAt" DESC`,
   );
 
@@ -224,7 +302,8 @@ export async function recordOnchainPublication(input: {
        SET onchain_market_id = $2,
            onchain_tx_hash = $3,
            onchain_manager_address = $4,
-           onchain_chain_id = $5
+           onchain_chain_id = $5,
+           visibility = CASE WHEN status = 'APPROVED' AND $5 = 42421 THEN 'PUBLIC' ELSE 'PRIVATE' END
        WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
        RETURNING *`,
       [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
@@ -270,7 +349,8 @@ export async function updateMarketProposalStatus(
 ): Promise<StoredMarketProposal | undefined> {
   const result = await database.query<MarketProposalRow>(
     `UPDATE market_proposals
-     SET status = $2
+     SET status = $2,
+         visibility = 'PRIVATE'
      WHERE id = $1
        AND status = 'PENDING_APPROVAL'
      RETURNING *`,
