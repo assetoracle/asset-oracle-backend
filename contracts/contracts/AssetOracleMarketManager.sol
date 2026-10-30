@@ -26,7 +26,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     uint256 public constant MAX_SETTLEMENT_FEE_BPS = 1_000; // hard cap: 10%
     uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of settlement fee
     uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
-    uint256 public tradingFeeBps = 100; // 1%, charged in addition to stake
+    uint256 public tradingFeeBps = 25; // 0.25%, charged in addition to stake
     uint256 public settlementFeeBps = 1_000; // 10%
     enum Stablecoin { USDC }
     enum MarketType { MANUAL, AUTOMATED }
@@ -267,7 +267,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     /// @notice Create an automated market only through the trusted automation role or owner.
-    /// One validator may establish the initial outcome; disputes still require 2-of-3.
+    /// All automated markets require the same 2-of-3 validator consensus as manual markets.
     function createAutomatedMarket(
         Stablecoin stablecoin,
         string calldata question,
