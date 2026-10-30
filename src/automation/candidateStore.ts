@@ -271,7 +271,7 @@ export async function approveAutomationCandidate(input: {
       await client.query("ROLLBACK");
       return null;
     }
-    const approval = await client.query(
+    await client.query(
       `INSERT INTO automation_candidate_approvals (candidate_id, approver_wallet, approver_role)
        VALUES ($1, $2, $3)
        ON CONFLICT (candidate_id, approver_wallet) DO NOTHING
