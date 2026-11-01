@@ -86,6 +86,10 @@ export async function initializeMarketStore(): Promise<void> {
       ADD COLUMN IF NOT EXISTS onchain_chain_id INTEGER
   `);
   await database.query(`
+    CREATE INDEX IF NOT EXISTS market_proposals_public_status_submitted_idx
+    ON market_proposals (status, "submittedAt" DESC)
+  `);
+  await database.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS market_proposals_onchain_tx_hash_unique
     ON market_proposals (onchain_tx_hash) WHERE onchain_tx_hash IS NOT NULL
   `);
