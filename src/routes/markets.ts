@@ -398,26 +398,14 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
 });
 
 
-marketsRouter.get("/public", async (req, res, next) => {
+marketsRouter.get("/public", async (_req, res, next) => {
   try {
-    const pagination = z.object({
-      limit: z.coerce.number().int().min(1).max(100).default(50),
-      offset: z.coerce.number().int().min(0).max(100_000).default(0),
-    }).safeParse(req.query);
-    if (!pagination.success) {
-      return res.status(400).json({ error: "limit must be between 1 and 100 and offset must be between 0 and 100000." });
-    }
-
-    const { limit, offset } = pagination.data;
-    const result = await listPublishedMarkets(limit, offset);
+    // The store applies a hard 100-row cap to keep this public query bounded.
+    const markets = await listPublishedMarkets();
 
     return res.status(200).json({
-      markets: result.markets,
-      count: result.markets.length,
-      total: result.total,
-      limit,
-      offset,
-      hasMore: offset + result.markets.length < result.total,
+      markets,
+      count: markets.length,
     });
   } catch (error) {
     return next(error);
