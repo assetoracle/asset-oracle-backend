@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import healthRouter from "./routes/health.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { createRateLimiter } from "./middleware/rateLimit.js";
 import marketsRouter from "./routes/markets.js";
 import paidSubmissionsRouter from "./routes/paidSubmissions.js";
 import validatorEvidenceRouter from "./routes/validatorEvidence.js";
@@ -33,6 +34,8 @@ const allowedFrontendOrigins = new Set([
 ]);
 
 app.disable("x-powered-by");
+// Render terminates TLS and forwards the client address through one trusted proxy.
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({
   origin(origin, callback) {
@@ -48,6 +51,11 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 app.use(express.json({ limit: "100kb" }));
+
+// Process-local limits are a baseline safeguard. Use a shared store if the API
+// is scaled to multiple instances so limits are consistent across instances.
+app.use("/api/markets/public", createRateLimiter({ windowMs: 60_000, max: 60 }));
+app.use("/api/stats/wallet", createRateLimiter({ windowMs: 60_000, max: 6 }));
 app.use("/api/markets", marketsRouter);
 app.use("/api/markets/paid-submissions", paidSubmissionsRouter);
 app.use("/api/validator-evidence", validatorEvidenceRouter);
