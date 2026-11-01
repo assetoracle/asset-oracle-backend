@@ -86,6 +86,10 @@ export async function initializeMarketStore(): Promise<void> {
       ADD COLUMN IF NOT EXISTS onchain_chain_id INTEGER
   `);
   await database.query(`
+    CREATE INDEX IF NOT EXISTS market_proposals_public_status_submitted_idx
+    ON market_proposals (status, "submittedAt" DESC)
+  `);
+  await database.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS market_proposals_onchain_tx_hash_unique
     ON market_proposals (onchain_tx_hash) WHERE onchain_tx_hash IS NOT NULL
   `);
@@ -177,20 +181,300 @@ export async function getMarketProposal(
   );
 
   return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
-}export async function listPublishedMarkets(): Promise<
-  StoredMarketProposal[]
-> {
+}const PUBLISHED_MARKET_FILTER = `
+  status = 'APPROVED'
+  AND onchain_market_id ~ '^[1-9][0-9]*
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
   const result = await database.query<MarketProposalRow>(
     `SELECT * FROM market_proposals
-     WHERE status = 'APPROVED'
-       AND onchain_market_id ~ '^[1-9][0-9]*$'
-       AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
-       AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
-       AND onchain_chain_id = 42421
+     WHERE "walletAddress" = $1
      ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
   );
 
   return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+  AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+  AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}
+
+export async function recordOnchainPublication(input: {
+  id: string;
+  marketId: string;
+  txHash: string;
+  managerAddress: string;
+  chainId: number;
+}): Promise<StoredMarketProposal | undefined> {
+  const existing = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (!existing.rows[0]) return undefined;
+  const row = existing.rows[0] as MarketProposalRow & {
+    onchain_tx_hash?: string | null;
+    onchain_market_id?: string | null;
+  };
+  if (row.onchain_tx_hash) {
+    if (row.onchain_tx_hash.toLowerCase() === input.txHash.toLowerCase() &&
+        row.onchain_market_id === input.marketId) {
+      return mapProposal(row);
+    }
+    throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+
+  let result;
+  try {
+    result = await database.query<MarketProposalRow>(
+      `UPDATE market_proposals
+       SET onchain_market_id = $2,
+           onchain_tx_hash = $3,
+           onchain_manager_address = $4,
+           onchain_chain_id = $5
+       WHERE id = $1 AND status = 'APPROVED' AND onchain_tx_hash IS NULL
+       RETURNING *`,
+      [input.id, input.marketId, input.txHash.toLowerCase(), input.managerAddress.toLowerCase(), input.chainId],
+    );
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error &&
+        (error as { code?: string }).code === "23505") {
+      throw new Error("On-chain market or transaction is already recorded for another proposal.");
+    }
+    throw error;
+  }
+  if (result.rows[0]) return mapProposal(result.rows[0]);
+
+  const latest = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals WHERE id = $1`,
+    [input.id],
+  );
+  if (latest.rows[0]) {
+    const latestRow = latest.rows[0] as MarketProposalRow & { onchain_tx_hash?: string | null; onchain_market_id?: string | null };
+    if (latestRow.onchain_tx_hash?.toLowerCase() === input.txHash.toLowerCase() &&
+        latestRow.onchain_market_id === input.marketId) return mapProposal(latestRow);
+    if (latestRow.onchain_tx_hash) throw new Error("Proposal already has a recorded on-chain publication.");
+  }
+  return undefined;
+}
+
+export async function listMarketProposalsByWallet(
+  walletAddress: string,
+): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+     WHERE "walletAddress" = $1
+     ORDER BY "submittedAt" DESC`,
+    [walletAddress.toLowerCase()],
+  );
+
+  return result.rows.map(mapProposal);
+}
+
+export async function updateMarketProposalStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+): Promise<StoredMarketProposal | undefined> {
+  const result = await database.query<MarketProposalRow>(
+    `UPDATE market_proposals
+     SET status = $2
+     WHERE id = $1
+       AND status = 'PENDING_APPROVAL'
+     RETURNING *`,
+    [id, status],
+  );
+
+  return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+  AND onchain_chain_id = 42421
+`;
+
+export async function listPublishedMarkets(
+  limit = 50,
+  offset = 0,
+): Promise<{ markets: StoredMarketProposal[]; total: number }> {
+  const [marketsResult, countResult] = await Promise.all([
+    database.query<MarketProposalRow>(
+      `SELECT * FROM market_proposals
+       WHERE ${PUBLISHED_MARKET_FILTER}
+       ORDER BY "submittedAt" DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    ),
+    database.query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM market_proposals
+       WHERE ${PUBLISHED_MARKET_FILTER}`,
+    ),
+  ]);
+
+  return {
+    markets: marketsResult.rows.map(mapProposal),
+    total: Number(countResult.rows[0]?.total ?? 0),
+  };
 }
 
 export async function recordOnchainPublication(input: {
