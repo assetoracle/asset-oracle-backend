@@ -17,7 +17,7 @@ export const database = new Pool({
   ssl: {
     rejectUnauthorized,
   },
-  max: Math.min(20, Math.max(1, Number(process.env.DB_POOL_MAX) || 10)),
+  max: Math.min(10, Math.max(1, Number(process.env.DB_POOL_MAX) || 10)),
   idleTimeoutMillis: 10000,
   // Allow time for a suspended Neon Free compute to resume before failing a request.
   connectionTimeoutMillis: Math.min(60000, Math.max(1000, Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 20000)),
