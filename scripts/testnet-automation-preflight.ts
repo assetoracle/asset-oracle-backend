@@ -74,6 +74,7 @@ async function main() {
       databaseConnection: "passed",
       databaseName: db.rows[0].database_name,
       databaseUser: db.rows[0].database_user,
+      databaseHost: new URL(process.env.DATABASE_URL!).hostname,
       chainId,
       rpcUrl: RPC_URL,
       marketManager: manager,
