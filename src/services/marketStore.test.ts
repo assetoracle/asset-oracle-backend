@@ -3,7 +3,7 @@ import { afterEach, test } from "node:test";
 
 process.env.DATABASE_URL ??= "postgresql://test:test@127.0.0.1:5432/test";
 const { database } = await import("../config/database.js");
-const { recordOnchainPublication } = await import("./marketStore.js");
+const { recordOnchainPublication, decideAutomatedMarketProposal } = await import("./marketStore.js");
 
 type Row = Record<string, unknown>;
 type Query = (sql: string, values?: unknown[]) => Promise<{ rows: Row[] }>;
@@ -47,6 +47,31 @@ const publication = {
 afterEach(() => {
   db.query = originalQuery;
 });
+
+test("approving an automated proposal keeps it private until verified on-chain publication", async () => {
+  const automated = {
+    ...proposalRow,
+    origin: "AUTOMATED",
+    visibility: "PRIVATE",
+    status: "APPROVED",
+    onchain_market_id: "12",
+    onchain_tx_hash: publication.txHash,
+    onchain_manager_address: publication.managerAddress.toLowerCase(),
+    onchain_chain_id: publication.chainId,
+  };
+  let capturedSql = "";
+  db.query = async (sql) => {
+    capturedSql = sql;
+    return { rows: [automated] };
+  };
+
+  const result = await decideAutomatedMarketProposal(proposalRow.id as string, "APPROVED");
+  assert.match(capturedSql, /visibility = 'PRIVATE'/);
+  assert.doesNotMatch(capturedSql, /THEN 'PUBLIC'/);
+  assert.equal(result?.status, "APPROVED");
+  assert.equal(result?.visibility, "PRIVATE");
+});
+
 
 test("records verified publication metadata and returns the stored proposal", async () => {
   const published = {
