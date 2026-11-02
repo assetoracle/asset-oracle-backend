@@ -13,6 +13,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Manual, read-only verification while the recurring worker remains disabled.
+  testnet-preflight:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.ENABLE_TESTNET_AUTOMATION != 'true'
+    runs-on: ubuntu-latest
+    environment: asset-oracle-testnet
+    timeout-minutes: 5
+    steps:
+      - name: Check out reviewed default-branch code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --include=dev
+      - name: Run read-only database and testnet checks
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.AUTOMATION_PRIVATE_KEY }}
+          ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
+          ASSET_CHAIN_ID: "42421"
+        run: npm run preflight:testnet-automation
+
   run-testnet-worker:
     # This worker must run only from the reviewed default branch and only after
     # the owner explicitly enables the testnet environment.
