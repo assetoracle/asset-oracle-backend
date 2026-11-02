@@ -1,0 +1,54 @@
+name: Testnet market lifecycle automation
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asset-oracle-testnet-market-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  market-lifecycle:
+    # Keep the schedule dormant until the owner has configured the testnet secrets
+    # and explicitly enables the repository variable.
+    if: vars.ENABLE_TESTNET_AUTOMATION == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --include=dev --no-audit --no-fund
+
+      - name: Build lifecycle worker
+        run: npm run build
+
+      - name: Validate required secrets
+        env:
+          DATABASE_URL: ${{ secrets.TESTNET_DATABASE_URL }}
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.TESTNET_AUTOMATION_PRIVATE_KEY }}
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::Missing TESTNET_DATABASE_URL repository secret"; exit 1; }
+          test -n "$AUTOMATION_PRIVATE_KEY" || { echo "::error::Missing TESTNET_AUTOMATION_PRIVATE_KEY repository secret"; exit 1; }
+
+      - name: Run testnet market lifecycle worker
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ secrets.TESTNET_DATABASE_URL }}
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.TESTNET_AUTOMATION_PRIVATE_KEY }}
+          ASSET_CHAIN_ID: "42421"
+          ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
+          ASSET_CHAIN_EXPLORER_URL: https://scan-testnet.assetchain.org
+        run: npm run automate:market-lifecycle
