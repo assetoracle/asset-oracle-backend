@@ -174,15 +174,7 @@ export async function decideAutomatedMarketProposal(
   const result = await database.query<MarketProposalRow>(
     `UPDATE market_proposals
         SET status = $2,
-            visibility = CASE
-              WHEN $2 = 'APPROVED'
-               AND onchain_market_id ~ '^[1-9][0-9]*$'
-               AND onchain_tx_hash ~ '^0x[0-9a-fA-F]{64}$'
-               AND onchain_manager_address ~ '^0x[0-9a-fA-F]{40}$'
-               AND onchain_chain_id = 42421
-              THEN 'PUBLIC'
-              ELSE 'PRIVATE'
-            END
+            visibility = 'PRIVATE'
       WHERE id = $1
         AND origin = 'AUTOMATED'
         AND status = 'PENDING_APPROVAL'
