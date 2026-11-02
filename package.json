@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
     "verify:enugu-preflight": "tsx scripts/verify-enugu-paid-submission-preflight.ts",
-    "automate:market-lifecycle": "node dist/workers/automateMarketLifecycle.js"
+    "automate:market-lifecycle": "node dist/workers/automateMarketLifecycle.js",
+    "preflight:testnet-automation": "tsx scripts/testnet-automation-preflight.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
