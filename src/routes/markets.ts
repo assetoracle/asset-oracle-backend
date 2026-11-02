@@ -691,13 +691,13 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
     }
 
     const { txHash, marketId, walletAuth } = bodyResult.data;
-    const verified = await verifyWalletSignature(
+    const verified = await verifyAdminWallet(
       walletAuth.address,
       walletAuth.signature as `0x${string}`,
       walletAuth.message,
     );
-    if (!verified || !isMarketCreatorWallet(walletAuth.address)) {
-      return res.status(403).json({ error: "An authenticated, configured market-creator wallet is required." });
+    if (!verified) {
+      return res.status(403).json({ error: "Only the configured owner wallet can publish an approved market on-chain." });
     }
 
     const proposal = await getMarketProposal(idResult.data);
@@ -819,8 +819,8 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
     if (!await verifyWalletSession(sessionToken(req), address)) {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
-    if (!isMarketCreatorWallet(address)) {
-      return res.status(403).json({ error: "An authenticated, configured market-creator wallet is required." });
+    if (!isAdminWallet(address)) {
+      return res.status(403).json({ error: "Only the configured owner wallet can publish an approved market on-chain." });
     }
 
     const proposal = await getMarketProposal(idResult.data);
