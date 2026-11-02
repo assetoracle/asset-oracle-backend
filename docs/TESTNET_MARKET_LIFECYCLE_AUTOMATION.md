@@ -12,35 +12,50 @@ This worker is intentionally limited to Asset Chain Enugu testnet (chain ID 4242
 - Calls `finalizeMarket` only after the existing 2-of-3 validator process has resolved a market and its challenge period has elapsed.
 - Processes eligible payouts in contract-supported batches of up to 50 participants, with database progress tracking and a per-run batch limit.
 
-It never chooses an outcome, generates validator votes, or bypasses the validator consensus/dispute rules. Markets in arbitration are left alone.
+It never chooses an outcome, generates validator votes, or bypasses the validator consensus/dispute rules.
 
-## Required Render Cron Job configuration
+## GitHub Actions scheduled runner
 
-Create a **Cron Job** in the same Render workspace after this branch has been reviewed and merged:
+The repository workflow `.github/workflows/testnet-market-lifecycle.yml` runs the existing standalone worker directly on a GitHub-hosted runner. No Render service or trigger endpoint is required.
 
 - Repository: `https://github.com/assetoracle/asset-oracle-backend`
-- Branch: the reviewed default branch after merge
-- Runtime: Node
-- Build command: `npm install --include=dev && npm run build`
-- Start command: `npm run automate:market-lifecycle`
-- Schedule: `*/5 * * * *` (every five minutes)
-- Region: Oregon (same region as the current backend)
+- Branch: `main` only
+- Runtime: Node.js 22
+- Install: `npm install --include=dev`
+- Build: `npm run build`
+- Worker: `npm run automate:market-lifecycle`
+- Schedule: `*/10 * * * *` (every ten minutes, UTC)
+- Network: Asset Chain Enugu testnet (chain ID 42421)
 
-Required environment variables:
+### Required GitHub configuration
 
-- `DATABASE_URL`: use the existing backend database connection string, entered via Render's secret environment variable UI.
-- `AUTOMATION_PRIVATE_KEY`: a **dedicated testnet-only wallet key**, entered as a secret. Do not reuse a personal wallet, owner wallet, validator wallet, or any mainnet key.
-- `ASSET_CHAIN_RPC_URL`: `https://enugu-rpc.assetchain.org`
-- `ASSET_CHAIN_ID`: `42421`
-- `ASSET_CHAIN_EXPLORER_URL`: `https://scan-testnet.assetchain.org`
+Create a GitHub Environment named `asset-oracle-testnet` under **Settings → Environments**. Restrict deployment branches to `main`.
 
-The automation wallet must be explicitly granted `MARKET_CREATOR_ROLE` on the canonical testnet manager and funded with testnet gas only. Before enabling this cron job, verify the current manager bytecode, stablecoin 0 configuration (USDC, 6 decimals), validator roster, role grant, and deployment evidence. The worker aborts if its on-chain preflight fails.
+Add these **environment secrets** directly in GitHub. Never paste their values into chat or commit them:
 
-## Safety notes
+- `DATABASE_URL`: connection string for the dedicated Neon **staging** database only. Do not use the production database.
+- `AUTOMATION_PRIVATE_KEY`: a dedicated, low-balance testnet automation wallet key. Never use an owner, validator, personal, or mainnet wallet key.
 
-- The worker checks the RPC chain ID, manager bytecode, configured validator roster, USDC address/decimals, and the automation wallet's on-chain role before sending transactions.
-- A PostgreSQL advisory lock prevents overlapping worker runs.
-- The proposal UUID is included in the on-chain resolution-rules JSON to allow recovery after a successful create transaction whose database update was interrupted. If event recovery fails, the worker stops rather than blindly creating a duplicate.
-- RPC/provider limits may prevent scanning old logs for recovery. In that case, the worker intentionally stops and requires manual reconciliation.
-- This is unaudited testnet automation. Do not configure a mainnet private key or use real funds.
-- The current backend Render service has auto-deploy disabled. Creating this file/branch does not deploy or enable the worker.
+The RPC URL, chain ID, and explorer are configured in the workflow. The workflow remains dormant until the repository variable `ENABLE_TESTNET_AUTOMATION` is set to `true` under **Settings → Secrets and variables → Actions → Variables**.
+
+Do not enable that variable until the staging database connection, wallet role, wallet testnet gas, and on-chain preflight checks have all been verified. The workflow must be merged into `main` before its scheduled trigger can run.
+
+### Security requirements
+
+- Keep the repository's default branch protected. Require review for changes to workflow files and worker code; do not allow unreviewed commits to `main`.
+- Environment secrets are available to workflow code running from the permitted branch. A malicious or compromised change merged to `main` could expose them. Review every change to the workflow and worker before merging.
+- Use a dedicated testnet-only wallet with minimal funds and only the required `MARKET_CREATOR_ROLE`.
+- Never configure a mainnet private key, production database URL, or real funds.
+- GitHub-hosted runners are ephemeral. The worker runs as a standalone process and closes its database pool at completion.
+- The PostgreSQL advisory lock prevents overlapping worker instances from submitting duplicate lifecycle actions.
+- Scheduled GitHub Actions can be delayed during periods of high load. The worker is designed to be safely rerun; it is not a guaranteed exact-time scheduler.
+
+## Preflight and safety behavior
+
+Before opening the database lock or sending transactions, the worker checks the RPC chain ID, manager bytecode, configured validator roster, USDC address/decimals, and the automation wallet's on-chain role. It aborts if any check fails.
+
+Settlement automation never chooses an outcome. The 2-of-3 human validator consensus and contract challenge period remain authoritative. The testnet worker uses the currently configured USDC token (stablecoin index 0); do not assume cNGN, USDT, or USDC multi-token support from this worker.
+
+The proposal UUID is included in the on-chain resolution-rules JSON to support recovery after an on-chain creation succeeds but the database update is interrupted. If recovery cannot be verified, the worker stops rather than blindly creating a duplicate.
+
+This is unaudited testnet automation. Do not configure a mainnet private key or use real funds.
