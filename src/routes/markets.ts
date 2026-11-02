@@ -451,8 +451,8 @@ marketsRouter.post("/automated/private/session", async (req, res, next) => {
   }
 });
 
-// Any ONE of the owner or two configured market makers can approve/reject
-// an API-generated market. Manual proposals remain owner-only.
+// Any ONE of the owner or either configured market maker can approve/reject
+// automated proposals. The shared manual-proposal decision route uses the same allowlist.
 marketsRouter.post("/automated/:id/decision/session", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
