@@ -1,4 +1,4 @@
-name: Testnet market lifecycle trigger
+name: Testnet market lifecycle automation
 
 on:
   schedule:
@@ -9,34 +9,38 @@ permissions:
   contents: read
 
 concurrency:
-  group: asset-oracle-testnet-market-lifecycle-trigger
+  group: asset-oracle-testnet-market-lifecycle
   cancel-in-progress: false
 
 jobs:
-  trigger-testnet-worker:
-    # Keep the schedule dormant until the staging trigger endpoint is deployed
-    # and the owner explicitly enables this repository variable.
-    if: vars.ENABLE_TESTNET_AUTOMATION == 'true'
+  run-testnet-worker:
+    # This worker must run only from the reviewed default branch and only after
+    # the owner explicitly enables the testnet environment.
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_TESTNET_AUTOMATION == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    environment: asset-oracle-testnet
+    timeout-minutes: 9
     steps:
-      - name: Validate trigger configuration
-        env:
-          AUTOMATION_TRIGGER_URL: ${{ secrets.TESTNET_AUTOMATION_TRIGGER_URL }}
-          AUTOMATION_TRIGGER_TOKEN: ${{ secrets.TESTNET_AUTOMATION_TRIGGER_TOKEN }}
-        run: |
-          test -n "$AUTOMATION_TRIGGER_URL" || { echo "::error::Missing TESTNET_AUTOMATION_TRIGGER_URL repository secret"; exit 1; }
-          test -n "$AUTOMATION_TRIGGER_TOKEN" || { echo "::error::Missing TESTNET_AUTOMATION_TRIGGER_TOKEN repository secret"; exit 1; }
+      - name: Check out reviewed default-branch code
+        uses: actions/checkout@v4
 
-      - name: Trigger the testnet lifecycle worker
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --include=dev
+
+      - name: Build backend worker
+        run: npm run build
+
+      - name: Run testnet lifecycle worker
         env:
-          AUTOMATION_TRIGGER_URL: ${{ secrets.TESTNET_AUTOMATION_TRIGGER_URL }}
-          AUTOMATION_TRIGGER_TOKEN: ${{ secrets.TESTNET_AUTOMATION_TRIGGER_TOKEN }}
-        run: |
-          curl --fail-with-body --silent --show-error \
-            --max-time 120 \
-            --request POST \
-            --header "Authorization: Bearer $AUTOMATION_TRIGGER_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data '{"source":"github-actions","network":"asset-chain-enugu-testnet"}' \
-            "$AUTOMATION_TRIGGER_URL"
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.AUTOMATION_PRIVATE_KEY }}
+          ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
+          ASSET_CHAIN_ID: "42421"
+          ASSET_CHAIN_EXPLORER_URL: https://scan-testnet.assetchain.org
+        run: npm run automate:market-lifecycle
