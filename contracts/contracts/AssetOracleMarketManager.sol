@@ -211,7 +211,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     function setMarketCreator(address account, bool enabled) external onlyOwner {
-        if (account == address(0)) revert InvalidAddress();
+        if (account == address(0) || (!enabled && account == owner())) revert InvalidAddress();
         if (enabled) _grantRole(MARKET_CREATOR_ROLE, account);
         else _revokeRole(MARKET_CREATOR_ROLE, account);
         emit MarketCreatorUpdated(account, enabled);
@@ -225,7 +225,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     function replaceMarketCreator(address previousCreator, address newCreator) external onlyOwner {
-        if (previousCreator == address(0) || newCreator == address(0) || previousCreator == newCreator) revert InvalidAddress();
+        if (previousCreator == address(0) || newCreator == address(0) || previousCreator == newCreator || previousCreator == owner()) revert InvalidAddress();
         _revokeRole(MARKET_CREATOR_ROLE, previousCreator);
         _grantRole(MARKET_CREATOR_ROLE, newCreator);
         emit MarketCreatorUpdated(previousCreator, false);
