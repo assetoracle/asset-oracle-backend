@@ -134,6 +134,16 @@ async function main(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await database.query(`
+      CREATE TABLE IF NOT EXISTS market_lifecycle_scan_cursor (
+        id SMALLINT PRIMARY KEY CHECK (id = 1),
+        next_market_id BIGINT NOT NULL DEFAULT 1,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await database.query(
+      "INSERT INTO market_lifecycle_scan_cursor (id, next_market_id) VALUES (1, 1) ON CONFLICT (id) DO NOTHING",
+    );
     const proposals = await listMarketProposals();
     let marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
 
@@ -191,10 +201,19 @@ async function main(): Promise<void> {
     // Settlement automation never chooses an outcome. The 2-of-3 human validator
     // consensus and the contract's challenge window remain authoritative.
     marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
-    const currentCount = Number(marketCount > BigInt(MAX_MARKETS_PER_RUN) ? BigInt(MAX_MARKETS_PER_RUN) : marketCount);
+    const currentCount = Number(marketCount);
+    if (!Number.isSafeInteger(currentCount) || currentCount < 0) {
+      throw new Error("Market count exceeds the safe lifecycle scan range; refusing an incomplete scan.");
+    }
+    const cursorResult = await database.query<{ next_market_id: string }>(
+      "SELECT next_market_id::text FROM market_lifecycle_scan_cursor WHERE id = 1",
+    );
+    let scanStart = Number(cursorResult.rows[0]?.next_market_id ?? 1);
+    if (!Number.isSafeInteger(scanStart) || scanStart < 1 || scanStart > currentCount) scanStart = 1;
+    const scanEnd = Math.min(currentCount, scanStart + MAX_MARKETS_PER_RUN - 1);
     const now = BigInt(Math.floor(Date.now() / 1000));
     let payoutBatchesProcessed = 0;
-    for (let id = 1; id <= currentCount; id++) {
+    for (let id = scanStart; id <= scanEnd; id++) {
       const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
       if (market.status === 0 && market.closeTime <= now) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "closeMarket", args: [BigInt(id)] });
@@ -257,6 +276,11 @@ async function main(): Promise<void> {
         console.log(`Processed payout batch for market ${id} (participants ${startIndex}-${startIndex + Number(batchSize) - 1}): ${EXPLORER}/tx/${hash}`);
       }
     }
+    const nextMarketId = scanEnd >= currentCount ? 1 : scanEnd + 1;
+    await database.query(
+      "UPDATE market_lifecycle_scan_cursor SET next_market_id = $1, updated_at = NOW() WHERE id = 1",
+      [nextMarketId],
+    );
   } finally {
     await lockClient.query("SELECT pg_advisory_unlock($1)", [42421001]).catch(() => undefined);
     lockClient.release();
