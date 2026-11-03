@@ -86,7 +86,7 @@ router.post("/verify-payment", async (req, res, next) => {
     if (!await verifyWalletSignature(walletAuth.address, walletAuth.signature as `0x${string}`, walletAuth.message)) {
       return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
     }
-    if (isMarketCreatorWallet(walletAuth.address)) {
+    if (await isMarketCreatorWallet(walletAuth.address)) {
       return res.status(403).json({ error: "Market makers do not pay proposal fees." });
     }
     const context = await getPaidSubmissionPaymentContext({ submissionId, walletAddress: walletAuth.address });
