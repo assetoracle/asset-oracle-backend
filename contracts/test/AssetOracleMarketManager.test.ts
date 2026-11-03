@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 
-describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testnet config)", function () {
+describe("AssetOracleMarketManager (USDC-only Enugu testnet config)", function () {
   async function deployFixture() {
     const [owner, creator, resolver, treasury, validatorPool, alice, bob, outsider] = await ethers.getSigners();
     const Token = await ethers.getContractFactory("MockStablecoin");
