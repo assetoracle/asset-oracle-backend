@@ -21,9 +21,9 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     bytes32 public constant ORACLE_RESOLVER_ROLE = keccak256("ORACLE_RESOLVER_ROLE");
 
     uint256 public constant BPS = 10_000;
-    uint256 public constant TRADING_FEE_BPS = 25; // 0.25% per stake
-    uint256 public constant SETTLEMENT_FEE_BPS = 200; // 2% on eligible winning settlements
-    uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 2_500; // 25% of the 2% fee
+    uint256 public constant TRADING_FEE_BPS = 100; // 1% per stake
+    uint256 public constant SETTLEMENT_FEE_BPS = 1_000; // 10% on eligible winning settlements
+    uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 1_500; // 15% of the 10% settlement fee
     uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
     enum Stablecoin { USDC }
     enum Outcome { UNRESOLVED, YES, NO, INVALID }
