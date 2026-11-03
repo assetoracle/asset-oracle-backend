@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createPublicClient, formatUnits, http, isAddress } from "viem";
-import { formatIndexedAmount, normalizeManagerAddresses, getWalletIndexerStatus } from "./walletHistory.js";
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES } from "../config/assetOracle.js";
+import { formatIndexedAmount, getWalletIndexerStatus } from "./walletHistory.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const statsRouter = Router();
 const DEFAULT_RPC_URL = "https://enugu-rpc.assetchain.org";
@@ -47,35 +47,9 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     const count = Number(await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "marketCount" }));
     if (!Number.isSafeInteger(count) || count < 0 || count > 5000) return res.status(503).json({ error: "Market count is outside the supported account-history range." });
 
-    const legacyManagers = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")];
-    const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
+    // Only the active manager is queried. No retired deployment is read or combined.
     const managerCounts = new Map<string, number>([[manager.toLowerCase(), count]]);
     let positionsComplete = true;
-
-    // Read positions from each configured manager independently. Old positions
-    // remain owned by their original contract; this endpoint never migrates funds.
-    for (const managerAddress of indexedManagers) {
-      if (managerAddress === manager.toLowerCase()) continue;
-      try {
-        const legacyCode = await client.getCode({ address: managerAddress as `0x${string}` });
-        if (!legacyCode || legacyCode === "0x") {
-          positionsComplete = false;
-          continue;
-        }
-        const legacyCount = Number(await client.readContract({
-          address: managerAddress as `0x${string}`,
-          abi: WALLET_ACCOUNT_ABI,
-          functionName: "marketCount",
-        }));
-        if (!Number.isSafeInteger(legacyCount) || legacyCount < 0 || legacyCount > 5000) {
-          positionsComplete = false;
-          continue;
-        }
-        managerCounts.set(managerAddress, legacyCount);
-      } catch {
-        positionsComplete = false;
-      }
-    }
 
     const positions: Array<Record<string, unknown>> = [];
     const claimable: Array<Record<string, unknown>> = [];
