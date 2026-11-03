@@ -2,20 +2,24 @@ import { Router } from "express";
 import { createPublicClient, decodeFunctionData, getAddress, http, isAddress } from "viem";
 import { z } from "zod";
 import { verifyWalletSession } from "../services/walletAuth.js";
-import { getHumanValidatorNumber } from "../services/adminAuth.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, ASSET_CHAIN_TESTNET_ID, ASSET_CHAIN_TESTNET_RPC_URL } from "../config/assetOracle.js";
 import { listValidatorSourceLinks, recordValidatorSourceLink } from "../services/validatorEvidenceStore.js";
 import { evidenceHashMatchesSourceUrl } from "../services/validatorEvidenceVerification.js";
 
 const router = Router();
-const managerAddress = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
+const configuredManagerAddress = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
+if (!configuredManagerAddress || !isAddress(configuredManagerAddress)) throw new Error("ASSET_ORACLE_MARKET_MANAGER_ADDRESS must identify the active manager.");
+const managerAddress = getAddress(configuredManagerAddress);
 const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || ASSET_CHAIN_TESTNET_RPC_URL;
-const voteAbi = [{ type: "function", name: "resolveMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }, { name: "outcome", type: "uint8" }, { name: "evidenceHash", type: "bytes32" }], outputs: [] }] as const;
-const managerAbi = [{
-  type: "function", name: "hasVoted", stateMutability: "view",
-  inputs: [{ name: "marketId", type: "uint256" }, { name: "validator", type: "address" }],
-  outputs: [{ name: "", type: "bool" }],
-}] as const;
+const voteAbi = [
+  { type: "function", name: "resolveMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }, { name: "outcome", type: "uint8" }, { name: "evidenceHash", type: "bytes32" }], outputs: [] },
+  { type: "function", name: "resolveDispute", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }, { name: "outcome", type: "uint8" }, { name: "evidenceHash", type: "bytes32" }], outputs: [] },
+] as const;
+const managerAbi = [
+  { type: "function", name: "isMarketValidator", stateMutability: "view", inputs: [{ name: "marketId", type: "uint256" }, { name: "validator", type: "address" }], outputs: [{ name: "", type: "bool" }] },
+  { type: "function", name: "hasVoted", stateMutability: "view", inputs: [{ name: "marketId", type: "uint256" }, { name: "validator", type: "address" }], outputs: [{ name: "", type: "bool" }] },
+  { type: "function", name: "hasVotedOnDispute", stateMutability: "view", inputs: [{ name: "marketId", type: "uint256" }, { name: "validator", type: "address" }], outputs: [{ name: "", type: "bool" }] },
+] as const;
 const client = createPublicClient({ transport: http(rpcUrl) });
 
 async function isConfiguredEnuguRpc(): Promise<boolean> {
@@ -64,7 +68,6 @@ router.post("/", async (req, res, next) => {
     if (!await verifyWalletSession(sessionToken(req), input.address)) {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
-    if (!getHumanValidatorNumber(input.address)) return res.status(403).json({ error: "Only configured validators can record vote evidence." });
     if (getAddress(input.managerAddress) !== managerAddress) return res.status(400).json({ error: "Unsupported market manager." });
     if (!await isConfiguredEnuguRpc()) {
       return res.status(503).json({ error: "Validator evidence verification RPC is not Asset Chain Enugu testnet (chain ID 42421)." });
@@ -79,16 +82,19 @@ router.post("/", async (req, res, next) => {
     let decoded;
     try { decoded = decodeFunctionData({ abi: voteAbi, data: transaction.input }); }
     catch { return res.status(400).json({ error: "The transaction is not a recognized validation vote." }); }
-    if (decoded.functionName !== "resolveMarket" || decoded.args[0].toString() !== input.marketId || Number(decoded.args[1]) !== input.outcome) {
+    if ((decoded.functionName !== "resolveMarket" && decoded.functionName !== "resolveDispute") || decoded.args[0].toString() !== input.marketId || Number(decoded.args[1]) !== input.outcome) {
       return res.status(400).json({ error: "The transaction market and outcome do not match the submitted source record." });
     }
     if (!evidenceHashMatchesSourceUrl(decoded.args[2], input.sourceUrl)) {
       return res.status(400).json({ error: "The on-chain evidence hash does not commit to the submitted source URL." });
     }
-    const hasVoted = await client.readContract({
-      address: managerAddress, abi: managerAbi, functionName: "hasVoted",
-      args: [BigInt(input.marketId), getAddress(input.address)],
-    });
+    const marketId = BigInt(input.marketId);
+    const validator = getAddress(input.address);
+    const [assigned, hasVoted] = await Promise.all([
+      client.readContract({ address: managerAddress, abi: managerAbi, functionName: "isMarketValidator", args: [marketId, validator] }),
+      client.readContract({ address: managerAddress, abi: managerAbi, functionName: decoded.functionName === "resolveDispute" ? "hasVotedOnDispute" : "hasVoted", args: [marketId, validator] }),
+    ]);
+    if (!assigned) return res.status(403).json({ error: "This wallet is not assigned to this market's validator snapshot." });
     if (!hasVoted) return res.status(409).json({ error: "No confirmed on-chain vote was found for this validator and market." });
 
     const link = await recordValidatorSourceLink({
