@@ -425,6 +425,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (market.id == 0) revert MarketNotFound();
         if (!isMarketValidator[marketId][msg.sender]) revert UnauthorizedValidator();
         if (market.status != Status.ARBITRATION) revert InvalidStatus();
+        if (block.timestamp >= uint256(market.resolvedAt) + DISPUTE_RESOLUTION_TIMEOUT) revert ChallengeWindowClosed();
         if (outcome != Outcome.YES && outcome != Outcome.NO && outcome != Outcome.INVALID) revert InvalidOutcome();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
         if (hasVotedOnDispute[marketId][msg.sender]) revert DuplicateVote();
