@@ -546,6 +546,31 @@ describe("AssetOracleMarketManager (USDC-only Enugu testnet config)", function (
     expect(await manager.isMarketValidator(2, bob.address)).to.equal(false);
   });
 
+  it("keeps replaced validators authorized only for markets created under their roster", async function () {
+    const f = await deployFixture();
+    await createAndClose(f);
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.configureValidators([f.owner.address, f.resolver.address, f.creator.address]);
+
+    const oldMarketEvidence = ethers.keccak256(ethers.toUtf8Bytes("old roster evidence"));
+    await f.manager.connect(f.owner).resolveMarket(1, 1, oldMarketEvidence);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, oldMarketEvidence);
+    expect((await f.manager.getMarket(1)).status).to.equal(2);
+
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the next test event happen?", "YES if confirmed by official source.",
+      "official source", closeTime, 3600
+    );
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(2);
+    const newMarketEvidence = ethers.keccak256(ethers.toUtf8Bytes("new roster evidence"));
+
+    await expect(f.manager.connect(f.bob).resolveMarket(2, 1, newMarketEvidence)).to.be.reverted;
+    await f.manager.connect(f.creator).resolveMarket(2, 1, newMarketEvidence);
+    await f.manager.connect(f.owner).resolveMarket(2, 1, newMarketEvidence);
+    expect((await f.manager.getMarket(2)).status).to.equal(2);
+  });
+
   it("requires two matching validator votes and prevents duplicate and unauthorized votes", async function () {
     const f = await deployFixture();
     await createAndClose(f);
