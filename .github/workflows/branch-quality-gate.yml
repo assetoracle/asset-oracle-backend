@@ -37,6 +37,10 @@ jobs:
         with:
           node-version: 22
       - run: npm install --include=dev
+      - name: Report dependency advisories
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node -e 'const a=require("/tmp/npm-audit.json"); for (const [name,v] of Object.entries(a.vulnerabilities || {})) console.log(JSON.stringify({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}));'
       - run: npm run build
       - run: npm test
 
@@ -53,5 +57,9 @@ jobs:
         with:
           node-version: 20
       - run: npm install
+      - name: Report dependency advisories
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node -e 'const a=require("/tmp/npm-audit.json"); for (const [name,v] of Object.entries(a.vulnerabilities || {})) console.log(JSON.stringify({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}));'
       - run: npm run compile
       - run: npm test
