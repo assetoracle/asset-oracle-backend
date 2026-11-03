@@ -1,23 +1,31 @@
 # Asset Oracle market data providers
 
-Backend-only provider adapters and admin-authenticated read endpoints. This integration does not change Solidity contracts, fee constants, token configuration, validator roster, or settlement rules.
+Backend-only provider adapters and admin-authenticated read endpoints. Provider capabilities are reusable across market categories; a provider is not restricted to one category. This integration does not change Solidity contracts, fee constants, token configuration, validator roster, or settlement rules.
 
-## Provider coverage
+## Cross-category provider capability map
 
-| Market category | Provider | Access configured by |
-|---|---|---|
-| Digital Assets | CoinGecko | `COINGECKO_API_KEY` |
-| Digital Assets | DexScreener | Public API |
-| Real-World Assets | DeFiLlama | Public/free endpoints only; no Pro RWA endpoints |
-| Real-World Assets | DexScreener | Public API; shared adapter |
-| Economic & Financial | FRED | `FRED_API_KEY` |
-| Economic & Financial | World Bank | Public API |
-| Regional & Global Events | GDELT | Public API |
-| Regional & Global Events | Open-Meteo | Public API, subject to the usage/licensing arrangement selected by the project |
-| Sports | Sportmonks | `SPORTMONKS_API_TOKEN` |
-| Sports | API-Football | `API_FOOTBALL_KEY` |
+| Provider | Digital Assets | RWA | Economic & Financial | Regional & Global Events | Sports |
+|---|---|---|---|---|---|
+| CoinGecko | Primary: token prices, market data and historical charts | Supporting: tokenized-asset/token market data where listed | — | — | — |
+| DexScreener | Primary: token pairs, liquidity and trading activity | Supporting: tokenized-asset pools and market activity where listed | — | — | — |
+| DeFiLlama | Supporting: protocols, TVL, DEX volumes and ecosystem metrics | Supporting: protocol/chain TVL and RWA-adjacent DeFi metrics available on free endpoints | — | — | — |
+| FireScreener | Intended: screener data once official API is supplied | Intended: screener data once official API is supplied | — | — | — |
+| Asset Chain Indexer | Supporting: on-chain token, contract and transaction data | Primary: Asset Chain RWA contracts, transfers and on-chain activity | — | — | — |
+| FRED | — | — | Primary: US economic and financial series | — | — |
+| World Bank | — | — | Primary: country and development indicators | Supporting: country-level context where relevant | — |
+| GDELT | — | — | Supporting: news evidence for relevant economic events | Primary: global news and event discovery | Supporting: sports-related news only when relevant |
+| Open-Meteo | — | — | Supporting: weather-linked economic/RWA events | Primary: weather and forecast evidence | Supporting: weather conditions affecting scheduled sports events |
+| Sportmonks | — | — | — | Supporting: sports-related event reporting where relevant | Primary: fixtures, scores and match data |
+| API-Football | — | — | — | Supporting: sports-related event reporting where relevant | Primary: fixtures, scores and match data |
 
-FireScreener and the Asset Chain Indexer are intentionally not implemented yet: their API source/endpoint details are still awaited. Add their adapters when the user supplies the official integration details. Do not scrape FireScreener or guess indexer endpoints.
+**Important:** “Supporting” does not mean every endpoint is suitable for every market. Market templates must choose the specific fields, endpoint, freshness window and source-quality rules needed for each question. CoinGecko, DexScreener and DeFiLlama may all contribute to both Digital Asset and RWA markets. FireScreener will be mapped across both once its official API is supplied. The Asset Chain Indexer can provide evidence for both on-chain digital assets and RWAs.
+
+## Implementation status
+
+- Available adapters: CoinGecko, DexScreener, DeFiLlama, FRED, World Bank, GDELT, Open-Meteo, Sportmonks and API-Football.
+- Outstanding adapters: FireScreener and Asset Chain Indexer, pending official API documentation/endpoints and access details.
+- Do not scrape FireScreener or guess Asset Chain Indexer endpoints.
+- The DeFiLlama integration uses public/free endpoints only; do not call paid Pro-only RWA endpoints.
 
 ## Endpoints
 
@@ -53,12 +61,7 @@ DexScreener, DeFiLlama free endpoints, World Bank, GDELT and Open-Meteo use publ
 
 Each provider response includes provider name, source reference, retrieval timestamp and SHA-256 hash of the response body. These are provenance metadata, not proof that the source is accurate. API credentials are sent in headers or query parameters as required by each provider and are redacted from the returned source reference.
 
-These routes are admin-only provider access endpoints. They do not yet constitute an automated market-generation pipeline. External APIs must not independently select YES/NO outcomes, bypass human-validator consensus, or authorize settlement.
-
-## Outstanding integrations
-
-- FireScreener: awaiting official API documentation/source and access method from the user.
-- Asset Chain Indexer: awaiting official endpoint/documentation and authentication details from the user.
+These routes are admin-only provider access endpoints. They do not yet constitute an automated market-generation pipeline. External APIs must not select outcomes, bypass human-validator consensus, or independently authorize settlement.
 
 ## Mainnet safety
 
