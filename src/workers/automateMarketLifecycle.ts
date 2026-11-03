@@ -88,6 +88,7 @@ async function main(): Promise<void> {
     throw new Error("This worker is testnet-only and refuses any chain ID other than 42421.");
   }
   const account = privateKeyToAccount(requiredPrivateKey());
+  if (!CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS || !/^0x[0-9a-fA-F]{40}$/.test(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)) throw new Error("ASSET_ORACLE_MARKET_MANAGER_ADDRESS must identify the active manager; no transactions submitted.");
   const manager = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
   const publicClient = createPublicClient({ chain, transport: http(chain.rpcUrls.default.http[0]) });
   const walletClient = createWalletClient({ account, chain, transport: http(chain.rpcUrls.default.http[0]) });
