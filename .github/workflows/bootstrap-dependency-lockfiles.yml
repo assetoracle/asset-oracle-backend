@@ -5,6 +5,8 @@ on:
       - dependency-security-review
     paths:
       - ".github/workflows/bootstrap-dependency-lockfiles.yml"
+      - "package.json"
+      - "package-lock.json"
 permissions:
   contents: write
 jobs:
@@ -16,7 +18,9 @@ jobs:
         with:
           node-version: 22
       - name: Apply non-breaking backend security updates
-        run: npm audit fix --package-lock-only || true
+        run: |
+          npm install --package-lock-only
+          npm audit fix --package-lock-only || true
       - name: Install backend exactly from lockfile
         run: npm ci
       - name: Verify backend build and tests
