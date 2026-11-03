@@ -38,7 +38,7 @@ router.post("/intent", async (req, res, next) => {
     if (!await verifyWalletSignature(walletAuth.address, walletAuth.signature as `0x${string}`, walletAuth.message)) {
       return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
     }
-    if (isMarketCreatorWallet(walletAuth.address)) {
+    if (await isMarketCreatorWallet(walletAuth.address)) {
       return res.status(403).json({ error: "Market makers submit proposals for free and cannot create paid submission intents." });
     }
 
@@ -142,7 +142,7 @@ function sessionToken(req: import("express").Request): string {
 }
 
 async function authorizeRefundAdmin(req: import("express").Request, address: string): Promise<boolean> {
-  return isAdminWallet(address) && await verifyWalletSession(sessionToken(req), address);
+  return await isAdminWallet(address) && await verifyWalletSession(sessionToken(req), address);
 }
 
 router.post("/admin/refunds/queue", async (req, res, next) => {
