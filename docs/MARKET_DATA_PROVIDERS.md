@@ -10,7 +10,7 @@ Backend-only provider adapters and admin-authenticated read endpoints. Provider 
 | DexScreener | Primary: token pairs, liquidity and trading activity | Supporting: tokenized-asset pools and market activity where listed | — | — | — |
 | DeFiLlama | Supporting: protocols, TVL, DEX volumes and ecosystem metrics | Supporting: protocol/chain TVL and RWA-adjacent DeFi metrics available on free endpoints | — | — | — |
 | FireScreener | Intended: screener data once official API is supplied | Intended: screener data once official API is supplied | — | — | — |
-| Asset Chain Indexer | Supporting: on-chain token, contract and transaction data | Primary: Asset Chain RWA contracts, transfers and on-chain activity | — | — | — |
+| Asset Chain Indexer | Supporting: Asset Oracle market-contract events and indexed transactions | Supporting: Asset Oracle market-contract events; not a general RWA contract index | — | — | — |
 | FRED | — | — | Primary: US economic and financial series | — | — |
 | World Bank | — | — | Primary: country and development indicators | Supporting: country-level context where relevant | — |
 | GDELT | — | — | Supporting: news evidence for relevant economic events | Primary: global news and event discovery | Supporting: sports-related news only when relevant |
@@ -23,7 +23,8 @@ Backend-only provider adapters and admin-authenticated read endpoints. Provider 
 ## Implementation status
 
 - Available adapters: CoinGecko, DexScreener, DeFiLlama, FRED, World Bank, GDELT, Open-Meteo, Sportmonks and API-Football.
-- Outstanding adapters: FireScreener and Asset Chain Indexer, pending official API documentation/endpoints and access details.
+- FireScreener remains pending official API documentation/access from its team.
+- Existing internal Asset Oracle on-chain stats indexer is available for Asset Oracle market-manager events (Staked, MarketFinalized, Claimed and Refunded). Reuse it as a limited on-chain evidence source; it is not a general Asset Chain indexer and does not currently index arbitrary RWA contracts, token transfers or all chain activity.
 - Do not scrape FireScreener or guess Asset Chain Indexer endpoints.
 - The DeFiLlama integration uses public/free endpoints only; do not call paid Pro-only RWA endpoints.
 
@@ -83,6 +84,14 @@ The branch now includes a deterministic rotation selector in `src/services/marke
 
 Each slot is 10 minutes. A category therefore gets a turn every 50 minutes. The slot is calculated from the absolute UTC 10-minute interval, so the same instant always resolves to the same category after a worker restart; it does not depend on an in-memory counter or a mutable schedule row.
 
-The selector also filters candidate providers against the adapters currently configured. Pending FireScreener and Asset Chain Indexer integrations are omitted until their official API details are supplied.
+The selector also filters candidate providers against the adapters currently configured. FireScreener remains omitted until its official API details are supplied. The existing Asset Oracle on-chain stats indexer is listed as a limited internal evidence source, subject to its enablement and indexing status.
 
 **Current boundary:** this commit establishes and tests the rotation schedule only. It does not yet fetch data or generate markets. A market-generation layer still needs approved market templates and their exact data requirements (for example, the asset/token, country and indicator, event query, location, or competition). Once those inputs exist, the active slot can invoke only the relevant provider adapters, with caching and source fallback. No API is called merely because its category's slot is active.
+
+## Existing Asset Oracle on-chain stats indexer
+
+The repository already contains `src/services/onchainStatsIndexer.ts`. It reads confirmed logs from the configured Asset Oracle market manager on Asset Chain Enugu testnet (chain ID 42421), stores them in PostgreSQL, and tracks indexed block cursors. Its supported event types are `Staked`, `MarketFinalized`, `Claimed` and `Refunded`.
+
+The server starts it only when `ONCHAIN_STATS_INDEXER_ENABLED=true`; the example environment keeps it disabled by default. Before enabling it, verify the current manager deployment and the configured indexer start block. The indexer currently uses the existing Enugu RPC endpoint and a default start block of 4,502,688.
+
+**Scope limitation:** this is an Asset Oracle contract-event indexer, not a chain-wide Asset Chain explorer/indexer. It does not currently index arbitrary RWA contracts, all ERC-20 transfers, or all transactions on Asset Chain. We can use its existing indexed Asset Oracle market events as on-chain evidence now; broader RWA coverage would require extending it with the relevant contract addresses and event ABIs or using a separate chain-wide indexer.
