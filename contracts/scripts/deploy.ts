@@ -17,6 +17,7 @@ async function main() {
   const expectedTreasury = "0x650fBE31b1710b27Ea9eBe03862BC93145Fb3d77";
   const expectedValidatorPool = "0xb86e97b85e816ed0fe170a2dc3b5558232792553";
   const expectedUsdcAddress = "0xc33741fddEBeA854d265db6F9707900Efb0211a2";
+  const expectedAutomationWallet = "0xc476bcbbf4ebf0d11afa513b19b70e1f1a1af39e";
   const expectedValidators = [
     expectedOwner,
     "0xb94185491c78e7331c5d53e9b0df74970b3c9b8a",
@@ -28,6 +29,7 @@ async function main() {
   const validatorPool = ethers.getAddress(required("VALIDATOR_REWARD_POOL_ADDRESS"));
   const resolver = ethers.getAddress(required("ORACLE_RESOLVER_ADDRESS"));
   const usdcAddress = ethers.getAddress(required("USDC_TOKEN_ADDRESS"));
+  const automationWallet = ethers.getAddress(required("AUTOMATED_MARKET_CREATOR_WALLET_ADDRESS"));
   const validators = [
     ethers.getAddress(required("VALIDATOR_WALLET_1")),
     ethers.getAddress(required("VALIDATOR_WALLET_2")),
@@ -49,6 +51,9 @@ async function main() {
   if (usdcAddress.toLowerCase() !== expectedUsdcAddress.toLowerCase()) {
     throw new Error(`Refusing deployment: Enugu testnet must use the approved USDC address ${expectedUsdcAddress}.`);
   }
+  if (automationWallet.toLowerCase() !== expectedAutomationWallet.toLowerCase()) {
+    throw new Error(`Refusing deployment: AUTOMATED_MARKET_CREATOR_WALLET_ADDRESS must be the confirmed automation wallet ${expectedAutomationWallet}.`);
+  }
   if (resolver.toLowerCase() !== owner.toLowerCase()) {
     throw new Error("Refusing deployment: the initial Enugu testnet oracle resolver must be the confirmed final owner wallet.");
   }
@@ -64,6 +69,9 @@ async function main() {
     .map(value => ethers.getAddress(value));
   if (extraCreators.some(address => address === ethers.ZeroAddress)) {
     throw new Error("Refusing deployment: MARKET_CREATOR_WALLET_ADDRESSES cannot contain the zero address.");
+  }
+  if (extraCreators.some(address => address.toLowerCase() === automationWallet.toLowerCase())) {
+    throw new Error("Refusing deployment: the automation wallet must use its dedicated automated creator role, not the manual creator list.");
   }
   if (extraCreators.some(address => address.toLowerCase() === deployer.address.toLowerCase())) {
     throw new Error("Refusing deployment: the temporary deployment wallet must not be configured as a market creator.");
@@ -111,6 +119,10 @@ async function main() {
   const resolverReceipt = await resolverTx.wait();
   if (!resolverReceipt) throw new Error("Resolver configuration receipt was not available.");
 
+  const automatedCreatorTx = await manager.setAutomatedMarketCreator(automationWallet, true);
+  const automatedCreatorReceipt = await automatedCreatorTx.wait();
+  if (!automatedCreatorReceipt) throw new Error("Automated creator role configuration receipt was not available.");
+
   const creatorReceipts: Array<{ address: string; hash: string; blockNumber: number }> = [];
   for (const address of extraCreators) {
     const creatorTx = await manager.setMarketCreator(address, true);
@@ -137,6 +149,10 @@ async function main() {
   }
   const creatorRole = ethers.keccak256(ethers.toUtf8Bytes("MARKET_CREATOR_ROLE"));
   const resolverRole = ethers.keccak256(ethers.toUtf8Bytes("ORACLE_RESOLVER_ROLE"));
+  const automatedCreatorRole = ethers.keccak256(ethers.toUtf8Bytes("AUTOMATED_MARKET_CREATOR_ROLE"));
+  if (!(await manager.hasRole(automatedCreatorRole, automationWallet))) {
+    throw new Error("Refusing ownership transfer: automated creator role did not verify for the automation wallet.");
+  }
   if (!(await manager.hasRole(resolverRole, owner))) {
     throw new Error("Refusing ownership transfer: final owner lacks the oracle resolver role.");
   }
@@ -154,6 +170,9 @@ async function main() {
   const finalOwner = ethers.getAddress(await manager.owner());
   if (finalOwner.toLowerCase() !== owner.toLowerCase()) {
     throw new Error(`CRITICAL: final owner mismatch. Expected ${owner}, received ${finalOwner}.`);
+  }
+  if (!(await manager.hasRole(automatedCreatorRole, automationWallet))) {
+    throw new Error("CRITICAL: automation wallet lost its automated creator role after ownership transfer.");
   }
   const adminRole = ethers.ZeroHash;
   for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["oracle resolver", resolverRole]] as const) {
@@ -176,6 +195,9 @@ async function main() {
   console.log("Validator roster configuration transaction:", validatorsTx.hash);
   console.log("Validator roster configuration block:", validatorsReceipt.blockNumber);
   console.log("Validators:", validators.join(", "));
+  console.log("Automated market creator:", automationWallet);
+  console.log("Automated creator role transaction:", automatedCreatorTx.hash);
+  console.log("Automated creator role block:", automatedCreatorReceipt.blockNumber);
   console.log("Resolver configuration transaction:", resolverTx.hash);
   console.log("Resolver configuration block:", resolverReceipt.blockNumber);
   for (const receipt of creatorReceipts) {
