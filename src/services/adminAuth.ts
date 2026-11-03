@@ -4,7 +4,6 @@ import {
   http,
   isAddress,
   type Address,
-  type Hex,
 } from "viem";
 import { verifyWalletSignature } from "./walletAuth.js";
 import {
