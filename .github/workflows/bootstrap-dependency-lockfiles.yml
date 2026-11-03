@@ -1,0 +1,50 @@
+name: Bootstrap dependency lockfiles and audit
+on:
+  push:
+    branches:
+      - dependency-security-review
+    paths:
+      - ".github/workflows/bootstrap-dependency-lockfiles.yml"
+permissions:
+  contents: write
+jobs:
+  lock-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Generate backend lockfile
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Generate contracts lockfile
+        working-directory: contracts
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Audit backend dependencies
+        run: |
+          npm audit --json > backend-audit.json || true
+          node -e 'const a=require("./backend-audit.json"); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities, vulnerabilities:Object.entries(a.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}))},null,2))'
+      - name: Audit contract dependencies
+        working-directory: contracts
+        run: |
+          npm audit --json > ../contracts-audit.json || true
+          node -e 'const a=require("../contracts-audit.json"); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities, vulnerabilities:Object.entries(a.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}))},null,2))'
+      - name: Commit generated lockfiles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json contracts/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Add reproducible dependency lockfiles for security review"
+            git push
+          else
+            echo "No lockfile changes to commit"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: dependency-audit-reports
+          path: |
+            backend-audit.json
+            contracts-audit.json
+          if-no-files-found: ignore
