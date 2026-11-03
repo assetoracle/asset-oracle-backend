@@ -69,3 +69,20 @@ These routes are admin-only provider access endpoints. They do not yet constitut
 - Asset Chain mainnet uses chain ID 42420 and `https://mainnet-rpc.assetchain.org`; this does not establish that the current manager address is deployed on mainnet.
 - Do not enable the worker on mainnet until a verified manager address, token address/decimals, validator roster, role grant, treasury/reward recipients and deployment evidence are confirmed.
 - Existing contract economics remain unchanged: 0.25% trading fee and 2% settlement fee on eligible winning settlements.
+
+## Staggered category rotation
+
+The branch now includes a deterministic rotation selector in `src/services/marketDataRotation.ts`:
+
+1. Real-World Assets
+2. Digital Assets / Spot
+3. Economic & Financial Data
+4. Regional & Global Events
+5. Sports
+6. Repeat
+
+Each slot is 10 minutes. A category therefore gets a turn every 50 minutes. The slot is calculated from the absolute UTC 10-minute interval, so the same instant always resolves to the same category after a worker restart; it does not depend on an in-memory counter or a mutable schedule row.
+
+The selector also filters candidate providers against the adapters currently configured. Pending FireScreener and Asset Chain Indexer integrations are omitted until their official API details are supplied.
+
+**Current boundary:** this commit establishes and tests the rotation schedule only. It does not yet fetch data or generate markets. A market-generation layer still needs approved market templates and their exact data requirements (for example, the asset/token, country and indicator, event query, location, or competition). Once those inputs exist, the active slot can invoke only the relevant provider adapters, with caching and source fallback. No API is called merely because its category's slot is active.
