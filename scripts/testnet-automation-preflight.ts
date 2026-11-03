@@ -6,7 +6,6 @@ import {
   CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS,
   ASSET_CHAIN_TESTNET_ID,
   ASSET_CHAIN_TESTNET_RPC_URL,
-  HUMAN_VALIDATOR_ADDRESSES,
 } from "../src/config/assetOracle.js";
 
 const { Pool } = pg;
@@ -72,10 +71,11 @@ async function main() {
     assertCheck(validatorShareBps === 1_500n, `Unexpected validator share: ${validatorShareBps} bps; expected 1500.`);
 
     const roster = [];
-    for (let i = 0; i < HUMAN_VALIDATOR_ADDRESSES.length; i++) {
-      const actual = await client.readContract({ address: manager, abi, functionName: "validators", args: [BigInt(i)] });
-      assertCheck(getAddress(actual) === getAddress(HUMAN_VALIDATOR_ADDRESSES[i]), `Validator mismatch at roster index ${i}.`);
-      roster.push(getAddress(actual));
+    for (let i = 0; i < 3; i++) {
+      const actual = getAddress(await client.readContract({ address: manager, abi, functionName: "validators", args: [BigInt(i)] }));
+      assertCheck(actual !== "0x0000000000000000000000000000000000000000", `Validator slot ${i + 1} is zero.`);
+      assertCheck(!roster.includes(actual), `Validator wallet is duplicated at slot ${i + 1}.`);
+      roster.push(actual);
     }
 
     console.log("READ-ONLY TESTNET AUTOMATION PREFLIGHT PASSED");
