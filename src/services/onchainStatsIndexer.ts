@@ -3,7 +3,6 @@ import { createPublicClient, http, parseAbiItem, type Log } from "viem";
 import { database } from "../config/database.js";
 
 const EXPECTED_CHAIN_ID = 42421;
-const DEFAULT_START_BLOCK = 4_502_688n;
 const DEFAULT_BATCH_SIZE = 1_000n;
 const DEFAULT_POLL_INTERVAL_MS = 15_000;
 const CONFIRMATION_DEPTH = 3n;
@@ -62,11 +61,9 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
   // Only index the current manager. Retired manager contracts are intentionally excluded.
   const managers = [...new Set([current].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase()))];
   if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {
-    throw new Error("On-chain stats indexer requires valid current and legacy manager addresses.");
+    throw new Error("On-chain stats indexer requires the active manager address.");
   }
-  // The canonical manager is the active source for new markets and validator
-  // settlement. A retired manager's RPC/code failure must not prevent indexing
-  // the canonical manager; legacy account reads remain available independently.
+  // The active manager is the sole indexed source for this deployment.
   for (const managerAddress of managers) {
     try {
       await initializeManagerIndexer(managerAddress);
@@ -125,7 +122,9 @@ async function initializeManagerIndexer(managerAddress: string): Promise<void> {
     )
   `);
 
-  const startBlock = BigInt(process.env.ASSET_ORACLE_INDEXER_START_BLOCK || DEFAULT_START_BLOCK.toString());
+  const startBlockRaw = process.env.ASSET_ORACLE_INDEXER_START_BLOCK?.trim();
+  if (!startBlockRaw || !/^[0-9]+$/.test(startBlockRaw)) throw new Error("ASSET_ORACLE_INDEXER_START_BLOCK must be set to the verified active deployment block.");
+  const startBlock = BigInt(startBlockRaw);
   if (startBlock < 0n) throw new Error("Indexer start block must not be negative.");
 
   const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || "https://enugu-rpc.assetchain.org";
