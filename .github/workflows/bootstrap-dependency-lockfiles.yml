@@ -8,6 +8,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "contracts/package.json"
+      - "contracts/package.json"
       - "contracts/package-lock.json"
 permissions:
   contents: write
