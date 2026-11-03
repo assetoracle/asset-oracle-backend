@@ -68,7 +68,10 @@ small{color:#8ea6c7;line-height:1.5;display:block;margin-top:12px}
   async function inspect() {
     setReady(false);
     if (!window.ethereum) throw new Error("No injected wallet was found. Open this page inside Rabby Mobile's browser.");
-    provider = new ethers.BrowserProvider(window.ethereum);
+    if (!window.ethers) throw new Error("The wallet library did not load. Check your internet connection and refresh.");
+    if (!window.ethereum) throw new Error("No injected wallet was found. Open this page inside Rabby Mobile's browser.");
+    const injected = window.ethereum.providers?.find(p => p.isRabby) || window.ethereum;
+    provider = new ethers.BrowserProvider(injected);
     const network = await provider.getNetwork();
     if (network.chainId !== CHAIN_ID) throw new Error("Wrong network. Switch Rabby to Asset Chain Enugu Testnet (Chain ID 42421), then reconnect.");
     signer = await provider.getSigner();
