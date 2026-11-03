@@ -643,4 +643,39 @@ describe("AssetOracleMarketManager (USDC-only Enugu testnet config)", function (
     await f.manager.finalizeMarket(1);
     expect((await f.manager.getMarket(1)).status).to.equal(3);
   });
+
+  it("ends arbitration voting after seven days and permits fee-free participant refunds", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the test event happen?", "YES if the official source confirms the event by the deadline.",
+      "https://official.example/result", closeTime, 3600
+    );
+    await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
+    await time.increaseTo(closeTime);
+    await f.manager.connect(f.creator).closeMarket(1);
+
+    const initialEvidence = ethers.keccak256(ethers.toUtf8Bytes("initial evidence"));
+    await f.manager.connect(f.owner).resolveMarket(1, 1, initialEvidence);
+    await f.manager.connect(f.resolver).resolveMarket(1, 1, initialEvidence);
+
+    const disputeEvidence = ethers.keccak256(ethers.toUtf8Bytes("dispute evidence"));
+    await f.manager.connect(f.alice).disputeResolution(1, disputeEvidence);
+    await f.manager.connect(f.owner).resolveDispute(1, 2, disputeEvidence);
+
+    const arbitrationStarted = (await f.manager.getMarket(1)).resolvedAt;
+    await time.increaseTo(Number(arbitrationStarted + 7n * 24n * 60n * 60n));
+    await expect(
+      f.manager.connect(f.resolver).resolveDispute(1, 2, disputeEvidence)
+    ).to.be.revertedWithCustomError(f.manager, "ChallengeWindowClosed");
+
+    await f.manager.connect(f.outsider).refundDisputedTimeout(1);
+    expect((await f.manager.getMarket(1)).status).to.equal(4); // REFUNDABLE.
+
+    const before = await f.usdc.balanceOf(f.alice.address);
+    await f.manager.connect(f.alice).refundCancelled(1);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(990_000n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(10_000n); // Trading fee only.
+  });
 });
