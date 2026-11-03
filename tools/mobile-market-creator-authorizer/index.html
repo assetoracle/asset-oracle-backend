@@ -58,6 +58,7 @@ small{color:#8ea6c7;line-height:1.5;display:block;margin-top:12px}
   const $ = id => document.getElementById(id);
   let provider, signer, contract, role;
   let ready = false;
+  let authorized = false;
   const say = message => { $("status").textContent = message; };
   const setReady = value => {
     ready = value;
@@ -102,16 +103,21 @@ small{color:#8ea6c7;line-height:1.5;display:block;margin-top:12px}
       say("Transaction submitted: " + tx.hash + ". Waiting for confirmation…");
       await tx.wait();
       const has = await contract.hasRole(role, AUTOMATION);
+      authorized = has;
       say(has ? "Confirmed: the automation wallet now has MARKET_CREATOR_ROLE. The scheduled worker is still disabled." : "Transaction confirmed, but the role check did not pass. Do not enable automation.");
+      $("authorize").disabled = has;
       $("verify").disabled = false;
-    } catch (e) { say(e.shortMessage || e.reason || e.message || String(e)); }
-    finally { $("authorize").disabled = false; }
+    } catch (e) {
+      say(e.shortMessage || e.reason || e.message || String(e));
+      $("authorize").disabled = !ready || authorized;
+    }
   });
   $("verify").addEventListener("click", async () => {
     try {
       const has = await contract.hasRole(role, AUTOMATION);
+      authorized = has;
       say(has ? "Verified: MARKET_CREATOR_ROLE is active for the automation wallet." : "Not yet authorized. Do not enable automation.");
-      $("authorize").disabled = has;
+      $("authorize").disabled = has || !ready;
     } catch (e) { say(e.shortMessage || e.message || String(e)); }
   });
   if (!window.ethers) say("The wallet library did not load. Refresh this page or try again when connected to the internet.");
