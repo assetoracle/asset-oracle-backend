@@ -91,6 +91,23 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await expect(f.manager.setMarketCreator(f.outsider.address, false)).to.be.reverted;
   });
 
+  it("separates manual and automated market-creator permissions", async function () {
+    const f = await deployFixture();
+    const automatedRole = await f.manager.AUTOMATED_MARKET_CREATOR_ROLE();
+    const manualRole = await f.manager.MARKET_CREATOR_ROLE();
+    await f.manager.setAutomatedMarketCreator(f.outsider.address, true);
+    expect(await f.manager.hasRole(automatedRole, f.outsider.address)).to.equal(true);
+    expect(await f.manager.hasRole(manualRole, f.outsider.address)).to.equal(false);
+    const closeTime = (await time.latest()) + 3600;
+    await expect(f.manager.connect(f.outsider).createMarket(
+      0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    )).to.be.reverted;
+    await f.manager.connect(f.outsider).createAutomatedMarket(
+      0, "Will the automated event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
+    );
+    expect((await f.manager.getMarket(1)).creator).to.equal(f.outsider.address);
+  });
+
   it("allows only USDC on the testnet contract and validates its token decimals", async function () {
     const f = await deployFixture();
     await expect(f.manager.configureStablecoin(0, ethers.ZeroAddress, 6)).to.be.reverted;
@@ -125,17 +142,17 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect((await f.manager.getMarket(1)).status).to.equal(4); // REFUNDABLE.
   });
 
-  it("charges the 0.25% trading fee and records the net USDC stake", async function () {
+  it("charges the 1% transaction fee and records the net USDC stake", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
     await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
     await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
     const position = await f.manager.getPosition(1, f.alice.address);
-    expect(position.yes).to.equal(997_500n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_500n);
+    expect(position.yes).to.equal(990_000n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(10_000n);
   });
 
-  it("settles YES and splits the 2% settlement fee 25% to validators and 75% to treasury", async function () {
+  it("settles YES and splits the 10% settlement fee 15% to validators and 85% to treasury", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
     await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
@@ -146,9 +163,9 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(1_955_100n);
-    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(9_975n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(34_925n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(1_782_000n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(29_700n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(188_300n);
     await expect(f.manager.connect(f.alice).claim(1)).to.be.reverted;
   });
 
@@ -160,7 +177,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.cancelMarket(1, ethers.keccak256(ethers.toUtf8Bytes("cancelled")));
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).refundCancelled(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(997_500n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(990_000n);
   });
 
   it("allows full refunds when a closed market times out unresolved", async function () {
@@ -187,9 +204,9 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(748_125n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(742_500n);
     // Treasury already received the 2,500-unit trading fee, then receives 25% of net stake.
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(251_875n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(257_500n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
   });
 
@@ -294,7 +311,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     ).to.be.reverted;
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(977_550n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(891_000n);
   });
 
   it("distributes payouts in bounded batches and skips participants who already claimed", async function () {
@@ -309,7 +326,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await resolveByConsensus(f, 1, 1, ethers.keccak256(ethers.toUtf8Bytes("evidence")));
     const aliceBefore = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
-    expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(1_466_325n);
+    expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(1_336_500n);
     await f.manager.connect(f.outsider).distributePayouts(1, 0, 50);
     expect(await f.manager.claimCountByMarket(1)).to.equal(3n);
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
@@ -466,8 +483,8 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     for (const user of [f.alice, f.bob, f.creator]) await f.manager.connect(user).claim(1);
     const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
     expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(29_328n);
-    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(149n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(526n); // Includes 2 units of rounding dust swept after all claims.
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(445n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_826n); // Includes 2 units of rounding dust swept after all claims.
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
     for (const user of [f.alice, f.bob, f.creator]) {
       await expect(f.manager.connect(user).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
