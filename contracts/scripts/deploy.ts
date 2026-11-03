@@ -11,18 +11,8 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   if (!deployer) throw new Error("No deployer configured. Set DEPLOYER_PRIVATE_KEY in contracts/.env.");
 
-  // The dedicated deployer wallet is only the temporary owner during setup.
-  // The confirmed main wallet becomes final owner after configuration succeeds.
-  const expectedOwner = "0x3d3724d20d9d5db5a40819869057b37465a0c67d";
-  const expectedTreasury = "0x650fBE31b1710b27Ea9eBe03862BC93145Fb3d77";
-  const expectedValidatorPool = "0xb86e97b85e816ed0fe170a2dc3b5558232792553";
-  const expectedUsdcAddress = "0xc33741fddEBeA854d265db6F9707900Efb0211a2";
-  const expectedAutomationWallet = "0xc476bcbbf4ebf0d11afa513b19b70e1f1a1af39e";
-  const expectedValidators = [
-    expectedOwner,
-    "0xb94185491c78e7331c5d53e9b0df74970b3c9b8a",
-    "0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01",
-  ].map(address => ethers.getAddress(address));
+  // All deployment addresses are supplied through protected GitHub environment variables.
+  // No wallet addresses are embedded in source code.
 
   const owner = ethers.getAddress(required("OWNER_WALLET_ADDRESS"));
   const treasury = ethers.getAddress(required("TREASURY_ADDRESS"));
@@ -36,9 +26,16 @@ async function main() {
     ethers.getAddress(required("VALIDATOR_WALLET_3")),
   ] as const;
 
-  if (owner.toLowerCase() !== expectedOwner.toLowerCase()) {
-    throw new Error(`Refusing deployment: OWNER_WALLET_ADDRESS must be the confirmed final owner ${expectedOwner}.`);
+  if (resolver.toLowerCase() !== owner.toLowerCase()) {
+    throw new Error("Refusing deployment: initial oracle resolver must match the final owner wallet.");
   }
+  if (new Set(validators.map(address => address.toLowerCase())).size !== 3) {
+    throw new Error("Refusing deployment: validator wallets must be three distinct addresses.");
+  }
+  if (validators.some(address => address.toLowerCase() === deployer.address.toLowerCase())) {
+    throw new Error("Refusing deployment: temporary deployment wallet cannot be a validator.");
+  }
+
   if (deployer.address.toLowerCase() === owner.toLowerCase()) {
     throw new Error("Refusing deployment: use a dedicated deployment wallet, not the main owner wallet, as DEPLOYER_PRIVATE_KEY.");
   }
@@ -69,6 +66,14 @@ async function main() {
     .map(value => ethers.getAddress(value));
   if (extraCreators.some(address => address === ethers.ZeroAddress)) {
     throw new Error("Refusing deployment: MARKET_CREATOR_WALLET_ADDRESSES cannot contain the zero address.");
+  }
+  const creatorSet = new Set(extraCreators.map(address => address.toLowerCase()));
+  if (creatorSet.size !== extraCreators.length) {
+    throw new Error("Refusing deployment: manual creator addresses must be unique.");
+  }
+  if (extraCreators.some(address => address.toLowerCase() === owner.toLowerCase() ||
+      validators.some(validator => validator.toLowerCase() === address.toLowerCase()))) {
+    throw new Error("Refusing deployment: owner and validator wallets must not be repeated in the additional manual creator list.");
   }
   if (extraCreators.some(address => address.toLowerCase() === automationWallet.toLowerCase())) {
     throw new Error("Refusing deployment: the automation wallet must use its dedicated automated creator role, not the manual creator list.");
