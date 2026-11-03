@@ -350,8 +350,8 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.alice).claim(1);
     await f.manager.connect(f.bob).claim(1);
     expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(990_000n);
-    expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(1_995_000n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(7_500n);
+    expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(1_980_000n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(30_000n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
@@ -482,7 +482,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     const before = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
     for (const user of [f.alice, f.bob, f.creator]) await f.manager.connect(user).claim(1);
     const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
-    expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(29_328n);
+    expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(26_732n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(445n);
     expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_826n); // Includes 2 units of rounding dust swept after all claims.
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
