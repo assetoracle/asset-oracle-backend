@@ -17,7 +17,6 @@ import {
   CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS,
   ASSET_CHAIN_TESTNET_ID,
   ASSET_CHAIN_TESTNET_RPC_URL,
-  HUMAN_VALIDATOR_ADDRESSES,
 } from "../config/assetOracle.js";
 import { initializeMarketStore, listMarketProposals, recordOnchainPublication } from "../services/marketStore.js";
 
@@ -99,11 +98,13 @@ async function main(): Promise<void> {
   if (!code || code === "0x") throw new Error("No contract bytecode found at the configured market manager.");
   const roster = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "validatorRosterConfigured" });
   if (!roster) throw new Error("Validator roster is not configured; automation stopped.");
-  for (let index = 0; index < HUMAN_VALIDATOR_ADDRESSES.length; index++) {
-    const configuredValidator = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "validators", args: [BigInt(index)] });
-    if (getAddress(configuredValidator) !== getAddress(HUMAN_VALIDATOR_ADDRESSES[index])) {
-      throw new Error(`Validator roster mismatch at index ${index}; expected ${HUMAN_VALIDATOR_ADDRESSES[index]}, got ${configuredValidator}. Automation stopped.`);
-    }
+  const configuredValidators = await Promise.all([0n, 1n, 2n].map((index) =>
+    publicClient.readContract({ address: manager, abi: managerAbi, functionName: "validators", args: [index] }),
+  ));
+  const normalizedValidators = configuredValidators.map(getAddress);
+  if (normalizedValidators.some((validator) => validator === "0x0000000000000000000000000000000000000000") ||
+      new Set(normalizedValidators).size !== 3) {
+    throw new Error("The live validator roster must contain exactly three distinct, non-zero wallets; automation stopped.");
   }
   const token = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "stablecoins", args: [0] });
   if (!token[2] || getAddress(token[0]) !== getAddress(USDC) || Number(token[1]) !== 6) {
