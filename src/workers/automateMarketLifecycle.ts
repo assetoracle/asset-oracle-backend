@@ -166,14 +166,30 @@ async function main(): Promise<void> {
       // before writing its DB record.
       let recovered = false;
       marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
-      const count = Number(marketCount > BigInt(MAX_MARKETS_PER_RUN) ? BigInt(MAX_MARKETS_PER_RUN) : marketCount);
-      for (let id = 1; id <= count; id++) {
-        const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
+      const createdLogs = await publicClient.getLogs({
+        address: manager,
+        event: managerAbi[16],
+        fromBlock: 0n,
+        toBlock: "latest",
+      });
+      for (const created of createdLogs) {
+        const id = created.args.marketId;
+        if (id === undefined) continue;
+        const existing = await publicClient.readContract({
+          address: manager,
+          abi: managerAbi,
+          functionName: "getMarket",
+          args: [id],
+        });
         if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id)) {
-          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[15], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
-          const created = logs.find((log) => log.args.marketId === BigInt(id));
-          if (created?.transactionHash) {
-            const stored = await recordOnchainPublication({ id: proposal.id, marketId: String(id), txHash: created.transactionHash, managerAddress: manager, chainId: actualChainId });
+          if (created.transactionHash) {
+            const stored = await recordOnchainPublication({
+              id: proposal.id,
+              marketId: id.toString(),
+              txHash: created.transactionHash,
+              managerAddress: manager,
+              chainId: actualChainId,
+            });
             console.log(`Recovered publication for proposal ${proposal.id}: market ${id}`);
             recovered = Boolean(stored);
           }
