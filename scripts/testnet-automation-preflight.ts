@@ -12,7 +12,11 @@ const { Pool } = pg;
 const RPC_URL = process.env.ASSET_CHAIN_RPC_URL?.trim() || ASSET_CHAIN_TESTNET_RPC_URL;
 const EXPECTED_CHAIN_ID = ASSET_CHAIN_TESTNET_ID;
 const USDC = getAddress("0xc33741fddEBeA854d265db6F9707900Efb0211a2");
-const manager = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
+const configuredManager = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
+if (!configuredManager || !/^0x[0-9a-fA-F]{40}$/.test(configuredManager)) {
+  throw new Error("ASSET_ORACLE_MARKET_MANAGER_ADDRESS must identify the active manager.");
+}
+const manager = getAddress(configuredManager);
 const abi = [
   { type: "function", name: "validatorRosterConfigured", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
   { type: "function", name: "validators", stateMutability: "view", inputs: [{ name: "index", type: "uint256" }], outputs: [{ type: "address" }] },
