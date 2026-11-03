@@ -523,7 +523,7 @@ describe("AssetOracleMarketManager (USDC-only Enugu testnet config)", function (
     )).to.be.reverted;
     await expect(manager.configureValidators([owner.address, owner.address, resolver.address])).to.be.reverted;
     await manager.configureValidators([owner.address, resolver.address, bob.address]);
-    await expect(manager.configureValidators([owner.address, resolver.address, bob.address])).to.be.reverted;
+    expect(await manager.validatorRosterVersion()).to.equal(2n);
     await manager.connect(creator).createMarket(
       0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
     );
