@@ -1,38 +1,68 @@
 # Asset Oracle market data providers
 
-This module adds backend-only data-provider clients and admin-authenticated endpoints. It does not modify the Solidity contract, fee constants, token configuration, validator roster, or settlement rules.
+Backend-only provider adapters and admin-authenticated read endpoints. This integration does not change Solidity contracts, fee constants, token configuration, validator roster, or settlement rules.
 
-## Available endpoints
+## Provider coverage
 
-All routes require a valid wallet session in the `Authorization: Bearer <session-token>` header. The request body must also include the authenticated admin wallet's `address`.
-
-| Method and path | Required body fields | Purpose |
+| Market category | Provider | Access configured by |
 |---|---|---|
-| POST `/api/data-sources/dexscreener/search` | `address`, `query` | Search DEX trading pairs |
-| POST `/api/data-sources/dexscreener/token-pairs` | `address`, `chain`, `tokenAddress` | Read pools for an exact token contract |
-| POST `/api/data-sources/defillama/protocols` | `address` | List supported protocols and TVL |
-| POST `/api/data-sources/defillama/tvl` | `address`, `protocol` | Read protocol TVL |
-| POST `/api/data-sources/sports/matches` | `address`, `competition`, optional `dateFrom`, `dateTo` | Read fixtures and match results |
-| POST `/api/data-sources/economics/fred` | `address`, `seriesId`, optional `start`, `end` | Read economic observations |
-| POST `/api/data-sources/regional/gdelt` | `address`, `query`, optional `maxRecords` | Discover news reports for regional events |
+| Digital Assets | CoinGecko | `COINGECKO_API_KEY` |
+| Digital Assets | DexScreener | Public API |
+| Real-World Assets | DeFiLlama | Public/free endpoints only; no Pro RWA endpoints |
+| Real-World Assets | DexScreener | Public API; shared adapter |
+| Economic & Financial | FRED | `FRED_API_KEY` |
+| Economic & Financial | World Bank | Public API |
+| Regional & Global Events | GDELT | Public API |
+| Regional & Global Events | Open-Meteo | Public API, subject to the usage/licensing arrangement selected by the project |
+| Sports | Sportmonks | `SPORTMONKS_API_TOKEN` |
+| Sports | API-Football | `API_FOOTBALL_KEY` |
 
-Provider responses include provider name, retrieval time, source reference, and a SHA-256 hash of the returned response body. These are evidence metadata, not proof that a source is correct. The API-key query parameter used by FRED is redacted from the returned source reference.
+FireScreener and the Asset Chain Indexer are intentionally not implemented yet: their API source/endpoint details are still awaited. Add their adapters when the user supplies the official integration details. Do not scrape FireScreener or guess indexer endpoints.
 
-## Required secrets
+## Endpoints
 
-Configure these in the backend service's secret environment settings, never in frontend code or Git:
+All routes require a valid wallet session in `Authorization: Bearer <session-token>` and the admin wallet's `address` in the JSON body.
 
-- `FOOTBALL_DATA_API_KEY` — needed for football-data.org match requests.
-- `FRED_API_KEY` — needed for FRED economic observations.
+| Method and path | Additional body fields | Purpose |
+|---|---|---|
+| POST `/api/data-sources/coingecko/coin` | `coinId`, optional `vsCurrency`, `days` | Coin market chart |
+| POST `/api/data-sources/dexscreener/search` | `query` | Search DEX pairs |
+| POST `/api/data-sources/dexscreener/token-pairs` | `chain`, `tokenAddress` | Pools for exact token |
+| POST `/api/data-sources/defillama/protocols` | — | Protocol catalogue |
+| POST `/api/data-sources/defillama/tvl` | `protocol` | Protocol TVL |
+| POST `/api/data-sources/defillama/chain-tvl` | `chain` | Historical chain TVL |
+| POST `/api/data-sources/sports/sportmonks/fixtures` | `date` | Fixtures for a date |
+| POST `/api/data-sources/sports/api-football/fixtures` | `date`, optional `league`, `season` | Fixtures for a date/league |
+| POST `/api/data-sources/economics/fred` | `seriesId`, optional `start`, `end` | FRED observations |
+| POST `/api/data-sources/economics/world-bank` | `country`, `indicator`, optional `page` | World Bank indicator series |
+| POST `/api/data-sources/regional/gdelt` | `query`, optional `maxRecords` | Regional/global news discovery |
+| POST `/api/data-sources/regional/open-meteo` | `latitude`, `longitude`, optional `forecastDays` | Weather forecast data |
 
-DexScreener, DeFiLlama, and GDELT use their documented public endpoints in this implementation. Observe provider rate limits and plan restrictions.
+## Required environment secrets
+
+Set these in the backend's secure environment settings. Never put credentials in frontend code or commit them to Git:
+
+- `COINGECKO_API_KEY`
+- `FRED_API_KEY`
+- `SPORTMONKS_API_TOKEN`
+- `API_FOOTBALL_KEY`
+
+DexScreener, DeFiLlama free endpoints, World Bank, GDELT and Open-Meteo use public endpoints in this adapter. Respect each provider's rate limits, terms, attribution requirements and commercial-use conditions. The Open-Meteo endpoint being public does not itself establish the project's licence entitlement.
+
+## Evidence and security
+
+Each provider response includes provider name, source reference, retrieval timestamp and SHA-256 hash of the response body. These are provenance metadata, not proof that the source is accurate. API credentials are sent in headers or query parameters as required by each provider and are redacted from the returned source reference.
+
+These routes are admin-only provider access endpoints. They do not yet constitute an automated market-generation pipeline. External APIs must not independently select YES/NO outcomes, bypass human-validator consensus, or authorize settlement.
+
+## Outstanding integrations
+
+- FireScreener: awaiting official API documentation/source and access method from the user.
+- Asset Chain Indexer: awaiting official endpoint/documentation and authentication details from the user.
 
 ## Mainnet safety
 
 - The lifecycle worker currently targets Asset Chain Enugu testnet (chain ID 42421) only.
 - Asset Chain mainnet uses chain ID 42420 and `https://mainnet-rpc.assetchain.org`; this does not establish that the current manager address is deployed on mainnet.
-- Do not enable the worker on mainnet until a verified mainnet manager address, token address/decimals, validator roster, role grant, treasury/reward recipients, and deployment evidence are confirmed.
-- FireScreener's current documentation does not provide a public third-party API. Do not scrape its website or invent endpoints.
-- IMF Data and Africa API are not included in this initial adapter set; verify the specific dataset/API and credentials before adding them.
-- External APIs must not select outcomes, bypass human-validator consensus, or independently authorize settlement. Settlement continues to follow the existing contract.
-- Existing contract economics remain unchanged: 0.25% trading fee and 2% settlement fee on eligible winning settlements. Do not edit these constants as part of this integration.
+- Do not enable the worker on mainnet until a verified manager address, token address/decimals, validator roster, role grant, treasury/reward recipients and deployment evidence are confirmed.
+- Existing contract economics remain unchanged: 0.25% trading fee and 2% settlement fee on eligible winning settlements.
