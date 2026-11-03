@@ -304,7 +304,7 @@ referralsRouter.post("/review/queue/session", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: "A valid owner wallet address is required." });
     const { address } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
-    if (!isAdminWallet(address)) return res.status(403).json({ error: "Only the configured owner wallet can review flagged referrals." });
+    if (!(await isAdminWallet(address))) return res.status(403).json({ error: "Only the configured owner wallet can review flagged referrals." });
     const result = await database.query<{
       invited_wallet: string; referrer_wallet: string; first_prediction_tx: string; qualified_at: string | null;
     }>(
@@ -332,7 +332,7 @@ referralsRouter.post("/review/session", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: "Valid owner address, invited wallet, and review decision are required." });
     const { address, invitedWallet, decision } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
-    if (!isAdminWallet(address)) return res.status(403).json({ error: "Only the configured owner wallet can review flagged referrals." });
+    if (!(await isAdminWallet(address))) return res.status(403).json({ error: "Only the configured owner wallet can review flagged referrals." });
     if (decision === "KEEP_FLAGGED") {
       const stillFlagged = await database.query(
         "SELECT 1 FROM referral_attributions WHERE invited_wallet = $1 AND status = 'FLAGGED' AND first_prediction_tx IS NOT NULL",
