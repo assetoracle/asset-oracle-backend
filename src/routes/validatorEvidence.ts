@@ -7,9 +7,9 @@ import { listValidatorSourceLinks, recordValidatorSourceLink } from "../services
 import { evidenceHashMatchesSourceUrl } from "../services/validatorEvidenceVerification.js";
 
 const router = Router();
-const configuredManagerAddress = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
-if (!configuredManagerAddress || !isAddress(configuredManagerAddress)) throw new Error("ASSET_ORACLE_MARKET_MANAGER_ADDRESS must identify the active manager.");
-const managerAddress = getAddress(configuredManagerAddress);
+const managerAddress = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS && isAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)
+  ? getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)
+  : null;
 const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || ASSET_CHAIN_TESTNET_RPC_URL;
 const voteAbi = [
   { type: "function", name: "resolveMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }, { name: "outcome", type: "uint8" }, { name: "evidenceHash", type: "bytes32" }], outputs: [] },
@@ -40,6 +40,7 @@ const urlSchema = z.string().trim().url().max(2048).refine((value) => {
 
 router.get("/:marketId", async (req, res, next) => {
   try {
+    if (!managerAddress) return res.status(503).json({ error: "Active market manager is not configured." });
     const parsed = z.object({
       marketId: marketIdSchema,
       managerAddress: addressSchema,
@@ -65,6 +66,7 @@ router.post("/", async (req, res, next) => {
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "A valid market, vote outcome, source URL, transaction hash, and wallet are required." });
     const input = parsed.data;
+    if (!managerAddress) return res.status(503).json({ error: "Active market manager is not configured." });
     if (!await verifyWalletSession(sessionToken(req), input.address)) {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
