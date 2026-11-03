@@ -1,4 +1,4 @@
-name: Bootstrap dependency lockfiles and audit
+name: Dependency security remediation checks
 on:
   push:
     branches:
@@ -8,42 +8,56 @@ on:
 permissions:
   contents: write
 jobs:
-  lock-and-audit:
+  backend-and-contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
-      - name: Generate backend lockfile
-        run: npm install --package-lock-only --ignore-scripts
-      - name: Generate contracts lockfile
-        working-directory: contracts
-        run: npm install --package-lock-only --ignore-scripts
-      - name: Audit backend dependencies
+      - name: Apply non-breaking backend security updates
+        run: npm audit fix --package-lock-only || true
+      - name: Install backend exactly from lockfile
+        run: npm ci
+      - name: Verify backend build and tests
+        run: |
+          npm run build
+          npm test
+      - name: Record remaining backend advisories
         run: |
           npm audit --json > backend-audit.json || true
           node -e 'const a=require("./backend-audit.json"); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities, vulnerabilities:Object.entries(a.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}))},null,2))'
-      - name: Audit contract dependencies
+      - name: Apply non-breaking contract tooling security updates
+        working-directory: contracts
+        run: npm audit fix --package-lock-only || true
+      - name: Install contract tooling exactly from lockfile
+        working-directory: contracts
+        run: npm ci
+      - name: Verify contract compile and tests
+        working-directory: contracts
+        run: |
+          npm run compile
+          npm test
+      - name: Record remaining contract advisories
         working-directory: contracts
         run: |
           npm audit --json > ../contracts-audit.json || true
           node -e 'const a=require("../contracts-audit.json"); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities, vulnerabilities:Object.entries(a.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}))},null,2))'
-      - name: Commit generated lockfiles
+      - name: Commit lockfile updates after successful checks
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package-lock.json contracts/package-lock.json
           if ! git diff --cached --quiet; then
-            git commit -m "Add reproducible dependency lockfiles for security review"
+            git commit -m "Apply compatible dependency security updates"
             git push
           else
-            echo "No lockfile changes to commit"
+            echo "No compatible lockfile updates were available"
           fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: dependency-audit-reports
+          name: post-remediation-backend-contract-audits
           path: |
             backend-audit.json
             contracts-audit.json
