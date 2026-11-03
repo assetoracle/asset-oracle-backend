@@ -35,23 +35,6 @@ function getClient() {
   return createPublicClient({ transport: http(rpcUrl) });
 }
 
-async function readRole(role: Hex, address: Address): Promise<boolean> {
-  const client = getClient();
-  const [chainId, granted] = await Promise.all([
-    client.getChainId(),
-    client.readContract({
-      address: getManagerAddress(),
-      abi: managerAbi,
-      functionName: "hasRole",
-      args: [role, address],
-    }),
-  ]);
-  if (chainId !== ASSET_CHAIN_TESTNET_ID) {
-    throw new Error(`Asset Oracle authorization RPC returned unexpected chain ID ${chainId}.`);
-  }
-  return granted;
-}
-
 /** All privileged authorization is derived from the active manager contract. */
 export async function isAdminWallet(address: string): Promise<boolean> {
   if (!isAddress(address)) return false;
