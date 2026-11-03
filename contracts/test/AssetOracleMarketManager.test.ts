@@ -527,7 +527,23 @@ describe("AssetOracleMarketManager (USDC-only Enugu testnet config)", function (
     await manager.connect(creator).createMarket(
       0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
     );
-    await expect(manager.configureValidators([owner.address, resolver.address, bob.address])).to.be.reverted;
+    expect(await manager.marketValidators(1, 0)).to.equal(owner.address);
+    expect(await manager.marketValidators(1, 1)).to.equal(resolver.address);
+    expect(await manager.marketValidators(1, 2)).to.equal(bob.address);
+
+    // A roster change is allowed after launch, but it must not rewrite existing markets.
+    await manager.configureValidators([owner.address, resolver.address, creator.address]);
+    expect(await manager.validators(2)).to.equal(creator.address);
+    expect(await manager.marketValidators(1, 2)).to.equal(bob.address);
+    expect(await manager.isMarketValidator(1, bob.address)).to.equal(true);
+    expect(await manager.isMarketValidator(1, creator.address)).to.equal(false);
+
+    const nextCloseTime = (await time.latest()) + 3600;
+    await manager.connect(creator).createMarket(
+      0, "Will another test event happen?", "YES if confirmed by official source.", "official source", nextCloseTime, 3600
+    );
+    expect(await manager.marketValidators(2, 2)).to.equal(creator.address);
+    expect(await manager.isMarketValidator(2, bob.address)).to.equal(false);
   });
 
   it("requires two matching validator votes and prevents duplicate and unauthorized votes", async function () {
