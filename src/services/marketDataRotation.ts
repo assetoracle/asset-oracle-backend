@@ -4,12 +4,12 @@ export const MARKET_DATA_ROTATION = [
   {
     key: "rwa",
     label: "Real-World Assets",
-    providers: ["defillama", "dexscreener", "asset-chain-indexer", "coingecko"],
+    providers: ["defillama", "dexscreener", "asset-oracle-onchain-indexer", "coingecko"],
   },
   {
     key: "digital-assets",
     label: "Digital Assets",
-    providers: ["firescreener", "coingecko", "defillama", "dexscreener", "asset-chain-indexer"],
+    providers: ["firescreener", "coingecko", "defillama", "dexscreener", "asset-oracle-onchain-indexer"],
   },
   {
     key: "economic-financial",
