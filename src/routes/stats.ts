@@ -121,8 +121,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     let historyStatus = "INDEXER_DISABLED";
     if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
       try {
-        const legacyManagers = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")];
-        const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
+        const indexedManagers = [manager.toLowerCase()];
         const database = (await import("../config/database.js")).database;
         const result = await database.query<{
           manager_address: string; event_name: string; tx_hash: string; block_number: string; block_timestamp: Date;
