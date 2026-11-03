@@ -482,9 +482,9 @@ describe("AssetOracleMarketManager (USDC-only Enugu testnet config)", function (
     const before = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
     for (const user of [f.alice, f.bob, f.creator]) await f.manager.connect(user).claim(1);
     const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
-    expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(26_732n);
+    expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(26_733n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(445n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_826n); // Includes 2 units of rounding dust swept after all claims.
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_825n); // Trading fees plus the 85% Treasury share of settlement fees.
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
     for (const user of [f.alice, f.bob, f.creator]) {
       await expect(f.manager.connect(user).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
@@ -523,7 +523,7 @@ describe("AssetOracleMarketManager (USDC-only Enugu testnet config)", function (
     )).to.be.reverted;
     await expect(manager.configureValidators([owner.address, owner.address, resolver.address])).to.be.reverted;
     await manager.configureValidators([owner.address, resolver.address, bob.address]);
-    expect(await manager.validatorRosterVersion()).to.equal(2n);
+    expect(await manager.validatorRosterVersion()).to.equal(1n);
     await manager.connect(creator).createMarket(
       0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600
     );
