@@ -90,8 +90,8 @@ The selector also filters candidate providers against the adapters currently con
 
 ## Existing Asset Oracle on-chain stats indexer
 
-The repository already contains `src/services/onchainStatsIndexer.ts`. It reads confirmed logs from the configured Asset Oracle market manager on Asset Chain Enugu testnet (chain ID 42421), stores them in PostgreSQL, and tracks indexed block cursors. Its supported event types are `Staked`, `MarketFinalized`, `Claimed` and `Refunded`.
+The repository already contains `src/services/onchainStatsIndexer.ts`. It reads confirmed logs from the current Asset Oracle market manager only on Asset Chain Enugu testnet (chain ID 42421), stores them in PostgreSQL, and tracks indexed block cursors. Its supported event types are `Staked`, `MarketFinalized`, `Claimed` and `Refunded`.
 
-The server starts it only when `ONCHAIN_STATS_INDEXER_ENABLED=true`; the example environment keeps it disabled by default. Before enabling it, verify the current manager deployment and the configured indexer start block. The indexer currently uses the existing Enugu RPC endpoint and a default start block of 4,502,688.
+The indexer has been updated on this branch to exclude retired/legacy manager contracts and index only the current manager. The server starts it only when `ONCHAIN_STATS_INDEXER_ENABLED=true`; the example environment keeps it disabled by default. Before enabling it, verify the current manager deployment and the configured indexer start block. The indexer currently uses the existing Enugu RPC endpoint and a default start block of 4,502,688.
 
 **Scope limitation:** this is an Asset Oracle contract-event indexer, not a chain-wide Asset Chain explorer/indexer. It does not currently index arbitrary RWA contracts, all ERC-20 transfers, or all transactions on Asset Chain. We can use its existing indexed Asset Oracle market events as on-chain evidence now; broader RWA coverage would require extending it with the relevant contract addresses and event ABIs or using a separate chain-wide indexer.
