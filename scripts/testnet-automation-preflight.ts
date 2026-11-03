@@ -19,6 +19,9 @@ const abi = [
   { type: "function", name: "validators", stateMutability: "view", inputs: [{ name: "index", type: "uint256" }], outputs: [{ type: "address" }] },
   { type: "function", name: "stablecoins", stateMutability: "view", inputs: [{ name: "index", type: "uint8" }], outputs: [{ name: "token", type: "address" }, { name: "decimals", type: "uint8" }, { name: "enabled", type: "bool" }] },
   { type: "function", name: "hasRole", stateMutability: "view", inputs: [{ name: "role", type: "bytes32" }, { name: "account", type: "address" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "TRADING_FEE_BPS", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "SETTLEMENT_FEE_BPS", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
 ] as const;
 
 function assertCheck(condition: unknown, message: string): asserts condition {
@@ -48,19 +51,25 @@ async function main() {
     });
     const client = createPublicClient({ chain, transport: http(RPC_URL) });
     const account = privateKeyToAccount(privateKey as Hex);
-    const [chainId, managerCode, rosterConfigured, tokenConfig, role, gasBalance] = await Promise.all([
+    const [chainId, managerCode, rosterConfigured, tokenConfig, role, tradingFeeBps, settlementFeeBps, validatorShareBps, gasBalance] = await Promise.all([
       client.getChainId(),
       client.getBytecode({ address: manager }),
       client.readContract({ address: manager, abi, functionName: "validatorRosterConfigured" }),
       client.readContract({ address: manager, abi, functionName: "stablecoins", args: [0] }),
-      client.readContract({ address: manager, abi, functionName: "hasRole", args: [keccak256(toBytes("MARKET_CREATOR_ROLE")), account.address] }),
+      client.readContract({ address: manager, abi, functionName: "hasRole", args: [keccak256(toBytes("AUTOMATED_MARKET_CREATOR_ROLE")), account.address] }),
+      client.readContract({ address: manager, abi, functionName: "TRADING_FEE_BPS" }),
+      client.readContract({ address: manager, abi, functionName: "SETTLEMENT_FEE_BPS" }),
+      client.readContract({ address: manager, abi, functionName: "VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS" }),
       client.getBalance({ address: account.address }),
     ]);
     assertCheck(chainId === EXPECTED_CHAIN_ID, `Wrong RPC chain ID: expected 42421, received ${chainId}.`);
     assertCheck(managerCode && managerCode !== "0x", "Canonical market manager has no contract bytecode.");
     assertCheck(rosterConfigured, "Validator roster is not configured.");
     assertCheck(tokenConfig[2] && getAddress(tokenConfig[0]) === USDC && Number(tokenConfig[1]) === 6, "Canonical manager USDC configuration does not match the expected token.");
-    assertCheck(role, "Automation wallet does not have MARKET_CREATOR_ROLE.");
+    assertCheck(role, "Automation wallet does not have AUTOMATED_MARKET_CREATOR_ROLE.");
+    assertCheck(tradingFeeBps === 100n, `Unexpected transaction fee: ${tradingFeeBps} bps; expected 100.`);
+    assertCheck(settlementFeeBps === 1_000n, `Unexpected settlement fee: ${settlementFeeBps} bps; expected 1000.`);
+    assertCheck(validatorShareBps === 1_500n, `Unexpected validator share: ${validatorShareBps} bps; expected 1500.`);
 
     const roster = [];
     for (let i = 0; i < HUMAN_VALIDATOR_ADDRESSES.length; i++) {
@@ -83,7 +92,8 @@ async function main() {
       validators: roster,
       stablecoin: { address: getAddress(tokenConfig[0]), decimals: Number(tokenConfig[1]), enabled: tokenConfig[2] },
       automationWallet: account.address,
-      marketCreatorRole: role,
+      automatedMarketCreatorRole: role,
+      fees: { transactionBps: Number(tradingFeeBps), settlementBps: Number(settlementFeeBps), validatorShareBps: Number(validatorShareBps), treasuryShareBps: 10_000 - Number(validatorShareBps) },
       nativeGasBalanceWei: gasBalance.toString(),
       transactionsSubmitted: 0,
     }, null, 2));
