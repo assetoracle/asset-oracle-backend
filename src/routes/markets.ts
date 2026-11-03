@@ -66,7 +66,7 @@ marketsRouter.post("/auth/session", async (req, res, next) => {
     const { address, message, signature } = result.data;
     if (!await verifyWalletSignature(address, signature as `0x${string}`, message)) return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
     const session = await createWalletSession(address);
-    return res.status(201).json({ address, ...session, role: getWalletRole(address) });
+    return res.status(201).json({ address, ...session, role: await getWalletRole(address) });
   } catch (error) { return next(error); }
 });
 
@@ -85,7 +85,7 @@ marketsRouter.post("/proposals/session", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: "A valid wallet address and proposal are required." });
     const { address, proposal } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
-    if (!isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured market creators can submit market proposals." });
+    if (!await await isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured market creators can submit market proposals." });
     const stored = await createMarketProposal(proposal, address);
     return res.status(201).json({ message: "Market proposal submitted for approval.", proposal: stored });
   } catch (error) { return next(error); }
@@ -105,7 +105,7 @@ marketsRouter.put("/proposals/:id/session", async (req, res, next) => {
     if (!await verifyWalletSession(sessionToken(req), address)) {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
-    if (!isMarketCreatorWallet(address)) {
+    if (!await await isMarketCreatorWallet(address)) {
       return res.status(403).json({ error: "Only configured market creators can edit proposals." });
     }
     const updated = await updateOwnedMarketProposal(idResult.data, address, input);
@@ -146,7 +146,7 @@ marketsRouter.post("/admin/proposals/list/session", async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: "A valid admin wallet address is required" });
     const { address } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
-    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can review proposals." });
+    if (!await isAdminWallet(address) && !await await isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can review proposals." });
     const proposals = await listMarketProposals();
     return res.status(200).json({ proposals, count: proposals.length });
   } catch (error) { return next(error); }
@@ -159,7 +159,7 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
     if (!idResult.success || !parsed.success) return res.status(400).json({ error: "A valid proposal ID, wallet address, and decision are required." });
     const { address, status } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
-    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can decide proposals." });
+    if (!await isAdminWallet(address) && !await await isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can decide proposals." });
     const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
     if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
     if (decision === "CONFLICT") {
@@ -174,16 +174,16 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
   } catch (error) { return next(error); }
 });
-// Public role preview lets the UI show the connected wallet's configured role immediately.
- // This endpoint only reports the public role allowlist; protected actions still require a verified session.
-marketsRouter.post("/auth/role/public", (req, res) => {
-  const result = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
-  if (!result.success) return res.status(400).json({ error: "A valid wallet address is required." });
-  const { address } = result.data;
-  return res.status(200).json({
-    address,
-    ...getWalletRoleDetails(address),
-  });
+// Public role preview is read directly from the active manager contract.
+marketsRouter.post("/auth/role/public", async (req, res, next) => {
+  try {
+    const result = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: "A valid wallet address is required." });
+    const { address } = result.data;
+    return res.status(200).json({ address, ...await getWalletRoleDetails(address) });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 // Return authoritative role and permissions using the already verified wallet session.
@@ -197,7 +197,7 @@ marketsRouter.post("/auth/role/session", async (req, res, next) => {
     }
     return res.status(200).json({
     address,
-    ...getWalletRoleDetails(address),
+    ...await getWalletRoleDetails(address),
   });
   } catch (error) {
     return next(error);
@@ -229,7 +229,7 @@ marketsRouter.post("/auth/role", async (req, res, next) => {
 
     return res.status(200).json({
       address,
-      ...getWalletRoleDetails(address),
+      ...await getWalletRoleDetails(address),
     });
   } catch (error) {
     return next(error);
@@ -255,7 +255,7 @@ marketsRouter.post("/paid-submissions/quote", async (req, res, next) => {
     if (!verified) {
       return res.status(401).json({ error: "Wallet verification failed. Request a new nonce and sign again." });
     }
-    if (isMarketCreatorWallet(walletAuth.address)) {
+    if (await isMarketCreatorWallet(walletAuth.address)) {
       return res.status(403).json({ error: "Market makers submit proposals for free and do not need a paid submission quote." });
     }
     const config = getPaidSubmissionTestnetConfig();
@@ -343,7 +343,7 @@ marketsRouter.post("/proposals", async (req, res, next) => {
       });
     }
 
-    if (!isMarketCreatorWallet(walletAuth.address)) {
+    if (!await await isMarketCreatorWallet(walletAuth.address)) {
       return res.status(403).json({
         error: "Only configured market creators can submit market proposals.",
       });
@@ -561,7 +561,7 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
       walletAuth.signature as `0x${string}`,
       walletAuth.message,
     );
-    if (!verified || !isMarketCreatorWallet(walletAuth.address)) {
+    if (!verified || !await await isMarketCreatorWallet(walletAuth.address)) {
       return res.status(403).json({ error: "An authenticated, configured market-creator wallet is required." });
     }
 
@@ -669,7 +669,7 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
     if (!await verifyWalletSession(sessionToken(req), address)) {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
-    if (!isMarketCreatorWallet(address)) {
+    if (!await await isMarketCreatorWallet(address)) {
       return res.status(403).json({ error: "An authenticated, configured market-creator wallet is required." });
     }
 
