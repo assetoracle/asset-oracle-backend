@@ -84,6 +84,10 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     // two of these three wallets to submit the same outcome and evidence hash.
     address[3] public validators;
     mapping(address => bool) public isValidator;
+    mapping(uint256 => mapping(address => bool)) public isMarketValidator;
+    mapping(uint256 => mapping(uint8 => address)) public marketValidators;
+    mapping(uint256 => uint256) public marketValidatorRosterVersion;
+    uint256 public validatorRosterVersion;
     mapping(uint256 => mapping(address => bool)) public hasVoted;
     mapping(uint256 => mapping(bytes32 => uint8)) public voteCountByKey;
     mapping(uint256 => mapping(address => bool)) public hasVotedOnDispute;
@@ -91,7 +95,9 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     mapping(uint256 => bool) public disputeConsensusReached;
     bool public validatorRosterConfigured;
 
-    event ValidatorRosterConfigured(address validator1, address validator2, address validator3);
+    event ValidatorRosterConfigured(address validator1, address validator2, address validator3, uint256 indexed rosterVersion);
+    event MarketCreatorReplaced(address indexed previousCreator, address indexed newCreator);
+    event AutomatedMarketCreatorReplaced(address indexed previousCreator, address indexed newCreator);
     event ValidatorVoteSubmitted(uint256 indexed marketId, address indexed validator, Outcome outcome, bytes32 evidenceHash, uint8 matchingVotes);
     event DisputeVoteSubmitted(uint256 indexed marketId, address indexed validator, Outcome outcome, bytes32 evidenceHash, uint8 matchingVotes);
 
@@ -167,7 +173,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     }
 
     function configureValidators(address[3] calldata accounts) external onlyOwner {
-        if (marketCreationStarted || validatorRosterConfigured) revert ValidatorRosterLocked();
         for (uint256 i = 0; i < 3; i++) {
             if (accounts[i] == address(0)) revert InvalidAddress();
             for (uint256 j = 0; j < i; j++) {
@@ -175,11 +180,21 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             }
         }
         for (uint256 i = 0; i < 3; i++) {
+            address previous = validators[i];
+            if (previous != address(0)) isValidator[previous] = false;
+        }
+        for (uint256 i = 0; i < 3; i++) {
             validators[i] = accounts[i];
             isValidator[accounts[i]] = true;
         }
         validatorRosterConfigured = true;
-        emit ValidatorRosterConfigured(accounts[0], accounts[1], accounts[2]);
+        validatorRosterVersion++;
+        emit ValidatorRosterConfigured(accounts[0], accounts[1], accounts[2], validatorRosterVersion);
+    }
+
+    function getMarketValidators(uint256 marketId) external view returns (address[3] memory accounts) {
+        if (markets[marketId].id == 0) revert MarketNotFound();
+        for (uint8 i = 0; i < 3; i++) accounts[i] = marketValidators[marketId][i];
     }
 
     function configureStablecoin(Stablecoin kind, address token, uint8 expectedDecimals) external onlyOwner {
@@ -207,6 +222,24 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         if (enabled) _grantRole(AUTOMATED_MARKET_CREATOR_ROLE, account);
         else _revokeRole(AUTOMATED_MARKET_CREATOR_ROLE, account);
         emit MarketCreatorUpdated(account, enabled);
+    }
+
+    function replaceMarketCreator(address previousCreator, address newCreator) external onlyOwner {
+        if (previousCreator == address(0) || newCreator == address(0) || previousCreator == newCreator) revert InvalidAddress();
+        _revokeRole(MARKET_CREATOR_ROLE, previousCreator);
+        _grantRole(MARKET_CREATOR_ROLE, newCreator);
+        emit MarketCreatorUpdated(previousCreator, false);
+        emit MarketCreatorUpdated(newCreator, true);
+        emit MarketCreatorReplaced(previousCreator, newCreator);
+    }
+
+    function replaceAutomatedMarketCreator(address previousCreator, address newCreator) external onlyOwner {
+        if (previousCreator == address(0) || newCreator == address(0) || previousCreator == newCreator) revert InvalidAddress();
+        _revokeRole(AUTOMATED_MARKET_CREATOR_ROLE, previousCreator);
+        _grantRole(AUTOMATED_MARKET_CREATOR_ROLE, newCreator);
+        emit MarketCreatorUpdated(previousCreator, false);
+        emit MarketCreatorUpdated(newCreator, true);
+        emit AutomatedMarketCreatorReplaced(previousCreator, newCreator);
     }
 
     function setOracleResolver(address account, bool enabled) external onlyOwner {
@@ -289,6 +322,12 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         });
         totalMarketsCreated++;
         hasCreatedMarket[msg.sender] = true;
+        marketValidatorRosterVersion[marketId] = validatorRosterVersion;
+        for (uint8 i = 0; i < 3; i++) {
+            address validator = validators[i];
+            marketValidators[marketId][i] = validator;
+            isMarketValidator[marketId][validator] = true;
+        }
         emit MarketCreated(marketId, msg.sender, stablecoin, closeTime, question);
     }
 
@@ -343,7 +382,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     function resolveMarket(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
-        if (!isValidator[msg.sender]) revert UnauthorizedValidator();
+        if (!isMarketValidator[marketId][msg.sender]) revert UnauthorizedValidator();
         if (market.status != Status.CLOSED) revert InvalidStatus();
         if (outcome != Outcome.YES && outcome != Outcome.NO && outcome != Outcome.INVALID) revert InvalidOutcome();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
@@ -384,7 +423,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     function resolveDispute(uint256 marketId, Outcome outcome, bytes32 evidenceHash) external {
         Market storage market = markets[marketId];
         if (market.id == 0) revert MarketNotFound();
-        if (!isValidator[msg.sender]) revert UnauthorizedValidator();
+        if (!isMarketValidator[marketId][msg.sender]) revert UnauthorizedValidator();
         if (market.status != Status.ARBITRATION) revert InvalidStatus();
         if (outcome != Outcome.YES && outcome != Outcome.NO && outcome != Outcome.INVALID) revert InvalidOutcome();
         if (evidenceHash == bytes32(0)) revert InvalidMarketParameters();
