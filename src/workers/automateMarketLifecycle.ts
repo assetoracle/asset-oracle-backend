@@ -61,6 +61,10 @@ const managerAbi = [
     { name: "stablecoin", type: "uint8" }, { name: "question", type: "string" }, { name: "resolutionRules", type: "string" },
     { name: "evidenceSource", type: "string" }, { name: "closeTime", type: "uint64" }, { name: "challengePeriod", type: "uint64" },
   ], outputs: [{ name: "marketId", type: "uint256" }] },
+  { type: "function", name: "createAutomatedMarket", stateMutability: "nonpayable", inputs: [
+    { name: "stablecoin", type: "uint8" }, { name: "question", type: "string" }, { name: "resolutionRules", type: "string" },
+    { name: "evidenceSource", type: "string" }, { name: "closeTime", type: "uint64" }, { name: "challengePeriod", type: "uint64" },
+  ], outputs: [{ name: "marketId", type: "uint256" }] },
   { type: "function", name: "closeMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }], outputs: [] },
   { type: "function", name: "finalizeMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }], outputs: [] },
   { type: "event", name: "MarketCreated", anonymous: false, inputs: [
@@ -106,8 +110,8 @@ async function main(): Promise<void> {
     throw new Error("Canonical manager USDC configuration failed validation; automation stopped.");
   }
 
-  const role = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "hasRole", args: [keccak256(toBytes("MARKET_CREATOR_ROLE")), account.address] });
-  if (!role) throw new Error(`Automation wallet ${account.address} does not have MARKET_CREATOR_ROLE on the canonical testnet manager.`);
+  const role = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "hasRole", args: [keccak256(toBytes("AUTOMATED_MARKET_CREATOR_ROLE")), account.address] });
+  if (!role) throw new Error(`Automation wallet ${account.address} does not have AUTOMATED_MARKET_CREATOR_ROLE on the canonical testnet manager.`);
 
   // Prevent overlapping cron runs from submitting duplicate transactions.
   const lockClient = await database.connect();
@@ -168,7 +172,7 @@ async function main(): Promise<void> {
       if (recovered) continue;
 
       const hash = await walletClient.writeContract({
-        address: manager, abi: managerAbi, functionName: "createMarket",
+        address: manager, abi: managerAbi, functionName: "createAutomatedMarket",
         args: [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS],
       });
       console.log(`Submitted createMarket for proposal ${proposal.id}: ${hash}`);
