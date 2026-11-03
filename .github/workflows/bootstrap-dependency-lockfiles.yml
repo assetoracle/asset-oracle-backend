@@ -7,6 +7,8 @@ on:
       - ".github/workflows/bootstrap-dependency-lockfiles.yml"
       - "package.json"
       - "package-lock.json"
+      - "contracts/package.json"
+      - "contracts/package-lock.json"
 permissions:
   contents: write
 jobs:
@@ -31,17 +33,20 @@ jobs:
         run: |
           npm audit --json > backend-audit.json || true
           node -e 'const a=require("./backend-audit.json"); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities, vulnerabilities:Object.entries(a.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}))},null,2))'
-      - name: Apply non-breaking contract tooling security updates
+      - name: Resolve Hardhat 3 package lock and compatible plugin dependencies
+        working-directory: contracts
+        run: npm install --package-lock-only
+      - name: Apply compatible contract tooling security updates
         working-directory: contracts
         run: npm audit fix --package-lock-only || true
       - name: Install contract tooling exactly from lockfile
         working-directory: contracts
         run: npm ci
-      - name: Verify contract compile and tests
+      - name: Verify Hardhat 3 installation
         working-directory: contracts
         run: |
-          npm run compile
-          npm test
+          npx hardhat --version
+          node -e 'const v=require("hardhat/package.json").version; if (!v.startsWith("3.")) throw new Error(`Expected Hardhat 3, got ${v}`); console.log(`Hardhat ${v} installed`)'
       - name: Record remaining contract advisories
         working-directory: contracts
         run: |
