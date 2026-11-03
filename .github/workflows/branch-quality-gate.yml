@@ -1,0 +1,57 @@
+name: Asset Oracle Branch Quality Gate
+
+on:
+  push:
+    branches:
+      - integrate-all-market-data-providers
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "contracts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "contracts/package.json"
+      - "contracts/package-lock.json"
+      - ".github/workflows/branch-quality-gate.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "contracts/**"
+      - "package.json"
+      - "package-lock.json"
+      - "contracts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm install --include=dev
+      - run: npm run build
+      - run: npm test
+
+  contracts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run compile
+      - run: npm test
