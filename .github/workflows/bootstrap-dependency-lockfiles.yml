@@ -34,9 +34,11 @@ jobs:
         run: |
           npm audit --json > backend-audit.json || true
           node -e 'const a=require("./backend-audit.json"); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities, vulnerabilities:Object.entries(a.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable}))},null,2))'
-      - name: Resolve Hardhat 3 package lock and compatible plugin dependencies
+      - name: Regenerate contract lockfile for the Hardhat 3 dependency graph
         working-directory: contracts
-        run: npm install --package-lock-only
+        run: |
+          rm -f package-lock.json
+          npm install --package-lock-only
       - name: Apply compatible contract tooling security updates
         working-directory: contracts
         run: npm audit fix --package-lock-only || true
