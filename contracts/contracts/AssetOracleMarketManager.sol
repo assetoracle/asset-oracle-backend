@@ -18,6 +18,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     bytes32 public constant MARKET_CREATOR_ROLE = keccak256("MARKET_CREATOR_ROLE");
+    bytes32 public constant AUTOMATED_MARKET_CREATOR_ROLE = keccak256("AUTOMATED_MARKET_CREATOR_ROLE");
     bytes32 public constant ORACLE_RESOLVER_ROLE = keccak256("ORACLE_RESOLVER_ROLE");
 
     uint256 public constant BPS = 10_000;
@@ -201,6 +202,13 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         emit MarketCreatorUpdated(account, enabled);
     }
 
+    function setAutomatedMarketCreator(address account, bool enabled) external onlyOwner {
+        if (account == address(0)) revert InvalidAddress();
+        if (enabled) _grantRole(AUTOMATED_MARKET_CREATOR_ROLE, account);
+        else _revokeRole(AUTOMATED_MARKET_CREATOR_ROLE, account);
+        emit MarketCreatorUpdated(account, enabled);
+    }
+
     function setOracleResolver(address account, bool enabled) external onlyOwner {
         if (account == address(0)) revert InvalidAddress();
         if (enabled) _grantRole(ORACLE_RESOLVER_ROLE, account);
@@ -228,6 +236,29 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         uint64 closeTime,
         uint64 challengePeriod
     ) external onlyRole(MARKET_CREATOR_ROLE) returns (uint256 marketId) {
+        return _createMarket(stablecoin, question, resolutionRules, evidenceSource, closeTime, challengePeriod);
+    }
+
+    /// @notice Automated publishing is restricted to the separately authorized worker wallet.
+    function createAutomatedMarket(
+        Stablecoin stablecoin,
+        string calldata question,
+        string calldata resolutionRules,
+        string calldata evidenceSource,
+        uint64 closeTime,
+        uint64 challengePeriod
+    ) external onlyRole(AUTOMATED_MARKET_CREATOR_ROLE) returns (uint256 marketId) {
+        return _createMarket(stablecoin, question, resolutionRules, evidenceSource, closeTime, challengePeriod);
+    }
+
+    function _createMarket(
+        Stablecoin stablecoin,
+        string calldata question,
+        string calldata resolutionRules,
+        string calldata evidenceSource,
+        uint64 closeTime,
+        uint64 challengePeriod
+    ) internal returns (uint256 marketId) {
         if (!validatorRosterConfigured) revert ValidatorRosterNotConfigured();
         StablecoinConfig memory tokenConfig = stablecoins[stablecoin];
         if (!tokenConfig.enabled) revert InvalidToken();
