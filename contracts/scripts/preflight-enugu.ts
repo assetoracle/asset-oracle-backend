@@ -85,6 +85,12 @@ async function main() {
     throw new Error(`Manager USDC config mismatch: decimals=${stablecoin.decimals}, enabled=${stablecoin.enabled}`);
   }
   console.log("PASS manager USDC config: enabled, 6 decimals");
+  const usdtConfig = await manager.stablecoins(1);
+  const cngnConfig = await manager.stablecoins(2);
+  if (usdtConfig.enabled !== false || cngnConfig.enabled !== false) {
+    throw new Error("Initial Enugu testnet deployment must leave USDT and cNGN disabled until their token addresses and decimals are verified.");
+  }
+  console.log("PASS unverified USDT and cNGN remain disabled");
 
   if (!(await manager.validatorRosterConfigured())) {
     throw new Error("Validator roster is not configured.");
