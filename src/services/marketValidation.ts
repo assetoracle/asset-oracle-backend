@@ -28,7 +28,7 @@ const resolutionRuleSchema = z.object({
     end: z.string().date().optional(),
     country: z.string().trim().min(2).max(3).optional(),
     indicator: z.string().trim().min(1).max(80).optional(),
-    dateRange: z.string().regex(/^\\d{4}:\\d{4}$/).optional(),
+    dateRange: z.string().regex(/^\d{4}:\d{4}$/).optional(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     startDate: z.string().date().optional(),
