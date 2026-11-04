@@ -16,7 +16,7 @@ import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeValidatorEvidenceStore } from "./services/validatorEvidenceStore.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
-import { initializeOnchainStatsIndexer } from "./services/onchainStatsIndexer.js";
+import { initializeAssetChainIndexer } from "./services/assetChainIndexer.js";
 import { initializePointsStore } from "./services/pointsStore.js";
 import { initializePaidSubmissionStore } from "./services/paidSubmissionStore.js";
 import { initializeSubmissionQuoteStore } from "./services/submissionQuoteStore.js";
@@ -98,14 +98,14 @@ async function startServer(): Promise<void> {
     server.keepAliveTimeout = 65_000;
     server.headersTimeout = 66_000;
 
-    if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
+    if (process.env.ASSET_CHAIN_INDEXER_ENABLED === "true") {
       try {
-        await initializeOnchainStatsIndexer();
+        await initializeAssetChainIndexer();
       } catch (error) {
-        console.error("On-chain stats indexer could not start:", error instanceof Error ? error.message : "Unknown error");
+        console.error("Full Asset Chain indexer could not start:", error instanceof Error ? error.message : "Unknown error");
       }
     } else {
-      console.log("On-chain stats indexer is disabled; enable only after verifying the Enugu manager address and start block.");
+      console.log("Full Asset Chain indexer is disabled until its RPC and start block are configured.");
     }
   } catch (error) {
     console.error("Failed to initialize the market proposal database:", error instanceof Error ? error.message : "Unknown error");

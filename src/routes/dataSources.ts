@@ -3,6 +3,7 @@ import { isAddress } from "viem";
 import { z } from "zod";
 import { isAdminWallet } from "../services/adminAuth.js";
 import { verifyWalletSession } from "../services/walletAuth.js";
+import { database } from "../config/database.js";
 import {
   dexscreenerSearch,
   dexscreenerTokenPairs,
@@ -94,6 +95,69 @@ dataSourcesRouter.post("/regional/gdelt", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Valid admin address and GDELT query are required." });
   if (!await authorize(req, res, parsed.data.address)) return;
   try { return res.json(await gdeltArticles(parsed.data.query, parsed.data.maxRecords)); } catch (error) { return providerError(res, error); }
+});
+
+
+const chainId = 42421;
+
+dataSourcesRouter.post("/asset-chain/indexer/status", async (req, res) => {
+  const parsed = authSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address is required." });
+  if (!await authorize(req, res, parsed.data.address)) return;
+  try {
+    const [cursor, counts] = await Promise.all([
+      database.query("SELECT start_block,last_indexed_block,last_block_hash,updated_at FROM asset_chain_indexer_cursors WHERE chain_id=$1", [chainId]),
+      database.query(`SELECT
+        (SELECT COUNT(*) FROM asset_chain_blocks WHERE chain_id=$1) AS blocks,
+        (SELECT COUNT(*) FROM asset_chain_transactions WHERE chain_id=$1) AS transactions,
+        (SELECT COUNT(*) FROM asset_chain_logs WHERE chain_id=$1) AS logs,
+        (SELECT COUNT(*) FROM asset_chain_transfers WHERE chain_id=$1) AS transfers,
+        (SELECT COUNT(*) FROM asset_chain_wallets WHERE chain_id=$1) AS wallets`, [chainId]),
+    ]);
+    return res.json({
+      enabled: process.env.ASSET_CHAIN_INDEXER_ENABLED === "true",
+      chainId,
+      cursor: cursor.rows[0] ?? null,
+      totals: counts.rows[0] ?? null,
+    });
+  } catch (error) { return providerError(res, error); }
+});
+
+dataSourcesRouter.post("/asset-chain/wallet", async (req, res) => {
+  const parsed = authSchema.extend({
+    wallet: z.string().refine(isAddress, "Invalid wallet address"),
+    limit: z.number().int().min(1).max(100).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address and wallet address are required." });
+  if (!await authorize(req, res, parsed.data.address)) return;
+  try {
+    const limit = parsed.data.limit ?? 50;
+    const [wallet, transactions, transfers] = await Promise.all([
+      database.query("SELECT * FROM asset_chain_wallets WHERE chain_id=$1 AND wallet_address=lower($2)", [chainId, parsed.data.wallet]),
+      database.query(`SELECT tx_hash,block_number,transaction_index,from_address,to_address,value_wei,receipt_status,gas_used
+        FROM asset_chain_transactions WHERE chain_id=$1 AND (from_address=lower($2) OR to_address=lower($2))
+        ORDER BY block_number DESC,transaction_index DESC LIMIT $3`, [chainId, parsed.data.wallet, limit]),
+      database.query(`SELECT tx_hash,block_number,transfer_type,token_address,from_address,to_address,amount_raw
+        FROM asset_chain_transfers WHERE chain_id=$1 AND (from_address=lower($2) OR to_address=lower($2))
+        ORDER BY block_number DESC,log_index DESC LIMIT $3`, [chainId, parsed.data.wallet, limit]),
+    ]);
+    return res.json({ wallet: wallet.rows[0] ?? null, transactions: transactions.rows, transfers: transfers.rows });
+  } catch (error) { return providerError(res, error); }
+});
+
+dataSourcesRouter.post("/asset-chain/contract-events", async (req, res) => {
+  const parsed = authSchema.extend({
+    contract: z.string().refine(isAddress, "Invalid contract address"),
+    limit: z.number().int().min(1).max(100).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address and contract address are required." });
+  if (!await authorize(req, res, parsed.data.address)) return;
+  try {
+    const events = await database.query(`SELECT tx_hash,log_index,block_number,contract_address,topics,data,removed
+      FROM asset_chain_logs WHERE chain_id=$1 AND contract_address=lower($2)
+      ORDER BY block_number DESC,log_index DESC LIMIT $3`, [chainId, parsed.data.contract, parsed.data.limit ?? 50]);
+    return res.json({ events: events.rows });
+  } catch (error) { return providerError(res, error); }
 });
 
 export default dataSourcesRouter;
