@@ -89,6 +89,10 @@ async function main(): Promise<void> {
     throw new Error("This worker is testnet-only and refuses any chain ID other than 42421.");
   }
   const account = privateKeyToAccount(requiredPrivateKey());
+  const expectedAutomationWallet = process.env.AUTOMATION_WALLET_ADDRESS?.trim();
+  if (!expectedAutomationWallet || !/^0x[0-9a-fA-F]{40}$/.test(expectedAutomationWallet) || getAddress(expectedAutomationWallet) !== getAddress(account.address)) {
+    throw new Error("AUTOMATION_PRIVATE_KEY does not match the configured dedicated AUTOMATION_WALLET_ADDRESS. No transaction was submitted.");
+  }
   if (!CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS || !/^0x[0-9a-fA-F]{40}$/.test(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)) {
     throw new Error("New testnet market manager address is not configured. No transaction was submitted.");
   }
