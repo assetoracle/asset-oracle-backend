@@ -13,7 +13,8 @@
     "verify:enugu-preflight": "tsx scripts/verify-enugu-paid-submission-preflight.ts",
     "automate:market-lifecycle": "node dist/workers/automateMarketLifecycle.js",
     "automate:market-evidence": "node dist/workers/marketEvidenceWorker.js",
-    "preflight:testnet-automation": "tsx scripts/testnet-automation-preflight.ts"
+    "preflight:testnet-automation": "tsx scripts/testnet-automation-preflight.ts",
+    "automate:market-proposals": "node dist/workers/marketProposalGeneratorWorker.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
