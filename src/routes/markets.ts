@@ -181,6 +181,14 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
       if (!config.enabled || !config.escrowAddress || !Number.isSafeInteger(confirmations) || confirmations < 1) {
         return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
       }
+      const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+      if (!adminAddress || !isAddress(adminAddress) || !config.treasuryAddress || !config.escrowAddress) {
+        return res.status(503).json({ error: "Verified admin, Treasury and proposal escrow configuration is required." });
+      }
+      await verifyPaidProposalEscrowConfig({
+        rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
+        usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress,
+      });
       await verifyEscrowDecision({
         rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
         transactionHash, authenticatedReviewer: address, escrowAddress: config.escrowAddress,
