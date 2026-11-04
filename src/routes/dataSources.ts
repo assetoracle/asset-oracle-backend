@@ -3,6 +3,7 @@ import { isAddress } from "viem";
 import { z } from "zod";
 import { isAdminWallet } from "../services/adminAuth.js";
 import { verifyWalletSession } from "../services/walletAuth.js";
+import { database } from "../config/database.js";
 import {
   apiFootballFixtures,
   coingeckoMarkets,
@@ -140,7 +141,8 @@ dataSourcesRouter.post("/regional/open-meteo/historical", async (req, res) => {
   try { return res.json(await openMeteoHistorical(parsed.data.latitude, parsed.data.longitude, parsed.data.startDate, parsed.data.endDate)); } catch (error) { return providerError(res, error); }
 });
 
-\nconst chainId = 42421;
+
+const chainId = 42421;
 
 dataSourcesRouter.post("/asset-chain/indexer/status", async (req, res) => {
   const parsed = authSchema.safeParse(req.body);
