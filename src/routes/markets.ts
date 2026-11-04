@@ -26,7 +26,8 @@ import { verifyPublicationEvidence } from "../services/publicationVerification.j
 import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
 import { getPaidSubmissionTestnetConfig } from "../services/paidSubmissionConfig.js";
 import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
-import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal, recordSubmissionRefund } from "../services/paidSubmissionStore.js";
+import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal } from "../services/paidSubmissionStore.js";
+import { decidePaidMarketProposalAtomically } from "../services/decidePaidMarketProposal.js";
 import { getPaidProposalEscrowContext } from "../services/paidProposalEscrowContext.js";
 import { verifyEscrowDecision } from "../services/verifyEscrowDecision.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
@@ -186,14 +187,13 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
       });
     }
 
-    const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+    const decision = paidEscrow && transactionHash
+      ? await decidePaidMarketProposalAtomically({ proposalId: idResult.data, decision: status, decisionTxHash: transactionHash })
+      : await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
     if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
     if (decision === "CONFLICT") {
       const existing = await getMarketProposal(idResult.data);
       return res.status(409).json({ error: "Only pending proposals with confirmed payment can receive a decision.", status: existing?.status ?? null });
-    }
-    if (paidEscrow && status === "REJECTED" && transactionHash) {
-      await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: transactionHash });
     }
     const proposal = await getMarketProposal(idResult.data);
     if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
@@ -618,9 +618,6 @@ marketsRouter.post(
       if (decision === "CONFLICT") {
         const existing = await getMarketProposal(idResult.data);
         return res.status(409).json({ error: "Only pending proposals with confirmed payment can receive a decision.", status: existing?.status ?? null });
-      }
-      if (paidEscrow && status === "REJECTED" && transactionHash) {
-        await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: transactionHash });
       }
       const proposal = await getMarketProposal(idResult.data);
       if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
