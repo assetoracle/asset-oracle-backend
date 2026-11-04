@@ -8,7 +8,9 @@ import { listValidatorSourceLinks, recordValidatorSourceLink } from "../services
 import { evidenceHashMatchesSourceUrl } from "../services/validatorEvidenceVerification.js";
 
 const router = Router();
-const managerAddress = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
+const managerAddress = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS && isAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)
+  ? getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)
+  : null;
 const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || ASSET_CHAIN_TESTNET_RPC_URL;
 const voteAbi = [{ type: "function", name: "resolveMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }, { name: "outcome", type: "uint8" }, { name: "evidenceHash", type: "bytes32" }], outputs: [] }] as const;
 const managerAbi = [{
@@ -41,6 +43,7 @@ router.get("/:marketId", async (req, res, next) => {
       managerAddress: addressSchema,
     }).safeParse({ marketId: req.params.marketId, managerAddress: req.query.managerAddress });
     if (!parsed.success) return res.status(400).json({ error: "A valid market ID and manager address are required." });
+    if (!managerAddress) return res.status(503).json({ error: "New testnet market manager is not configured until deployment verification is complete." });
     if (getAddress(parsed.data.managerAddress) !== managerAddress) {
       return res.status(400).json({ error: "Unsupported market manager." });
     }
@@ -65,6 +68,7 @@ router.post("/", async (req, res, next) => {
       return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     }
     if (!getHumanValidatorNumber(input.address)) return res.status(403).json({ error: "Only configured validators can record vote evidence." });
+    if (!managerAddress) return res.status(503).json({ error: "New testnet market manager is not configured until deployment verification is complete." });
     if (getAddress(input.managerAddress) !== managerAddress) return res.status(400).json({ error: "Unsupported market manager." });
     if (!await isConfiguredEnuguRpc()) {
       return res.status(503).json({ error: "Validator evidence verification RPC is not Asset Chain Enugu testnet (chain ID 42421)." });
