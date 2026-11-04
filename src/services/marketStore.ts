@@ -86,6 +86,12 @@ export async function initializeMarketStore(): Promise<void> {
     ALTER TABLE market_proposals
     ADD COLUMN IF NOT EXISTS "walletAddress" TEXT
   `);
+  // Automated proposals have no submitting wallet; preserve compatibility with
+  // databases created by earlier schemas where this column was NOT NULL.
+  await database.query(`
+    ALTER TABLE market_proposals
+    ALTER COLUMN "walletAddress" DROP NOT NULL
+  `);
   await database.query(`
     ALTER TABLE market_proposals
       ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'MANUAL',
