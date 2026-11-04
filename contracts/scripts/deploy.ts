@@ -173,6 +173,9 @@ async function main() {
   if (finalOwner.toLowerCase() !== owner.toLowerCase()) {
     throw new Error(`CRITICAL: final owner mismatch. Expected ${owner}, received ${finalOwner}.`);
   }
+  if (!(await manager.hasRole(creatorRole, automationWallet)) || !(await manager.hasRole(automatedCreatorRole, automationWallet))) {
+    throw new Error("CRITICAL: dedicated automation wallet lost a required publication role after ownership transfer.");
+  }
   const adminRole = ethers.ZeroHash;
   for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["oracle resolver", resolverRole], ["automated market creator", automatedCreatorRole]] as const) {
     if (!(await manager.hasRole(role, owner))) {
