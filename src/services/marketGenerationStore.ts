@@ -42,7 +42,7 @@ export async function initializeMarketGenerationStore(): Promise<void> {
   `);
 }
 
-const CATEGORIES = ["Crypto", "Economics", "Regional", "RWA", "Sports"] as const;
+const CATEGORIES = ["Digital Assets", "Economics", "Regional", "RWA", "Sports"] as const;
 
 export async function claimNextGenerationCategory(): Promise<MarketProposalInput["category"]> {
   const client = await database.connect();
@@ -94,8 +94,8 @@ function mapCandidate(row: any): MarketCandidate {
   return {
     id: row.id,
     templateId: row.template_id,
-    category: row.category,
-    proposal: typeof row.proposal === "string" ? JSON.parse(row.proposal) : row.proposal,
+    category: row.category === "Crypto" ? "Digital Assets" : row.category,
+    proposal: (() => { const proposal = typeof row.proposal === "string" ? JSON.parse(row.proposal) : row.proposal; return proposal.category === "Crypto" ? { ...proposal, category: "Digital Assets" } : proposal; })(),
     status: row.status,
     createdAt: new Date(row.created_at).toISOString(),
   };
