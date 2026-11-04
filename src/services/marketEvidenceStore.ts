@@ -88,3 +88,13 @@ export async function listMarketEvidence(proposalId: string): Promise<StoredMark
   `, [proposalId]);
   return result.rows.map(mapRow);
 }
+
+export async function getLatestMarketEvidenceAt(proposalId: string, provider: string): Promise<string | null> {
+  const result = await database.query<{ retrieved_at: string | Date }>(
+    `SELECT MAX(retrieved_at) AS retrieved_at
+     FROM market_data_evidence WHERE proposal_id=$1 AND provider=$2`,
+    [proposalId, provider],
+  );
+  const value = result.rows[0]?.retrieved_at;
+  return value ? new Date(value).toISOString() : null;
+}
