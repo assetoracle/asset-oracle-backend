@@ -1,9 +1,9 @@
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES } from "../config/assetOracle.js";
+import { ASSET_CHAIN_TESTNET_ID } from "../config/assetOracle.js";
 import { createPublicClient, http, parseAbiItem, type Log } from "viem";
 import { database } from "../config/database.js";
 
-const EXPECTED_CHAIN_ID = 42421;
-const DEFAULT_START_BLOCK = 4_502_688n;
+const EXPECTED_CHAIN_ID = ASSET_CHAIN_TESTNET_ID;
+
 const DEFAULT_BATCH_SIZE = 1_000n;
 const DEFAULT_POLL_INTERVAL_MS = 15_000;
 const CONFIRMATION_DEPTH = 3n;
@@ -17,7 +17,7 @@ const finalizedEvent = parseAbiItem(
 const claimedEvent = parseAbiItem(
   "event Claimed(uint256 indexed marketId, address indexed user, uint256 amount)",
 );
-const refundedEvent = parseAbiItem(
+const marketCreatedEvent = parseAbiItem(\n  "event MarketCreated(uint256 indexed marketId, address indexed creator, uint8 stablecoin, uint64 closeTime, string question)",\n);\nconst marketClosedEvent = parseAbiItem(\n  "event MarketClosed(uint256 indexed marketId)",\n);\nconst refundedEvent = parseAbiItem(
   "event Refunded(uint256 indexed marketId, address indexed user, uint256 amount)",
 );
 
@@ -25,7 +25,7 @@ type IndexedEvent = {
   chainId: number;
   txHash: string;
   logIndex: number;
-  eventName: "Staked" | "MarketFinalized" | "Claimed" | "Refunded";
+  eventName: "MarketCreated" | "MarketClosed" | "Staked" | "MarketFinalized" | "Claimed" | "Refunded";
   blockNumber: bigint;
   blockTimestamp: Date;
   marketId: string;
@@ -58,30 +58,12 @@ function decimalAmount(raw: string): string {
 export { decimalAmount };
 
 export async function initializeOnchainStatsIndexer(): Promise<void> {
-  const current = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
-  const legacy = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")].map((value) => value.trim()).filter(Boolean);
-  const managers = [...new Set([current, ...legacy].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase()))];
-  if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {
-    throw new Error("On-chain stats indexer requires valid current and legacy manager addresses.");
+  const managerAddress = process.env.ASSET_ORACLE_INDEXER_CONTRACT_ADDRESS?.trim().toLowerCase();
+  if (!managerAddress || !/^0x[0-9a-f]{40}$/.test(managerAddress)) {
+    throw new Error("Set ASSET_ORACLE_INDEXER_CONTRACT_ADDRESS to the newly deployed Asset Oracle manager before enabling the indexer.");
   }
-  // The canonical manager is the active source for new markets and validator
-  // settlement. A retired manager's RPC/code failure must not prevent indexing
-  // the canonical manager; legacy account reads remain available independently.
-  for (const managerAddress of managers) {
-    try {
-      await initializeManagerIndexer(managerAddress);
-    } catch (error) {
-      console.error(
-        `On-chain stats indexer could not initialize manager ${managerAddress}:`,
-        error instanceof Error ? error.message : "Unknown error",
-      );
-      if (managerAddress === current.toLowerCase()) {
-        throw error;
-      }
-    }
-  }
+  await initializeManagerIndexer(managerAddress);
 }
-
 async function initializeManagerIndexer(managerAddress: string): Promise<void> {
   const configuredChainId = Number(process.env.ASSET_CHAIN_ID || EXPECTED_CHAIN_ID);
   if (configuredChainId !== EXPECTED_CHAIN_ID) {
@@ -94,7 +76,7 @@ async function initializeManagerIndexer(managerAddress: string): Promise<void> {
       manager_address TEXT NOT NULL,
       tx_hash TEXT NOT NULL,
       log_index INTEGER NOT NULL,
-      event_name TEXT NOT NULL CHECK (event_name IN ('Staked', 'MarketFinalized', 'Claimed', 'Refunded')),
+      event_name TEXT NOT NULL CHECK (event_name IN ('MarketCreated', 'MarketClosed', 'Staked', 'MarketFinalized', 'Claimed', 'Refunded')),
       block_number BIGINT NOT NULL,
       block_timestamp TIMESTAMPTZ NOT NULL,
       market_id NUMERIC(78, 0) NOT NULL,
@@ -105,7 +87,7 @@ async function initializeManagerIndexer(managerAddress: string): Promise<void> {
     )
   `);
   await database.query(`ALTER TABLE onchain_stats_events DROP CONSTRAINT IF EXISTS onchain_stats_events_event_name_check`);
-  await database.query(`ALTER TABLE onchain_stats_events ADD CONSTRAINT onchain_stats_events_event_name_check CHECK (event_name IN ('Staked', 'MarketFinalized', 'Claimed', 'Refunded'))`);
+  await database.query(`ALTER TABLE onchain_stats_events ADD CONSTRAINT onchain_stats_events_event_name_check CHECK (event_name IN ('MarketCreated', 'MarketClosed', 'Staked', 'MarketFinalized', 'Claimed', 'Refunded'))`);
   await database.query(`
     CREATE INDEX IF NOT EXISTS onchain_stats_events_timestamp_idx
     ON onchain_stats_events (chain_id, manager_address, block_timestamp)
@@ -125,8 +107,9 @@ async function initializeManagerIndexer(managerAddress: string): Promise<void> {
     )
   `);
 
-  const startBlock = BigInt(process.env.ASSET_ORACLE_INDEXER_START_BLOCK || DEFAULT_START_BLOCK.toString());
-  if (startBlock < 0n) throw new Error("Indexer start block must not be negative.");
+  const rawStartBlock = process.env.ASSET_ORACLE_INDEXER_START_BLOCK?.trim();
+  if (!rawStartBlock || !/^\d+$/.test(rawStartBlock)) throw new Error("Set ASSET_ORACLE_INDEXER_START_BLOCK to the new contract deployment block.");
+  const startBlock = BigInt(rawStartBlock);
 
   const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || "https://enugu-rpc.assetchain.org";
   const client = createPublicClient({ transport: http(rpcUrl, { timeout: 15_000 }) });
@@ -153,7 +136,7 @@ async function initializeManagerIndexer(managerAddress: string): Promise<void> {
   const backfill = await database.query(
     `INSERT INTO onchain_stats_migrations (migration_key)
      VALUES ($1) ON CONFLICT (migration_key) DO NOTHING RETURNING migration_key`,
-    [`wallet-claim-events-backfill-${EXPECTED_CHAIN_ID}-${managerAddress.toLowerCase()}`],
+    [`contract-lifecycle-events-backfill-v2-${EXPECTED_CHAIN_ID}-${managerAddress.toLowerCase()}`],
   );
   // The event index previously tracked only stakes and settlements. Rewind once
   // so historical Claimed/Refunded events are indexed as well; primary keys make
@@ -193,13 +176,17 @@ async function initializeManagerIndexer(managerAddress: string): Promise<void> {
         ? fromBlock + batchSize - 1n
         : head - CONFIRMATION_DEPTH;
 
-      const [stakeLogs, finalizedLogs, claimedLogs, refundedLogs] = await Promise.all([
+      const [createdLogs, closedLogs, stakeLogs, finalizedLogs, claimedLogs, refundedLogs] = await Promise.all([
+        client.getLogs({ address: managerAddress as `0x${string}`, event: marketCreatedEvent, fromBlock, toBlock }),
+        client.getLogs({ address: managerAddress as `0x${string}`, event: marketClosedEvent, fromBlock, toBlock }),
         client.getLogs({ address: managerAddress as `0x${string}`, event: stakedEvent, fromBlock, toBlock }),
         client.getLogs({ address: managerAddress as `0x${string}`, event: finalizedEvent, fromBlock, toBlock }),
         client.getLogs({ address: managerAddress as `0x${string}`, event: claimedEvent, fromBlock, toBlock }),
         client.getLogs({ address: managerAddress as `0x${string}`, event: refundedEvent, fromBlock, toBlock }),
       ]);
       const logs = [
+        ...createdLogs.map((log) => ({ log, eventName: "MarketCreated" as const })),
+        ...closedLogs.map((log) => ({ log, eventName: "MarketClosed" as const })),
         ...stakeLogs.map((log) => ({ log, eventName: "Staked" as const })),
         ...finalizedLogs.map((log) => ({ log, eventName: "MarketFinalized" as const })),
         ...claimedLogs.map((log) => ({ log, eventName: "Claimed" as const })),
@@ -221,6 +208,21 @@ async function initializeManagerIndexer(managerAddress: string): Promise<void> {
         const hash = toHexHash(log);
         const decoded = log as typeof log & { args: Record<string, unknown> };
         const args = decoded.args;
+        if (eventName === "MarketCreated") {
+          return {
+            chainId: EXPECTED_CHAIN_ID, txHash: hash, logIndex: log.logIndex!, eventName,
+            blockNumber: log.blockNumber!, blockTimestamp: timestamps.get(log.blockNumber!.toString())!,
+            marketId: String(args.marketId), walletAddress: String(args.creator).toLowerCase(),
+            grossAmount: null, outcome: null,
+          };
+        }
+        if (eventName === "MarketClosed") {
+          return {
+            chainId: EXPECTED_CHAIN_ID, txHash: hash, logIndex: log.logIndex!, eventName,
+            blockNumber: log.blockNumber!, blockTimestamp: timestamps.get(log.blockNumber!.toString())!,
+            marketId: String(args.marketId), walletAddress: null, grossAmount: null, outcome: null,
+          };
+        }
         if (eventName === "Staked") {
           return {
             chainId: EXPECTED_CHAIN_ID, txHash: hash, logIndex: log.logIndex!, eventName,
@@ -310,19 +312,18 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
   indexerStatus: string;
 }> {
   const manager = managerAddress.toLowerCase();
-  const legacy = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")].map((value) => value.trim().toLowerCase()).filter(Boolean);
-  const managers = [...new Set([manager, ...legacy])];
+  if (!/^0x[0-9a-f]{40}$/.test(manager)) throw new Error("Invalid manager address for indexer metrics.");
+  const managers = [manager];
   const cursor = await database.query<{ last_scanned_block: string; updated_at: Date }>(
     `SELECT last_scanned_block, updated_at FROM onchain_stats_cursors
-     WHERE chain_id = $1 AND manager_address = ANY($2::text[])
-     ORDER BY last_scanned_block ASC`,
-    [EXPECTED_CHAIN_ID, managers],
+     WHERE chain_id = $1 AND manager_address = $2`,
+    [EXPECTED_CHAIN_ID, manager],
   );
   if (!cursor.rows[0]) {
     return { totalUsers: null, tradingVolume24h: null, totalSettled: null, totalTradingVolume: null, lastIndexedBlock: null, indexerStatus: "INDEXER_NOT_INITIALIZED" };
   }
   const lastIndexedBlock = cursor.rows[0].last_scanned_block;
-  const isStale = cursor.rows.length < managers.length || cursor.rows.some((item) => Date.now() - new Date(item.updated_at).getTime() > 120_000);
+  const isStale = Date.now() - new Date(cursor.rows[0].updated_at).getTime() > 120_000;
   const aggregate = await database.query<{
     total_users: string;
     trading_volume_24h: string;
@@ -335,7 +336,7 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
        COUNT(*) FILTER (WHERE event_name = 'MarketFinalized')::text AS total_settled,
        COALESCE(SUM(gross_amount) FILTER (WHERE event_name = 'Staked'), 0)::text AS total_trading_volume
      FROM onchain_stats_events
-     WHERE chain_id = $1 AND manager_address = ANY($2::text[])`,
+     WHERE chain_id = $1 AND manager_address = $2`,
     [EXPECTED_CHAIN_ID, managers],
   );
   const row = aggregate.rows[0];
