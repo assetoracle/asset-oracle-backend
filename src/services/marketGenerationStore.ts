@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { database } from "../config/database.js";
 import type { MarketProposalInput } from "./marketValidation.js";
+import { createMarketProposal, type StoredMarketProposal } from "./marketStore.js";
 
 export type MarketCandidate = {
   id: string;
@@ -110,4 +111,60 @@ export async function listPendingMarketCandidates(limit = 100): Promise<MarketCa
     [safeLimit],
   );
   return result.rows.map(mapCandidate);
+}
+
+
+export async function reviewMarketCandidate(input: {
+  candidateId: string;
+  decision: "DISMISSED" | "PROMOTED";
+  reviewerAddress: string;
+}): Promise<{ result: "UPDATED" | "NOT_FOUND" | "CONFLICT"; proposal?: StoredMarketProposal }> {
+  const client = await database.connect();
+  try {
+    await client.query("BEGIN");
+    const candidateResult = await client.query<{
+      id: string;
+      template_id: string;
+      category: string;
+      proposal: MarketProposalInput | string;
+      status: MarketCandidate["status"];
+    }>(
+      `SELECT id, template_id, category, proposal, status
+       FROM market_generation_candidates WHERE id=$1 FOR UPDATE`,
+      [input.candidateId],
+    );
+    const candidate = candidateResult.rows[0];
+    if (!candidate) {
+      await client.query("ROLLBACK");
+      return { result: "NOT_FOUND" };
+    }
+    if (candidate.status !== "PENDING_REVIEW") {
+      await client.query("ROLLBACK");
+      return { result: "CONFLICT" };
+    }
+
+    let proposal: StoredMarketProposal | undefined;
+    if (input.decision === "PROMOTED") {
+      const proposalInput = typeof candidate.proposal === "string"
+        ? JSON.parse(candidate.proposal) as MarketProposalInput
+        : candidate.proposal;
+      proposal = await createMarketProposal(proposalInput, input.reviewerAddress, client);
+    }
+
+    const updated = await client.query(
+      `UPDATE market_generation_candidates
+       SET status=$2 WHERE id=$1 AND status='PENDING_REVIEW' RETURNING id`,
+      [input.candidateId, input.decision],
+    );
+    if ((updated.rowCount ?? updated.rows.length) !== 1) {
+      throw new Error("Candidate review state changed concurrently.");
+    }
+    await client.query("COMMIT");
+    return { result: "UPDATED", ...(proposal ? { proposal } : {}) };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }

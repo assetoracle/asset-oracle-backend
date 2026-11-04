@@ -47,3 +47,14 @@ The category cursor advances in this order: Crypto, Economics, Regional, RWA, Sp
 Candidate proposals are validated by the same Zod schema as user proposals. Duplicate proposal payloads are ignored using a SHA-256 uniqueness key. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; the normal proposal table and its payment/creator workflow are untouched.
 
 The template thresholds and metric paths are configuration, not predictions derived by the generator. A reviewer must check that each template is meaningful and that its source metric is suitable before enabling the workflow. Provider evidence remains separate and must never independently decide a market outcome.
+
+
+## Candidate review API
+
+Generated candidates remain separate from wallet-submitted proposals until a configured admin or market creator reviews them. Both endpoints require the reviewer's verified wallet session in the `Authorization: Bearer <session-token>` header and the same wallet address in the JSON body.
+
+- `POST /api/market-candidates/admin/list/session` with `{ "address": "0x...", "limit": 50 }` lists pending candidates (maximum 100).
+- `POST /api/market-candidates/admin/:candidateId/decision/session` with `{ "address": "0x...", "decision": "DISMISSED" }` dismisses a candidate.
+- The same decision endpoint with `"decision": "PROMOTED"` creates a normal `PENDING_APPROVAL` market proposal and marks the candidate promoted in one database transaction.
+
+Promotion does not approve or publish the market and does not submit an on-chain transaction. The normal proposal approval and publication controls remain separate. Candidate review is rate-limited and repeated decisions are rejected.
