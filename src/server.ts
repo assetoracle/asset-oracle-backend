@@ -105,7 +105,7 @@ async function startServer(): Promise<void> {
         console.error("On-chain stats indexer could not start:", error instanceof Error ? error.message : "Unknown error");
       }
     } else {
-      console.log("On-chain stats indexer is disabled; enable only after verifying the Enugu manager address and start block.");
+      console.log("On-chain event indexer is disabled; enable only after the new manager deployment address and start block are verified.");
     }
   } catch (error) {
     console.error("Failed to initialize the market proposal database:", error instanceof Error ? error.message : "Unknown error");
