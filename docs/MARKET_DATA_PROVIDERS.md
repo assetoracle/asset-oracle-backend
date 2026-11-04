@@ -59,7 +59,16 @@ The following endpoints are admin-wallet/session protected:
 - `POST /api/market-evidence/:proposalId/collect` — collect one response from the proposal's configured provider and store it for review.
 - `POST /api/market-evidence/:proposalId/list` — retrieve up to 100 stored evidence records for that proposal.
 
-The evidence table is `market_data_evidence`; it is separate from `validator_source_links`, which records on-chain validator vote evidence. Provider observations are always stored as `UNREVIEWED`. This first collector is an explicit admin-triggered operation; scheduled collection and provider freshness policies will be added after the market-specific collection rules are validated.
+The evidence table is `market_data_evidence`; it is separate from `validator_source_links`, which records on-chain validator vote evidence. Provider observations are always stored as `UNREVIEWED`. The admin-triggered endpoints remain available for manual collection. A standalone category-aware worker is now available as `npm run automate:market-evidence`. It processes only approved proposals, uses each proposal's configured provider, skips proposals whose latest evidence is still fresh, and uses a PostgreSQL advisory lock to prevent overlapping runs. It never fans out across all providers. The worker is disabled unless `MARKET_EVIDENCE_WORKER_ENABLED=true`; it is not scheduled or enabled by this code change.
+
+Worker configuration:
+
+- `MARKET_EVIDENCE_WORKER_ENABLED=false` by default.
+- `MARKET_EVIDENCE_MAX_PER_RUN=10` maximum due proposals processed per run (bounded to 1–50).
+- `MARKET_EVIDENCE_INTERVAL_MINUTES=15` default freshness interval.
+- Optional category overrides: `MARKET_EVIDENCE_CRYPTO_INTERVAL_MINUTES`, `MARKET_EVIDENCE_RWA_INTERVAL_MINUTES`, `MARKET_EVIDENCE_SPORTS_INTERVAL_MINUTES`, `MARKET_EVIDENCE_ECONOMICS_INTERVAL_MINUTES`, and `MARKET_EVIDENCE_REGIONAL_INTERVAL_MINUTES`.
+
+Run the command from a scheduler only after provider credentials, database capacity, request quotas and the desired cadence have been reviewed. Each run is a bounded batch; no scheduler, cron job or hosted environment setting is enabled by this change.
 
 ## Backend secrets
 
