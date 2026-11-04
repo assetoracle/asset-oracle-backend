@@ -59,17 +59,34 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
   }
 
 
-  it("allows owner to adjust fees within bounds and rejects excessive fees", async function () {
+  it("keeps the transaction fee fixed at 1% and bounds owner settlement-fee changes", async function () {
     const f = await deployFixture();
-    expect(await f.manager.tradingFeeBps()).to.equal(25n);
+    expect(await f.manager.tradingFeeBps()).to.equal(100n);
+    expect(await f.manager.MAX_TRADING_FEE_BPS()).to.equal(100n);
     expect(await f.manager.settlementFeeBps()).to.equal(1_000n);
-    await f.manager.setTradingFeeBps(200);
     await f.manager.setSettlementFeeBps(400);
-    expect(await f.manager.tradingFeeBps()).to.equal(200n);
+    expect(await f.manager.tradingFeeBps()).to.equal(100n);
     expect(await f.manager.settlementFeeBps()).to.equal(400n);
-    await expect(f.manager.connect(f.alice).setTradingFeeBps(100)).to.be.reverted;
-    await expect(f.manager.setTradingFeeBps(1_001)).to.be.revertedWithCustomError(f.manager, "FeeOutOfRange");
+    await expect(f.manager.connect(f.alice).setSettlementFeeBps(100)).to.be.reverted;
     await expect(f.manager.setSettlementFeeBps(1_001)).to.be.revertedWithCustomError(f.manager, "FeeOutOfRange");
+  });
+
+  it("locks each market's settlement fee at creation", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the first test event happen?", "YES if official source confirms it.", "official source", closeTime, 3600
+    );
+    expect(await f.manager.marketSettlementFeeBps(1)).to.equal(1_000n);
+
+    // A later policy change applies only to markets created afterwards.
+    await f.manager.setSettlementFeeBps(400);
+    expect(await f.manager.marketSettlementFeeBps(1)).to.equal(1_000n);
+    const nextCloseTime = closeTime + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the second test event happen?", "YES if official source confirms it.", "official source", nextCloseTime, 3600
+    );
+    expect(await f.manager.marketSettlementFeeBps(2)).to.equal(400n);
   });
 
   it("requires two matching validator votes for automated markets", async function () {
@@ -174,14 +191,14 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     )).to.be.revertedWithCustomError(f.manager, "InvalidToken");
   });
 
-  it("charges the 0.25% trading fee separately and records the full USDC stake", async function () {
+  it("charges the 1% transaction fee separately from the wallet and records the full USDC stake", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
     await f.manager.connect(f.creator).createMarket(0, "Will the test event happen?", "YES if confirmed by official source.", "official source", closeTime, 3600);
     await f.manager.connect(f.alice).stake(1, true, 1_000_000n);
     const position = await f.manager.getPosition(1, f.alice.address);
     expect(position.yes).to.equal(1_000_000n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_500n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(10_000n);
   });
 
   it("settles YES and splits the 10% settlement fee 15% to validators and 85% to treasury", async function () {
@@ -197,7 +214,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.alice).claim(1);
     expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(1_800_000n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(30_000n); // 15% of the 200,000 settlement fee.
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(175_000n); // 85% of settlement fee plus 5,000 in trading fees.
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(190_000n); // 85% of settlement fee plus 20,000 in separate transaction fees.
     await expect(f.manager.connect(f.alice).claim(1)).to.be.reverted;
   });
 
@@ -238,7 +255,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.alice).claim(1);
     expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(750_000n);
     // Treasury receives the separate trading fee and 25% of net stake under the no-winner policy.
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(252_500n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(260_000n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
   });
 
@@ -383,7 +400,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.bob).claim(1);
     expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(1_000_000n);
     expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(2_000_000n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(7_500n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(30_000n); // 1% transaction fee on the full 3,000,000 USDC stake; no settlement fee.
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
@@ -516,7 +533,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
     expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(27_003n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(450n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_625n); // 85% settlement share plus 75 in trading fees.
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_850n); // 85% settlement share plus 300 in separate transaction fees.
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
     for (const user of [f.alice, f.bob, f.creator]) {
       await expect(f.manager.connect(user).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");

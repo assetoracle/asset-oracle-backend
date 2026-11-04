@@ -22,6 +22,8 @@ const MANAGER_ABI = [
   "function isValidator(address) view returns (bool)",
   "function validatorRosterConfigured() view returns (bool)",
   "function marketCount() view returns (uint256)",
+  "function tradingFeeBps() view returns (uint256)",
+  "function MAX_TRADING_FEE_BPS() view returns (uint256)",
   "function settlementFeeBps() view returns (uint256)",
   "function VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS() view returns (uint256)",
 ];
@@ -123,8 +125,12 @@ async function main() {
   if (!(await manager.hasRole(automatedCreatorRole, automationWallet))) throw new Error("Automation wallet lacks AUTOMATED_MARKET_CREATOR_ROLE.");
   console.log(`PASS automation wallet has both publication roles: ${automationWallet}`);
 
+  const tradingFeeBps = Number(await manager.tradingFeeBps());
+  const maxTradingFeeBps = Number(await manager.MAX_TRADING_FEE_BPS());
   const settlementFeeBps = Number(await manager.settlementFeeBps());
   const validatorShareBps = Number(await manager.VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS());
+  if (tradingFeeBps !== 100 || maxTradingFeeBps !== 100) throw new Error(`Transaction fee policy mismatch: expected 100 bps (1%) default and cap, received ${tradingFeeBps} bps default and ${maxTradingFeeBps} bps cap.`);
+  console.log("PASS transaction fee policy: 1% charged separately from stake");
   if (settlementFeeBps !== 1000) throw new Error(`Initial settlement fee mismatch: expected 1000 bps (10%), received ${settlementFeeBps}.`);
   if (validatorShareBps !== 1500) throw new Error(`Validator fee share mismatch: expected 1500 bps (15%), received ${validatorShareBps}.`);
   console.log("PASS settlement fee policy: 10% fee, 15% validator share, 85% Treasury share");
