@@ -17,7 +17,13 @@ const finalizedEvent = parseAbiItem(
 const claimedEvent = parseAbiItem(
   "event Claimed(uint256 indexed marketId, address indexed user, uint256 amount)",
 );
-const marketCreatedEvent = parseAbiItem(\n  "event MarketCreated(uint256 indexed marketId, address indexed creator, uint8 stablecoin, uint64 closeTime, string question)",\n);\nconst marketClosedEvent = parseAbiItem(\n  "event MarketClosed(uint256 indexed marketId)",\n);\nconst refundedEvent = parseAbiItem(
+const marketCreatedEvent = parseAbiItem(
+  "event MarketCreated(uint256 indexed marketId, address indexed creator, uint8 stablecoin, uint64 closeTime, string question)",
+);
+const marketClosedEvent = parseAbiItem(
+  "event MarketClosed(uint256 indexed marketId)",
+);
+const refundedEvent = parseAbiItem(
   "event Refunded(uint256 indexed marketId, address indexed user, uint256 amount)",
 );
 
