@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { database } from "../config/database.js";
 
 export type MarketEvidenceInput = {
@@ -43,11 +43,7 @@ export async function initializeMarketEvidenceStore(): Promise<void> {
 }
 
 export async function saveMarketEvidence(input: MarketEvidenceInput): Promise<{ evidence: StoredMarketEvidence; inserted: boolean }> {
-  const id = createHash("sha256")
-    .update([input.proposalId, input.provider, input.contentHash].join(":"))
-    .digest("hex")
-    .slice(0, 32);
-  const uuid = `${id.slice(0,8)}-${id.slice(8,12)}-5${id.slice(13,16)}-a${id.slice(17,20)}-${id.slice(20,32)}`;
+  const uuid = randomUUID();
   const result = await database.query(`
     INSERT INTO market_data_evidence
       (id, proposal_id, provider, source_url, retrieved_at, content_hash, raw_data, metric, normalized_value, verification_status)
