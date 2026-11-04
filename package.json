@@ -12,6 +12,7 @@
     "test": "tsx --test src/**/*.test.ts",
     "verify:enugu-preflight": "tsx scripts/verify-enugu-paid-submission-preflight.ts",
     "automate:market-lifecycle": "node dist/workers/automateMarketLifecycle.js",
+    "automate:market-evidence": "node dist/workers/marketEvidenceWorker.js",
     "preflight:testnet-automation": "tsx scripts/testnet-automation-preflight.ts"
   },
   "dependencies": {
