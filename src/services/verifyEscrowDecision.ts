@@ -27,6 +27,8 @@ export async function verifyEscrowDecision(input: {
   authenticatedReviewer: string;
   escrowAddress: string;
   proposalIdHash: string;
+  expectedPayer: string;
+  expectedTreasury: string;
   decision: "APPROVED" | "REJECTED";
 }, clientOverride?: PublicClient): Promise<{ transactionHash: `0x${string}`; confirmations: bigint }> {
   if (!/^0x[0-9a-fA-F]{64}$/.test(input.transactionHash) ||
@@ -37,6 +39,8 @@ export async function verifyEscrowDecision(input: {
   if (await client.getChainId() !== input.expectedChainId) throw new Error("Configured RPC is connected to the wrong chain.");
   const escrow = getAddress(input.escrowAddress);
   const reviewer = getAddress(input.authenticatedReviewer);
+  const expectedPayer = getAddress(input.expectedPayer);
+  const expectedTreasury = getAddress(input.expectedTreasury);
   const proposalId = input.proposalIdHash.toLowerCase() as `0x${string}`;
   const hash = input.transactionHash as `0x${string}`;
   const [receipt, transaction] = await Promise.all([
@@ -60,6 +64,8 @@ export async function verifyEscrowDecision(input: {
   const matching = events.find(event =>
     event.args.proposalId?.toLowerCase() === proposalId &&
     event.args.reviewer?.toLowerCase() === reviewer.toLowerCase() &&
+    event.args.payer?.toLowerCase() === expectedPayer.toLowerCase() &&
+    (input.decision === "REJECTED" || event.args.treasury?.toLowerCase() === expectedTreasury.toLowerCase()) &&
     event.args.amount === 10_000_000n,
   );
   if (!matching) throw new Error("No matching escrow approval/release or rejection/refund event was found.");
