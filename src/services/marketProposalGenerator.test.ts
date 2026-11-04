@@ -20,7 +20,7 @@ after(() => {
 
 const validTemplate = {
   id: "btc-usd-threshold",
-  category: "Crypto",
+  category: "Digital Assets",
   question: "Will Bitcoin trade above 100000 USD?",
   description: "This candidate resolves using the configured CoinGecko market data at the observation time.",
   sourceId: "coingecko",
@@ -38,7 +38,7 @@ test("generated candidate proposal requires future close and later resolution", 
   const proposal = {
     question: validTemplate.question,
     description: validTemplate.description,
-    category: "Crypto",
+    category: "Digital Assets",
     closesAt: new Date(now + 60 * 60_000).toISOString(),
     resolvesAt: new Date(now + 2 * 60 * 60_000).toISOString(),
     resolutionRule: {
