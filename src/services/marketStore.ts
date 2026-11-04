@@ -19,7 +19,7 @@ type MarketProposalRow = {
   walletAddress: string | null;
   question: string;
   description: string;
-  category: MarketProposalInput["category"];
+  category: string;
   sport?: MarketProposalInput["sport"];
   closesAt: string | Date;
   resolvesAt: string | Date;
