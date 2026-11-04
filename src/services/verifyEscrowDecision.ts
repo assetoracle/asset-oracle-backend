@@ -65,7 +65,7 @@ export async function verifyEscrowDecision(input: {
     event.args.proposalId?.toLowerCase() === proposalId &&
     event.args.reviewer?.toLowerCase() === reviewer.toLowerCase() &&
     event.args.payer?.toLowerCase() === expectedPayer.toLowerCase() &&
-    (input.decision === "REJECTED" || event.args.treasury?.toLowerCase() === expectedTreasury.toLowerCase()) &&
+    (input.decision === "REJECTED" || (event.args as { treasury?: string }).treasury?.toLowerCase() === expectedTreasury.toLowerCase()) &&
     event.args.amount === 10_000_000n,
   );
   if (!matching) throw new Error("No matching escrow approval/release or rejection/refund event was found.");
