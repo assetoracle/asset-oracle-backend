@@ -4,7 +4,7 @@ The generator creates **candidate records only**. It does not create wallet-subm
 
 ## GitHub Actions
 
-The scheduled workflow runs every five minutes but its job is skipped unless the repository variable `MARKET_PROPOSAL_GENERATOR_ENABLED` is exactly `true`. It can also be started manually. The worker independently checks the same environment flag.
+The scheduled workflow runs every ten minutes but its job is skipped unless the repository variable `MARKET_PROPOSAL_GENERATOR_ENABLED` is exactly `true`. It can also be started manually. The worker independently checks the same environment flag.
 
 Do not enable the repository variable until the database secret and template secret have been reviewed. No secrets or repository variables are configured by this change.
 
@@ -47,7 +47,6 @@ The category cursor advances in this order: Crypto, Economics, Regional, RWA, Sp
 Candidate proposals are validated by the same Zod schema as user proposals. Duplicate proposal payloads are ignored using a SHA-256 uniqueness key. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; the normal proposal table and its payment/creator workflow are untouched.
 
 The template thresholds and metric paths are configuration, not predictions derived by the generator. A reviewer must check that each template is meaningful and that its source metric is suitable before enabling the workflow. Provider evidence remains separate and must never independently decide a market outcome.
-
 
 ## Candidate review API
 
