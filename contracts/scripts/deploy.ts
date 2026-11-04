@@ -27,6 +27,7 @@ async function main() {
   const treasury = ethers.getAddress(required("TREASURY_ADDRESS"));
   const validatorPool = ethers.getAddress(required("VALIDATOR_REWARD_POOL_ADDRESS"));
   const resolver = ethers.getAddress(required("ORACLE_RESOLVER_ADDRESS"));
+  const automationWallet = ethers.getAddress(required("AUTOMATION_WALLET_ADDRESS"));
   const usdcAddress = ethers.getAddress(required("USDC_TOKEN_ADDRESS"));
   const validators = [
     ethers.getAddress(required("VALIDATOR_WALLET_1")),
@@ -48,6 +49,11 @@ async function main() {
   }
   if (usdcAddress.toLowerCase() !== expectedUsdcAddress.toLowerCase()) {
     throw new Error(`Refusing deployment: Enugu testnet must use the approved USDC address ${expectedUsdcAddress}.`);
+  }
+  if (automationWallet === ethers.ZeroAddress || automationWallet.toLowerCase() === owner.toLowerCase() ||
+      automationWallet.toLowerCase() === deployer.address.toLowerCase() ||
+      expectedValidators.some(address => address.toLowerCase() === automationWallet.toLowerCase())) {
+    throw new Error("Refusing deployment: AUTOMATION_WALLET_ADDRESS must be a dedicated wallet, distinct from the owner, validators, and temporary deployer.");
   }
   if (resolver.toLowerCase() !== owner.toLowerCase()) {
     throw new Error("Refusing deployment: the initial Enugu testnet oracle resolver must be the confirmed final owner wallet.");
@@ -111,6 +117,13 @@ async function main() {
   const resolverReceipt = await resolverTx.wait();
   if (!resolverReceipt) throw new Error("Resolver configuration receipt was not available.");
 
+  const automationMarketCreatorTx = await manager.setMarketCreator(automationWallet, true);
+  const automationMarketCreatorReceipt = await automationMarketCreatorTx.wait();
+  if (!automationMarketCreatorReceipt) throw new Error("Automation wallet market-creator role receipt was not available.");
+  const automationRoleTx = await manager.setAutomatedMarketCreator(automationWallet, true);
+  const automationRoleReceipt = await automationRoleTx.wait();
+  if (!automationRoleReceipt) throw new Error("Automation wallet automated-market role receipt was not available.");
+
   const creatorReceipts: Array<{ address: string; hash: string; blockNumber: number }> = [];
   for (const address of extraCreators) {
     const creatorTx = await manager.setMarketCreator(address, true);
@@ -141,6 +154,9 @@ async function main() {
   const automatedCreatorRole = ethers.keccak256(ethers.toUtf8Bytes("AUTOMATED_MARKET_CREATOR_ROLE"));
   if (!(await manager.hasRole(resolverRole, owner))) {
     throw new Error("Refusing ownership transfer: final owner lacks the oracle resolver role.");
+  }
+  if (!(await manager.hasRole(creatorRole, automationWallet)) || !(await manager.hasRole(automatedCreatorRole, automationWallet))) {
+    throw new Error("Refusing ownership transfer: automation wallet does not have both required market publication roles.");
   }
   for (const address of extraCreators) {
     if (!(await manager.hasRole(creatorRole, address))) {
@@ -180,6 +196,9 @@ async function main() {
   console.log("Validators:", validators.join(", "));
   console.log("Resolver configuration transaction:", resolverTx.hash);
   console.log("Resolver configuration block:", resolverReceipt.blockNumber);
+  console.log("Automation wallet:", automationWallet);
+  console.log("Automation wallet manual market role transaction:", automationMarketCreatorTx.hash);
+  console.log("Automation wallet automated market role transaction:", automationRoleTx.hash);
   for (const receipt of creatorReceipts) {
     console.log(`Creator configuration for ${receipt.address}: ${receipt.hash} (block ${receipt.blockNumber})`);
   }
