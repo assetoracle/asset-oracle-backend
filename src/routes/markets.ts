@@ -180,7 +180,7 @@ marketsRouter.post("/admin/proposals/:id/escrow-context/session", async (req, re
     }
     await verifyPaidProposalEscrowConfig({
       rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
-      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress,
+      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress, reviewerAddress: address,
     });
     return res.status(200).json({
       requiresEscrow: true,
@@ -222,7 +222,7 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
       }
       await verifyPaidProposalEscrowConfig({
         rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
-        usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress,
+        usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress, reviewerAddress: address,
       });
       await verifyEscrowDecision({
         rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
@@ -665,7 +665,7 @@ marketsRouter.post(
         }
         await verifyPaidProposalEscrowConfig({
           rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
-          usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress,
+          usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress, reviewerAddress: walletAuth.address,
         });
 await verifyEscrowDecision({
           rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
