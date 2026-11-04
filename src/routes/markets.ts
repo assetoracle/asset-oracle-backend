@@ -27,6 +27,10 @@ import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
 import { getPaidSubmissionTestnetConfig } from "../services/paidSubmissionConfig.js";
 import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
 import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal } from "../services/paidSubmissionStore.js";
+import { decidePaidMarketProposalAtomically } from "../services/decidePaidMarketProposal.js";
+import { getPaidProposalEscrowContext } from "../services/paidProposalEscrowContext.js";
+import { verifyEscrowDecision } from "../services/verifyEscrowDecision.js";
+import { verifyPaidProposalEscrowConfig } from "../services/verifyPaidProposalEscrowConfig.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
@@ -155,28 +159,93 @@ marketsRouter.post("/admin/proposals/list/session", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+marketsRouter.post("/admin/proposals/:id/escrow-context/session", async (req, res, next) => {
+  try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!idResult.success || !parsed.success) return res.status(400).json({ error: "A valid proposal ID and reviewer wallet are required." });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only authorised proposal reviewers can access escrow review details." });
+
+    const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
+    if (!paidEscrow) return res.status(200).json({ requiresEscrow: false });
+    if (paidEscrow.status !== "PAID_PENDING_REVIEW") {
+      return res.status(409).json({ error: "Paid proposal is not awaiting an escrow decision.", status: paidEscrow.status });
+    }
+    const config = getPaidSubmissionTestnetConfig();
+    const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+    if (!config.enabled || !config.escrowAddress || !config.treasuryAddress || !adminAddress || !isAddress(adminAddress)) {
+      return res.status(503).json({ error: "Proposal escrow is not fully configured.", disabledReasons: config.disabledReasons });
+    }
+    await verifyPaidProposalEscrowConfig({
+      rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
+      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress, reviewerAddress: address,
+    });
+    return res.status(200).json({
+      requiresEscrow: true,
+      escrowAddress: config.escrowAddress,
+      proposalIdHash: paidEscrow.proposalIdHash,
+      payer: paidEscrow.payer,
+      amountAtomic: "10000000",
+      tokenAddress: config.tokens.USDC.address,
+      treasuryAddress: config.treasuryAddress,
+    });
+  } catch (error) { return next(error); }
+});
+
 marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
-    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address"), status: z.enum(["APPROVED", "REJECTED"]) }).safeParse(req.body);
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      status: z.enum(["APPROVED", "REJECTED"]),
+      transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+    }).safeParse(req.body);
     if (!idResult.success || !parsed.success) return res.status(400).json({ error: "A valid proposal ID, wallet address, and decision are required." });
-    const { address, status } = parsed.data;
+    const { address, status, transactionHash } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
-    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can decide proposals." });
-    const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured admin or market creator wallets can decide proposals." });
+
+    const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
+    if (paidEscrow) {
+      if (paidEscrow.status !== "PAID_PENDING_REVIEW") return res.status(409).json({ error: "Paid proposal is not awaiting an admin decision.", status: paidEscrow.status });
+      if (!transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
+      const config = getPaidSubmissionTestnetConfig();
+      const confirmations = Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2");
+      if (!config.enabled || !config.escrowAddress || !Number.isSafeInteger(confirmations) || confirmations < 1) {
+        return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
+      }
+      const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+      if (!adminAddress || !isAddress(adminAddress) || !config.treasuryAddress || !config.escrowAddress) {
+        return res.status(503).json({ error: "Verified admin, Treasury and proposal escrow configuration is required." });
+      }
+      await verifyPaidProposalEscrowConfig({
+        rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
+        usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress, reviewerAddress: address,
+      });
+      await verifyEscrowDecision({
+        rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
+        transactionHash, authenticatedReviewer: address, escrowAddress: config.escrowAddress,
+        proposalIdHash: paidEscrow.proposalIdHash, expectedPayer: paidEscrow.payer,
+        expectedTreasury: config.treasuryAddress!, decision: status,
+      });
+    }
+
+    const decision = paidEscrow && transactionHash
+      ? await decidePaidMarketProposalAtomically({ proposalId: idResult.data, decision: status, decisionTxHash: transactionHash })
+      : await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
     if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
     if (decision === "CONFLICT") {
       const existing = await getMarketProposal(idResult.data);
-      return res.status(409).json({
-        error: "Only pending proposals with confirmed payment can receive a decision.",
-        status: existing?.status ?? null,
-      });
+      return res.status(409).json({ error: "Only pending proposals with confirmed payment can receive a decision.", status: existing?.status ?? null });
     }
     const proposal = await getMarketProposal(idResult.data);
     if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
   } catch (error) { return next(error); }
 });
+
 // Public role preview lets the UI show the connected wallet's configured role immediately.
  // This endpoint only reports the public role allowlist; protected actions still require a verified session.
 marketsRouter.post("/auth/role/public", (req, res) => {
@@ -270,6 +339,14 @@ marketsRouter.post("/paid-submissions/quote", async (req, res, next) => {
         disabledReasons: config.disabledReasons,
       });
     }
+    const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+    if (!adminAddress || !isAddress(adminAddress) || !config.escrowAddress || !config.treasuryAddress) {
+      return res.status(503).json({ error: "Verified admin, Treasury and proposal escrow configuration is required." });
+    }
+    await verifyPaidProposalEscrowConfig({
+      rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
+      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress,
+    });
     const quote = createPaidSubmissionQuote({ token, config });
     const quoteId = await persistSubmissionQuote({ walletAddress: walletAuth.address, quote });
     return res.status(201).json({
@@ -562,53 +639,53 @@ marketsRouter.post(
   async (req, res, next) => {
     try {
       const idResult = z.string().uuid().safeParse(req.params.id);
-
-      if (!idResult.success) {
-        return res.status(400).json({
-          error: "Invalid proposal ID",
-        });
-      }
-
+      if (!idResult.success) return res.status(400).json({ error: "Invalid proposal ID" });
       const bodyResult = z.object({
         status: z.enum(["APPROVED", "REJECTED"]),
+        transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
         walletAuth: walletAuthSchema,
       }).safeParse(req.body);
+      if (!bodyResult.success) return res.status(400).json({ error: "A valid decision and admin authentication are required." });
+      const { status, walletAuth, transactionHash } = bodyResult.data;
+      const verified = await verifyAdminWallet(walletAuth.address, walletAuth.signature as `0x${string}`, walletAuth.message);
+      if (!verified) return res.status(403).json({ error: "Admin authorization failed" });
 
-      if (!bodyResult.success) {
-        return res.status(400).json({
-          error: "A valid decision and admin authentication are required",
+      const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
+      if (paidEscrow) {
+        if (paidEscrow.status !== "PAID_PENDING_REVIEW") return res.status(409).json({ error: "Paid proposal is not awaiting an admin decision.", status: paidEscrow.status });
+        if (!transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
+        const config = getPaidSubmissionTestnetConfig();
+        const confirmations = Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2");
+        if (!config.enabled || !config.escrowAddress || !Number.isSafeInteger(confirmations) || confirmations < 1) {
+          return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
+        }
+                const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+        if (!adminAddress || !isAddress(adminAddress) || !config.treasuryAddress || !config.escrowAddress) {
+          return res.status(503).json({ error: "Verified admin, Treasury and proposal escrow configuration is required." });
+        }
+        await verifyPaidProposalEscrowConfig({
+          rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
+          usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress, reviewerAddress: walletAuth.address,
+        });
+await verifyEscrowDecision({
+          rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
+          transactionHash, authenticatedReviewer: walletAuth.address, escrowAddress: config.escrowAddress,
+          proposalIdHash: paidEscrow.proposalIdHash, expectedPayer: paidEscrow.payer,
+          expectedTreasury: config.treasuryAddress!, decision: status,
         });
       }
 
-      const { status, walletAuth } = bodyResult.data;
-
-      const verified = await verifyAdminWallet(
-        walletAuth.address,
-        walletAuth.signature as `0x${string}`,
-        walletAuth.message,
-      );
-
-      if (!verified) {
-        return res.status(403).json({
-          error: "Admin authorization failed",
-        });
-      }
-
-      const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+      const decision = paidEscrow && transactionHash
+        ? await decidePaidMarketProposalAtomically({ proposalId: idResult.data, decision: status, decisionTxHash: transactionHash })
+        : await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
       if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
       if (decision === "CONFLICT") {
         const existing = await getMarketProposal(idResult.data);
-        return res.status(409).json({
-          error: "Only pending proposals with confirmed payment can receive a decision.",
-          status: existing?.status ?? null,
-        });
+        return res.status(409).json({ error: "Only pending proposals with confirmed payment can receive a decision.", status: existing?.status ?? null });
       }
       const proposal = await getMarketProposal(idResult.data);
       if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
-      return res.status(200).json({
-        message: `Market proposal ${status.toLowerCase()}.`,
-        proposal,
-      });
+      return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
     } catch (error) {
       return next(error);
     }

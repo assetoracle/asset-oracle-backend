@@ -13,6 +13,7 @@ const EXPECTED_CHAIN_ID = 42421;
 const APPROVED_TOKEN_ADDRESS = getAddress("0xc33741fddEBeA854d265db6F9707900Efb0211a2");
 const TOKEN_RAW = process.env.ASSET_ORACLE_TESTNET_USDC_ADDRESS || APPROVED_TOKEN_ADDRESS;
 const TREASURY_RAW = process.env.ASSET_ORACLE_TESTNET_PAID_SUBMISSION_TREASURY_ADDRESS || "";
+const ESCROW_RAW = process.env.ASSET_ORACLE_TESTNET_PAID_SUBMISSION_ESCROW_ADDRESS || "";
 
 const erc20Abi = parseAbi([
   "function decimals() view returns (uint8)",
@@ -62,6 +63,35 @@ async function main() {
     expectedAtomicAmount: "10000000",
   }, null, 2));
 
+  if (ESCROW_RAW) {
+    requireCheck(isAddress(ESCROW_RAW), "Manual proposal escrow address is invalid.");
+    const escrow = getAddress(ESCROW_RAW);
+    const escrowCode = await client.getCode({ address: escrow });
+    requireCheck(!!escrowCode && escrowCode !== "0x", "No contract bytecode exists at the configured proposal escrow address.");
+    const escrowAbi = parseAbi([
+      "function usdc() view returns (address)",
+      "function treasury() view returns (address)",
+      "function PROPOSAL_FEE() view returns (uint256)",
+    ]);
+    const [escrowToken, escrowTreasury, fee] = await Promise.all([
+      client.readContract({ address: escrow, abi: escrowAbi, functionName: "usdc" }),
+      client.readContract({ address: escrow, abi: escrowAbi, functionName: "treasury" }),
+      client.readContract({ address: escrow, abi: escrowAbi, functionName: "PROPOSAL_FEE" }),
+    ]);
+    requireCheck(escrowToken.toLowerCase() === token.toLowerCase(), "Escrow is configured with a different USDC token.");
+    requireCheck(fee === 10_000_000n, "Escrow proposal fee is not exactly 10 USDC.");
+    console.log(JSON.stringify({
+      escrowAddress: escrow,
+      escrowBytecodeBytes: (escrowCode.length - 2) / 2,
+      escrowToken,
+      escrowTreasury,
+      fixedProposalFee: formatUnits(fee, decimals),
+      flow: "External payer -> escrow; approved -> Treasury; rejected -> original payer refund",
+    }, null, 2));
+  } else {
+    console.log("No escrow address supplied. Paid proposal fees must remain disabled until the escrow is deployed and verified.");
+  }
+
   if (TREASURY_RAW) {
     requireCheck(isAddress(TREASURY_RAW), "Candidate treasury address is invalid.");
     const treasury = getAddress(TREASURY_RAW);
@@ -73,7 +103,7 @@ async function main() {
       candidateTreasuryAddress: treasury,
       treasuryBytecodeBytes: treasuryCode && treasuryCode !== "0x" ? (treasuryCode.length - 2) / 2 : 0,
       candidateTreasuryUsdcBalance: formatUnits(balance, decimals),
-      treasuryVerificationNote: "This read proves on-chain properties only; a responsible operator must confirm this is the intended receiving wallet before use.",
+      treasuryVerificationNote: "This is the final fee recipient only after an authorised proposal approval; the initial $10 payment is held in escrow.",
     }, null, 2));
   } else {
     console.log("No candidate treasury supplied. Set ASSET_ORACLE_TESTNET_PAID_SUBMISSION_TREASURY_ADDRESS to inspect it read-only.");

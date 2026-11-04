@@ -8,6 +8,7 @@ const config: PaidSubmissionTestnetConfig = {
   chainId: 42421,
   rpcUrl: "https://enugu-rpc.assetchain.org",
   treasuryAddress: "0x1111111111111111111111111111111111111111",
+  escrowAddress: "0x3333333333333333333333333333333333333333",
   tokens: { USDC: { address: "0x2222222222222222222222222222222222222222", decimals: 6 } },
   disabledReasons: [],
 };
