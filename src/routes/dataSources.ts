@@ -3,19 +3,21 @@ import { isAddress } from "viem";
 import { z } from "zod";
 import { isAdminWallet } from "../services/adminAuth.js";
 import { verifyWalletSession } from "../services/walletAuth.js";
-import { database } from "../config/database.js";
 import {
+  apiFootballFixtures,
+  coingeckoMarkets,
   dexscreenerSearch,
   dexscreenerTokenPairs,
   defiLlamaProtocols,
   defiLlamaProtocolTvl,
-  footballMatches,
   fredObservations,
   gdeltArticles,
+  openMeteoHistorical,
+  sportmonksFixturesByDate,
+  worldBankIndicator,
 } from "../services/dataProviders.js";
 
 const dataSourcesRouter = Router();
-
 const authSchema = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") });
 
 async function authorize(req: import("express").Request, res: import("express").Response, address: string): Promise<boolean> {
@@ -36,6 +38,17 @@ function providerError(res: import("express").Response, error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown provider error";
   return res.status(502).json({ error: "Data provider request failed.", detail: message });
 }
+
+dataSourcesRouter.post("/coingecko/markets", async (req, res) => {
+  const parsed = authSchema.extend({
+    vsCurrency: z.string().trim().min(2).max(12).optional(),
+    page: z.number().int().min(1).max(1000).optional(),
+    perPage: z.number().int().min(1).max(250).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address and CoinGecko market parameters are required." });
+  if (!await authorize(req, res, parsed.data.address)) return;
+  try { return res.json(await coingeckoMarkets(parsed.data.vsCurrency, parsed.data.page, parsed.data.perPage)); } catch (error) { return providerError(res, error); }
+});
 
 dataSourcesRouter.post("/dexscreener/search", async (req, res) => {
   const parsed = authSchema.extend({ query: z.string().trim().min(1).max(120) }).safeParse(req.body);
@@ -65,15 +78,22 @@ dataSourcesRouter.post("/defillama/tvl", async (req, res) => {
   try { return res.json(await defiLlamaProtocolTvl(parsed.data.protocol)); } catch (error) { return providerError(res, error); }
 });
 
-dataSourcesRouter.post("/sports/matches", async (req, res) => {
-  const parsed = authSchema.extend({
-    competition: z.enum(["PL", "PD", "BL1", "SA", "FL1", "CL"]),
-    dateFrom: z.string().date().optional(),
-    dateTo: z.string().date().optional(),
-  }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Valid admin address and supported competition code are required." });
+dataSourcesRouter.post("/sports/sportmonks/fixtures", async (req, res) => {
+  const parsed = authSchema.extend({ date: z.string().date() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address and fixture date are required." });
   if (!await authorize(req, res, parsed.data.address)) return;
-  try { return res.json(await footballMatches(parsed.data.competition, parsed.data.dateFrom, parsed.data.dateTo)); } catch (error) { return providerError(res, error); }
+  try { return res.json(await sportmonksFixturesByDate(parsed.data.date)); } catch (error) { return providerError(res, error); }
+});
+
+dataSourcesRouter.post("/sports/api-football/fixtures", async (req, res) => {
+  const parsed = authSchema.extend({
+    date: z.string().date(),
+    league: z.number().int().positive().optional(),
+    season: z.number().int().min(1900).max(2200).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address and API-Football fixture parameters are required." });
+  if (!await authorize(req, res, parsed.data.address)) return;
+  try { return res.json(await apiFootballFixtures(parsed.data.date, parsed.data.league, parsed.data.season)); } catch (error) { return providerError(res, error); }
 });
 
 dataSourcesRouter.post("/economics/fred", async (req, res) => {
@@ -87,6 +107,17 @@ dataSourcesRouter.post("/economics/fred", async (req, res) => {
   try { return res.json(await fredObservations(parsed.data.seriesId, parsed.data.start, parsed.data.end)); } catch (error) { return providerError(res, error); }
 });
 
+dataSourcesRouter.post("/economics/world-bank", async (req, res) => {
+  const parsed = authSchema.extend({
+    country: z.string().trim().min(2).max(3),
+    indicator: z.string().trim().min(1).max(80),
+    dateRange: z.string().regex(/^\d{4}:\d{4}$/).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address, country code, and World Bank indicator are required." });
+  if (!await authorize(req, res, parsed.data.address)) return;
+  try { return res.json(await worldBankIndicator(parsed.data.country, parsed.data.indicator, parsed.data.dateRange)); } catch (error) { return providerError(res, error); }
+});
+
 dataSourcesRouter.post("/regional/gdelt", async (req, res) => {
   const parsed = authSchema.extend({
     query: z.string().trim().min(1).max(250),
@@ -97,8 +128,19 @@ dataSourcesRouter.post("/regional/gdelt", async (req, res) => {
   try { return res.json(await gdeltArticles(parsed.data.query, parsed.data.maxRecords)); } catch (error) { return providerError(res, error); }
 });
 
+dataSourcesRouter.post("/regional/open-meteo/historical", async (req, res) => {
+  const parsed = authSchema.extend({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    startDate: z.string().date(),
+    endDate: z.string().date(),
+  }).refine((value) => value.startDate <= value.endDate, "Start date must not be after end date").safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Valid admin address, coordinates, and date range are required." });
+  if (!await authorize(req, res, parsed.data.address)) return;
+  try { return res.json(await openMeteoHistorical(parsed.data.latitude, parsed.data.longitude, parsed.data.startDate, parsed.data.endDate)); } catch (error) { return providerError(res, error); }
+});
 
-const chainId = 42421;
+\nconst chainId = 42421;
 
 dataSourcesRouter.post("/asset-chain/indexer/status", async (req, res) => {
   const parsed = authSchema.safeParse(req.body);
@@ -161,3 +203,4 @@ dataSourcesRouter.post("/asset-chain/contract-events", async (req, res) => {
 });
 
 export default dataSourcesRouter;
+
