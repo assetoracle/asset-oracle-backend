@@ -12,6 +12,7 @@ const resolutionRuleSchema = z.object({
   }),
   description: z.string().trim().min(10, "Explain the resolution rule"),
   query: z.object({
+    coinId: z.string().trim().min(1).max(100).optional(),
     vsCurrency: z.string().trim().min(2).max(12).optional(),
     page: z.number().int().min(1).max(1000).optional(),
     perPage: z.number().int().min(1).max(250).optional(),
@@ -90,7 +91,7 @@ export const marketProposalSchema = z
     }
     const query = market.resolutionRule.query;
     const requiredQueryFields: Record<string, string[]> = {
-      dexscreener: ["search"], defillama: ["protocol"], sportmonks: ["date"],
+      coingecko: ["coinId"], dexscreener: ["search"], defillama: ["protocol"], sportmonks: ["date"],
       "api-football": ["date"], fred: ["seriesId"], "world-bank": ["country", "indicator"],
       gdelt: ["search"], "open-meteo": ["latitude", "longitude", "startDate", "endDate"],
     };
