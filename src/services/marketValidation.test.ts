@@ -47,7 +47,8 @@ test("market proposal schema requires resolution after closing", () => {
 
 
 test("sports markets require a supported sport", () => {
-  const proposal = { ...validProposal(), category: "Sports" };
+  const base = validProposal();
+  const proposal = { ...base, category: "Sports", resolutionRule: { ...base.resolutionRule, sourceId: "sportmonks", query: { date: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10) } } };
   assert.equal(marketProposalSchema.safeParse(proposal).success, false);
   for (const sport of ["football", "basketball", "tennis"] as const) {
     assert.equal(marketProposalSchema.safeParse({ ...proposal, sport }).success, true);
