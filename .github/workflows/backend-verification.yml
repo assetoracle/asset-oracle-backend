@@ -18,6 +18,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Audit resolved dependencies
+        run: |
+          npm audit --json > npm-audit.json || true
+          node -e "const a=require('./npm-audit.json'); console.log(JSON.stringify(a.metadata?.vulnerabilities || {}, null, 2)); for (const [n,v] of Object.entries(a.vulnerabilities || {})) console.log(n + ': ' + v.severity + ' via ' + JSON.stringify(v.via));"
       - name: Type-check
         run: npm run typecheck
       - name: Build
