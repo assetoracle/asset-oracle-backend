@@ -17,6 +17,7 @@ export async function verifyPaidProposalEscrowConfig(input: {
   usdcAddress: string;
   treasuryAddress: string;
   adminAddress: string;
+  reviewerAddress?: string;
 }, clientOverride?: PublicClient): Promise<void> {
   const client = clientOverride ?? createPublicClient({ transport: http(input.rpcUrl) });
   if (await client.getChainId() !== input.chainId || input.chainId !== 42421) {
@@ -26,6 +27,7 @@ export async function verifyPaidProposalEscrowConfig(input: {
   const usdcAddress = getAddress(input.usdcAddress);
   const treasuryAddress = getAddress(input.treasuryAddress);
   const adminAddress = getAddress(input.adminAddress);
+  const reviewerAddress = getAddress(input.reviewerAddress ?? input.adminAddress);
   const [escrowCode, tokenCode] = await Promise.all([
     client.getCode({ address: escrowAddress }),
     client.getCode({ address: usdcAddress }),
@@ -43,8 +45,10 @@ export async function verifyPaidProposalEscrowConfig(input: {
   if (configuredToken.toLowerCase() !== usdcAddress.toLowerCase()) throw new Error("Escrow is configured with a different USDC token.");
   if (configuredTreasury.toLowerCase() !== treasuryAddress.toLowerCase()) throw new Error("Escrow is configured with a different Treasury address.");
   if (fee !== 10_000_000n || Number(decimals) !== 6) throw new Error("Escrow fee or USDC decimals do not match the exact 10 USDC policy.");
-  const isReviewer = await client.readContract({
-    address: escrowAddress, abi: escrowAbi, functionName: "hasRole", args: [reviewerRole, adminAddress],
-  });
-  if (!isReviewer) throw new Error("Configured admin wallet does not have the on-chain escrow reviewer role.");
+  const [adminIsReviewer, callerIsReviewer] = await Promise.all([
+    client.readContract({ address: escrowAddress, abi: escrowAbi, functionName: "hasRole", args: [reviewerRole, adminAddress] }),
+    client.readContract({ address: escrowAddress, abi: escrowAbi, functionName: "hasRole", args: [reviewerRole, reviewerAddress] }),
+  ]);
+  if (!adminIsReviewer) throw new Error("Configured admin wallet does not have the on-chain escrow reviewer role.");
+  if (!callerIsReviewer) throw new Error("Connected wallet does not have the on-chain escrow reviewer role.");
 }
