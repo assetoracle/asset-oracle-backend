@@ -13,12 +13,16 @@ async function getJson<T>(provider: string, url: URL, headers: Record<string, st
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {
     const response = await fetch(url, { headers: { accept: "application/json", ...headers }, signal: controller.signal });
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > 5000000) throw new Error(`${provider} response exceeded the 5 MB limit.`);
+    if (!response.ok) throw new Error(`${provider} returned HTTP ${response.status}.`);
     const body = await response.text();
-    if (!response.ok) throw new Error(`${provider} returned HTTP ${response.status}: ${body.slice(0, 200)}`);
-    const data = JSON.parse(body) as T;
+    if (Buffer.byteLength(body, "utf8") > 5000000) throw new Error(`${provider} response exceeded the 5 MB limit.`);
+    let data: T;
+    try { data = JSON.parse(body) as T; } catch { throw new Error(`${provider} returned an invalid JSON response.`); }
     const safeUrl = new URL(url);
-    for (const key of ["api_key", "x_cg_demo_api_key", "x_cg_pro_api_key", "api_token", "token", "key"]) {
-      if (safeUrl.searchParams.has(key)) safeUrl.searchParams.set(key, "[REDACTED]");
+    for (const key of [...safeUrl.searchParams.keys()]) {
+      if (["api_key", "x_cg_demo_api_key", "x_cg_pro_api_key", "api_token", "token", "key"].includes(key.toLowerCase())) safeUrl.searchParams.set(key, "[REDACTED]");
     }
     return { provider, sourceUrl: safeUrl.toString(), retrievedAt: new Date().toISOString(), contentHash: createHash("sha256").update(body).digest("hex"), data };
   } finally {
@@ -33,7 +37,9 @@ function requiredEnv(name: string): string {
 }
 
 function validDate(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 export function dexscreenerSearch(query: string) {
