@@ -66,6 +66,6 @@ test("market proposals reject a provider that is not allowlisted for the categor
 
 test("market proposals require provider-specific query parameters", () => {
   const proposal = validProposal();
-  proposal.resolutionRule.query = undefined;
+  proposal.resolutionRule.query.coinId = "";
   assert.equal(marketProposalSchema.safeParse(proposal).success, false);
 });
