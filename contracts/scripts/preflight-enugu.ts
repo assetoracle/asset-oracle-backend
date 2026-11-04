@@ -135,6 +135,35 @@ async function main() {
   if (validatorShareBps !== 1500) throw new Error(`Validator fee share mismatch: expected 1500 bps (15%), received ${validatorShareBps}.`);
   console.log("PASS settlement fee policy: 10% fee, 15% validator share, 85% Treasury share");
 
+  const escrowAddressRaw = process.env.ASSET_ORACLE_TESTNET_PAID_SUBMISSION_ESCROW_ADDRESS?.trim();
+  if (!escrowAddressRaw || !ethers.isAddress(escrowAddressRaw)) {
+    throw new Error("ASSET_ORACLE_TESTNET_PAID_SUBMISSION_ESCROW_ADDRESS is missing or invalid; paid proposal escrow remains disabled.");
+  }
+  const escrowAddress = ethers.getAddress(escrowAddressRaw);
+  const escrowCode = await ethers.provider.getCode(escrowAddress);
+  if (escrowCode === "0x") throw new Error("No contract code at the configured manual proposal escrow address.");
+  const escrowArtifact = await artifacts.readArtifact("ManualProposalFeeEscrow");
+  const escrowRuntimeHash = ethers.keccak256(escrowCode);
+  const expectedEscrowRuntimeHash = ethers.keccak256(escrowArtifact.deployedBytecode);
+  if (escrowRuntimeHash !== expectedEscrowRuntimeHash) {
+    throw new Error(`Escrow runtime bytecode mismatch. Expected ${expectedEscrowRuntimeHash}, received ${escrowRuntimeHash}.`);
+  }
+  const escrow = new ethers.Contract(escrowAddress, [
+    "function usdc() view returns (address)",
+    "function treasury() view returns (address)",
+    "function PROPOSAL_FEE() view returns (uint256)",
+    "function REVIEWER_ROLE() view returns (bytes32)",
+    "function hasRole(bytes32,address) view returns (bool)",
+  ], ethers.provider);
+  assertAddress("proposal escrow USDC", await escrow.usdc(), EXPECTED_USDC);
+  assertAddress("proposal escrow Treasury", await escrow.treasury(), EXPECTED_TREASURY);
+  if ((await escrow.PROPOSAL_FEE()) !== 10_000_000n) throw new Error("Proposal escrow fee must be exactly 10 USDC (10,000,000 atomic units).");
+  const reviewerRole = await escrow.REVIEWER_ROLE();
+  if (!(await escrow.hasRole(reviewerRole, EXPECTED_OWNER))) throw new Error("Confirmed owner does not have the escrow reviewer role.");
+  console.log(`PASS proposal escrow runtime bytecode: ${escrowRuntimeHash}`);
+  console.log("PASS manual proposal fee: 10 USDC held until approval or rejection/refund");
+  console.log("PASS confirmed owner has escrow reviewer permissions");
+
   console.log(`PASS manager contract code: ${normalizedManager}`);
   console.log(`INFO current market count: ${(await manager.marketCount()).toString()}`);
   console.log("PREFLIGHT PASSED. This script is read-only and submits no transactions.");
