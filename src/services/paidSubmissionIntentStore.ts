@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { keccak256, stringToHex } from "viem";
 import { database } from "../config/database.js";
 import type { MarketProposalInput } from "./marketValidation.js";
 
@@ -16,7 +17,8 @@ export type PaidSubmissionIntentResult = {
     tokenAddress: string;
     tokenDecimals: number;
     amountAtomic: string;
-    treasuryAddress: string;
+    escrowAddress: string;
+    proposalIdHash: string;
     expiresAtMs: number;
   };
 };
@@ -30,7 +32,7 @@ export async function createPaidSubmissionIntent(input: {
   proposal: MarketProposalInput;
   walletAddress: string;
   quoteId: string;
-  treasuryAddress: string;
+  escrowAddress: string;
   nowMs?: number;
 }): Promise<PaidSubmissionIntentResult> {
   const client = await database.connect();
@@ -103,7 +105,8 @@ export async function createPaidSubmissionIntent(input: {
         tokenAddress: quote.token_address,
         tokenDecimals: quote.token_decimals,
         amountAtomic: quote.amount_atomic,
-        treasuryAddress: input.treasuryAddress,
+        escrowAddress: input.escrowAddress,
+        proposalIdHash: keccak256(stringToHex(proposal.id)),
         expiresAtMs: Number(quote.expires_at_ms),
       },
     };
