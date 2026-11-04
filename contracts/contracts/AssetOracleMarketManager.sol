@@ -28,7 +28,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
     uint256 public tradingFeeBps = 25; // 0.25%, charged in addition to stake
     uint256 public settlementFeeBps = 1_000; // 10%
-    enum Stablecoin { USDC }
+    enum Stablecoin { USDC, USDT, CNGN }
     enum MarketType { MANUAL, AUTOMATED }
     enum Outcome { UNRESOLVED, YES, NO, INVALID }
     enum Status { OPEN, CLOSED, DISPUTED, SETTLED, REFUNDABLE, CANCELLED, ARBITRATION }
