@@ -109,6 +109,12 @@ router.post("/verify-payment", async (req, res, next) => {
     if (!config.enabled || !config.treasuryAddress || !config.escrowAddress || !Number.isSafeInteger(confirmations) || confirmations < 1) {
       return res.status(503).json({ error: "Testnet payment verification is disabled until USDC, treasury, RPC, and confirmation policy are verified.", network: "TESTNET", chainId });
     }
+    const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+    if (!adminAddress || !isAddress(adminAddress)) return res.status(503).json({ error: "Configured admin wallet is required to verify the proposal escrow." });
+    await verifyPaidProposalEscrowConfig({
+      rpcUrl, chainId, escrowAddress: config.escrowAddress!,
+      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress!, adminAddress,
+    });
     const tokenConfig = config.tokens[context.quote.token];
     if (!tokenConfig || tokenConfig.address.toLowerCase() !== context.quote.tokenAddress.toLowerCase() ||
         tokenConfig.decimals !== context.quote.tokenDecimals) {
