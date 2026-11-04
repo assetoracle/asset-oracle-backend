@@ -4,7 +4,7 @@ This worker is intentionally limited to Asset Chain Enugu testnet (chain ID 4242
 
 ## What it automates
 
-- Publishes only proposals that an admin has already approved in the backend database.
+- Publishes only manual proposals approved by an authorized owner/market maker and automated proposals approved through the private market-maker review flow.
 - Records publication only after a successful transaction receipt and a matching `MarketCreated` event.
 - Closes markets whose on-chain close time has passed.
 - Marks unresolved closed markets refundable after the contract timeout.
