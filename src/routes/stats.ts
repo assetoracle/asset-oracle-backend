@@ -171,7 +171,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
                 args: [BigInt(marketId)],
               });
               const market = marketRaw as unknown as readonly unknown[] & { stablecoin?: number };
-              const stablecoinId = Number(market.stablecoin ?? market[2]);
+              const stablecoinId = Number(market.stablecoin ?? market[3]);
               if (!Number.isInteger(stablecoinId) || stablecoinId < 0 || stablecoinId > 255) return null;
               const coin = await client.readContract({
                 address: managerAddress as `0x${string}`,
