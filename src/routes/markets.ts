@@ -400,6 +400,7 @@ marketsRouter.post("/proposals/mine", async (req, res, next) => {
 
 marketsRouter.get("/public", async (_req, res, next) => {
   try {
+    // The store applies a hard 100-row cap to keep this public query bounded.
     const markets = await listPublishedMarkets();
 
     return res.status(200).json({
