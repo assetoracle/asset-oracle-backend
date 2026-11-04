@@ -159,8 +159,9 @@ export async function createMarketProposal(
 }
 
 /** API-ingested markets are private and await approval by one authorized market maker. */
-export async function createAutomatedMarketProposal(input: MarketProposalInput): Promise<StoredMarketProposal> {
-  const result = await database.query<MarketProposalRow>(
+export async function createAutomatedMarketProposal(input: MarketProposalInput, client?: PoolClient): Promise<StoredMarketProposal> {
+  const executor = client ?? database;
+  const result = await executor.query<MarketProposalRow>(
     `INSERT INTO market_proposals
       (id, question, description, category, sport, "closesAt", "resolvesAt",
        "resolutionRule", "walletAddress", status, origin, visibility)
