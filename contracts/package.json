@@ -7,6 +7,7 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:enugu": "hardhat run scripts/deploy.ts --network enugu",
+    "deploy:proposal-escrow:enugu": "hardhat run scripts/deploy-manual-proposal-escrow.ts --network enugu",
     "preflight:enugu": "hardhat run scripts/preflight-enugu.ts --network enugu"
   },
   "devDependencies": {
