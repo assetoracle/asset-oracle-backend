@@ -4,7 +4,7 @@ The generator creates **candidate records only**. It does not create wallet-subm
 
 ## GitHub Actions
 
-The scheduled workflow runs every five minutes but its job is skipped unless the repository variable `MARKET_PROPOSAL_GENERATOR_ENABLED` is exactly `true`. It can also be started manually. The worker independently checks the same environment flag.
+The scheduled workflow runs every ten minutes but its job is skipped unless the repository variable `MARKET_PROPOSAL_GENERATOR_ENABLED` is exactly `true`. It can also be started manually. The worker independently checks the same environment flag.
 
 Do not enable the repository variable until the database secret and template secret have been reviewed. No secrets or repository variables are configured by this change.
 
