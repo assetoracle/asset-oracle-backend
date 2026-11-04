@@ -13,7 +13,7 @@ const { Pool } = pg;
 const RPC_URL = process.env.ASSET_CHAIN_RPC_URL?.trim() || ASSET_CHAIN_TESTNET_RPC_URL;
 const EXPECTED_CHAIN_ID = ASSET_CHAIN_TESTNET_ID;
 const USDC = getAddress("0xc33741fddEBeA854d265db6F9707900Efb0211a2");
-const manager = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
+const managerAddress = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
 const abi = [
   { type: "function", name: "validatorRosterConfigured", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
   { type: "function", name: "validators", stateMutability: "view", inputs: [{ name: "index", type: "uint256" }], outputs: [{ type: "address" }] },
@@ -27,6 +27,8 @@ function assertCheck(condition: unknown, message: string): asserts condition {
 
 async function main() {
   assertCheck(process.env.DATABASE_URL, "DATABASE_URL is missing.");
+  assertCheck(/^0x[0-9a-fA-F]{40}$/.test(managerAddress), "ASSET_ORACLE_MARKET_MANAGER_ADDRESS must point to the newly deployed and verified testnet contract.");
+  const manager = getAddress(managerAddress);
   const privateKey = process.env.AUTOMATION_PRIVATE_KEY?.trim();
   assertCheck(privateKey && /^0x[0-9a-fA-F]{64}$/.test(privateKey), "AUTOMATION_PRIVATE_KEY must be a 32-byte private key.");
   assertCheck(RPC_URL.startsWith("https://"), "Testnet RPC must use HTTPS.");
@@ -48,19 +50,21 @@ async function main() {
     });
     const client = createPublicClient({ chain, transport: http(RPC_URL) });
     const account = privateKeyToAccount(privateKey as Hex);
-    const [chainId, managerCode, rosterConfigured, tokenConfig, role, gasBalance] = await Promise.all([
+    const [chainId, managerCode, rosterConfigured, tokenConfig, manualCreatorRole, automatedCreatorRole, gasBalance] = await Promise.all([
       client.getChainId(),
       client.getBytecode({ address: manager }),
       client.readContract({ address: manager, abi, functionName: "validatorRosterConfigured" }),
       client.readContract({ address: manager, abi, functionName: "stablecoins", args: [0] }),
       client.readContract({ address: manager, abi, functionName: "hasRole", args: [keccak256(toBytes("MARKET_CREATOR_ROLE")), account.address] }),
+      client.readContract({ address: manager, abi, functionName: "hasRole", args: [keccak256(toBytes("AUTOMATED_MARKET_CREATOR_ROLE")), account.address] }),
       client.getBalance({ address: account.address }),
     ]);
     assertCheck(chainId === EXPECTED_CHAIN_ID, `Wrong RPC chain ID: expected 42421, received ${chainId}.`);
     assertCheck(managerCode && managerCode !== "0x", "Canonical market manager has no contract bytecode.");
     assertCheck(rosterConfigured, "Validator roster is not configured.");
     assertCheck(tokenConfig[2] && getAddress(tokenConfig[0]) === USDC && Number(tokenConfig[1]) === 6, "Canonical manager USDC configuration does not match the expected token.");
-    assertCheck(role, "Automation wallet does not have MARKET_CREATOR_ROLE.");
+    assertCheck(manualCreatorRole, "Automation wallet does not have MARKET_CREATOR_ROLE.");
+    assertCheck(automatedCreatorRole, "Automation wallet does not have AUTOMATED_MARKET_CREATOR_ROLE.");
 
     const roster = [];
     for (let i = 0; i < HUMAN_VALIDATOR_ADDRESSES.length; i++) {
@@ -83,7 +87,8 @@ async function main() {
       validators: roster,
       stablecoin: { address: getAddress(tokenConfig[0]), decimals: Number(tokenConfig[1]), enabled: tokenConfig[2] },
       automationWallet: account.address,
-      marketCreatorRole: role,
+      marketCreatorRole: manualCreatorRole,
+      automatedMarketCreatorRole: automatedCreatorRole,
       nativeGasBalanceWei: gasBalance.toString(),
       transactionsSubmitted: 0,
     }, null, 2));
