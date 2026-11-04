@@ -52,11 +52,13 @@ async function main() {
     const account = privateKeyToAccount(privateKey as Hex);
     const expectedAutomationWallet = process.env.AUTOMATION_WALLET_ADDRESS?.trim();
     assertCheck(expectedAutomationWallet && /^0x[0-9a-fA-F]{40}$/.test(expectedAutomationWallet) && getAddress(expectedAutomationWallet) === getAddress(account.address), "AUTOMATION_PRIVATE_KEY does not match AUTOMATION_WALLET_ADDRESS.");
-    const [chainId, managerCode, rosterConfigured, tokenConfig, manualCreatorRole, automatedCreatorRole, gasBalance] = await Promise.all([
+    const [chainId, managerCode, rosterConfigured, tokenConfig, usdtConfig, cngnConfig, manualCreatorRole, automatedCreatorRole, gasBalance] = await Promise.all([
       client.getChainId(),
       client.getBytecode({ address: manager }),
       client.readContract({ address: manager, abi, functionName: "validatorRosterConfigured" }),
       client.readContract({ address: manager, abi, functionName: "stablecoins", args: [0] }),
+      client.readContract({ address: manager, abi, functionName: "stablecoins", args: [1] }),
+      client.readContract({ address: manager, abi, functionName: "stablecoins", args: [2] }),
       client.readContract({ address: manager, abi, functionName: "hasRole", args: [keccak256(toBytes("MARKET_CREATOR_ROLE")), account.address] }),
       client.readContract({ address: manager, abi, functionName: "hasRole", args: [keccak256(toBytes("AUTOMATED_MARKET_CREATOR_ROLE")), account.address] }),
       client.getBalance({ address: account.address }),
@@ -65,6 +67,7 @@ async function main() {
     assertCheck(managerCode && managerCode !== "0x", "Canonical market manager has no contract bytecode.");
     assertCheck(rosterConfigured, "Validator roster is not configured.");
     assertCheck(tokenConfig[2] && getAddress(tokenConfig[0]) === USDC && Number(tokenConfig[1]) === 6, "Canonical manager USDC configuration does not match the expected token.");
+    assertCheck(!usdtConfig[2] && !cngnConfig[2], "Initial Enugu deployment must leave unverified USDT and cNGN disabled.");
     assertCheck(manualCreatorRole, "Automation wallet does not have MARKET_CREATOR_ROLE.");
     assertCheck(automatedCreatorRole, "Automation wallet does not have AUTOMATED_MARKET_CREATOR_ROLE.");
 
@@ -87,7 +90,11 @@ async function main() {
       managerBytecodeBytes: (managerCode.length - 2) / 2,
       validatorRosterConfigured: true,
       validators: roster,
-      stablecoin: { address: getAddress(tokenConfig[0]), decimals: Number(tokenConfig[1]), enabled: tokenConfig[2] },
+      stablecoins: {
+        USDC: { address: getAddress(tokenConfig[0]), decimals: Number(tokenConfig[1]), enabled: tokenConfig[2] },
+        USDT: { enabled: usdtConfig[2] },
+        cNGN: { enabled: cngnConfig[2] },
+      },
       automationWallet: account.address,
       marketCreatorRole: manualCreatorRole,
       automatedMarketCreatorRole: automatedCreatorRole,
