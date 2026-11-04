@@ -2,23 +2,9 @@
 
 **Purpose:** Verify the newly deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. The new deployment is pending completion of the code review and test gates. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
 
-## Legacy deployment record (historical; do not use for new markets)
+## Deployment status
 
-No existing deployment is approved for this release. Do not submit market, stake, vote, claim, or settlement transactions until the new contract is deployed from the reviewed source, its address and deployment evidence are recorded, and the read-only preflight passes.
-
-- Network: Asset Chain Enugu testnet, chain ID `42421`
-- RPC: `https://enugu-rpc.assetchain.org`
-- Explorer: `https://scan-testnet.assetchain.org`
-- Market manager: `0xf41fc574765175A59a9d064F7f2719EB7380a452`
-- Deployment transaction: `0x01445c8093ae92e108418cec3e411388d8533cf746935aa53a32682a972103e1`
-- Deployment block: `4502688`
-- Configured USDC: `0xc33741fddEBeA854d265db6F9707900Efb0211a2` (6 decimals)
-- Treasury: `0x650fBE31b1710b27Ea9eBe03862BC93145Fb3d77`
-- Validator reward pool: `0xb86e97b85e816ed0fe170a2dc3b5558232792553`
-- Owner/resolver: `0x3d3724d20d9d5db5a40819869057b37465a0c67d`
-- Deployment, USDC configuration, and resolver configuration transactions were reported successful. The read-only preflight passed for chain ID, manager bytecode, owner, Treasury, validator pool, USDC configuration, and creator/resolver roles.
-- The preflight reported zero markets at the time it was run. Re-read the live count before any market test.
-- Frontend and backend environment variables were reported updated by the operator; confirm live configuration after the backend deployment finishes.
+No contract address is approved for this release yet. The new contract must be deployed only after the reviewed source, contract tests, backend integration tests, and read-only preflight pass. Record the new deployment address and transaction evidence here after deployment.
 
 ## Current gate
 
@@ -45,14 +31,14 @@ npm run compile
 npm run preflight:enugu
 ```
 
-The preflight reads the RPC only. It checks chain ID, approved USDC contract and six decimals, manager code, owner, Treasury, validator pool, USDC configuration, and owner creator/resolver roles. It sends **no transactions**. A missing manager address should report BLOCKED and exit with code 2.
+The read-only preflight must check chain ID, approved USDC contract and six decimals, new manager bytecode, owner, Treasury, validator pool, USDC configuration, all three validators, and the dedicated automation wallet's manual and automated publication roles. It sends **no transactions**. A missing new manager address must block activation.
 
 ## Step 2 — Wallet and network
 
 - [ ] Connect the test wallet to Asset Chain Enugu (chain ID `42421`).
 - [ ] Confirm the connected address is the intended test participant.
 - [ ] Confirm the frontend and backend use the same verified manager address and Enugu RPC.
-- [ ] Confirm only approved Enugu testnet USDC is shown as stake currency (6 decimals). This deployed contract currently configures USDC only; do not show cNGN or USDT as usable on this deployment.
+- [ ] Confirm only approved Enugu testnet USDC is shown as stake currency (6 decimals). The new Enugu testnet build currently configures USDC only; do not show cNGN or USDT as usable until separately enabled and verified.
 
 ## Step 3 — Create and publish a test market
 
