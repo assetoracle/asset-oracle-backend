@@ -30,6 +30,7 @@ import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal 
 import { decidePaidMarketProposalAtomically } from "../services/decidePaidMarketProposal.js";
 import { getPaidProposalEscrowContext } from "../services/paidProposalEscrowContext.js";
 import { verifyEscrowDecision } from "../services/verifyEscrowDecision.js";
+import { verifyPaidProposalEscrowConfig } from "../services/verifyPaidProposalEscrowConfig.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
