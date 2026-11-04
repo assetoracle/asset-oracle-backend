@@ -2,6 +2,12 @@ name: Deploy Enugu Consensus Manager
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_new_contract_deployment:
+        description: "Confirm deployment of the reviewed new contract to Enugu testnet"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -13,7 +19,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy and configure on Enugu testnet
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.confirm_new_contract_deployment == true
     environment: enugu-testnet-deploy
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -45,6 +51,8 @@ jobs:
         run: npm install
       - name: Compile contract source
         run: npm run compile
+      - name: Run contract tests before deployment
+        run: npm test
       - name: Deploy, configure validators, and transfer ownership
         env:
           DEPLOYER_PRIVATE_KEY: ${{ secrets.ENUGU_DEPLOYER_PRIVATE_KEY }}
