@@ -65,6 +65,9 @@ export async function verifyEscrowSubmissionPayment(input: {
   if (transaction.from.toLowerCase() !== sender.toLowerCase()) throw new Error("Escrow payment sender does not match the authenticated wallet.");
   if (!transaction.to || transaction.to.toLowerCase() !== escrow.toLowerCase()) throw new Error("Transaction was not sent to the configured proposal escrow.");
 
+  const paymentBlock = await client.getBlock({ blockNumber: receipt.blockNumber });
+  if (Number(paymentBlock.timestamp) * 1000 > input.quote.expiresAtMs) throw new Error("Escrow payment was mined after the quote expired; request a new quote.");
+
   const latestBlock = await client.getBlockNumber();
   const confirmations = latestBlock >= receipt.blockNumber ? latestBlock - receipt.blockNumber + 1n : 0n;
   if (confirmations < BigInt(input.minimumConfirmations)) throw new Error("Escrow payment has not reached the required confirmation depth.");
