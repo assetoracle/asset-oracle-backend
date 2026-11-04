@@ -182,8 +182,8 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     const before = await f.usdc.balanceOf(f.alice.address);
     await f.manager.connect(f.alice).claim(1);
     expect((await f.usdc.balanceOf(f.alice.address)) - before).to.equal(1_800_000n);
-    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(30_000n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(175_000n);
+    expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(30_000n); // 15% of the 200,000 settlement fee.
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(175_000n); // 85% of settlement fee plus 5,000 in trading fees.
     await expect(f.manager.connect(f.alice).claim(1)).to.be.reverted;
   });
 
@@ -502,7 +502,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     const after = await Promise.all([f.alice, f.bob, f.creator].map(user => f.usdc.balanceOf(user.address)));
     expect(after.reduce((sum, value, i) => sum + value - before[i], 0n)).to.equal(27_003n);
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(450n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_625n); // Trading fees plus settlement share and rounding dust.
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(2_625n); // 85% settlement share plus 75 in trading fees.
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
     for (const user of [f.alice, f.bob, f.creator]) {
       await expect(f.manager.connect(user).claim(1)).to.be.revertedWithCustomError(f.manager, "AlreadyClaimed");
