@@ -59,17 +59,34 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
   }
 
 
-  it("allows owner to adjust fees within bounds and rejects excessive fees", async function () {
+  it("keeps the transaction fee fixed at 1% and bounds owner settlement-fee changes", async function () {
     const f = await deployFixture();
     expect(await f.manager.tradingFeeBps()).to.equal(100n);
+    expect(await f.manager.MAX_TRADING_FEE_BPS()).to.equal(100n);
     expect(await f.manager.settlementFeeBps()).to.equal(1_000n);
-    await f.manager.setTradingFeeBps(100);
     await f.manager.setSettlementFeeBps(400);
     expect(await f.manager.tradingFeeBps()).to.equal(100n);
     expect(await f.manager.settlementFeeBps()).to.equal(400n);
-    await expect(f.manager.connect(f.alice).setTradingFeeBps(100)).to.be.reverted;
-    await expect(f.manager.setTradingFeeBps(101)).to.be.revertedWithCustomError(f.manager, "FeeOutOfRange");
+    await expect(f.manager.connect(f.alice).setSettlementFeeBps(100)).to.be.reverted;
     await expect(f.manager.setSettlementFeeBps(1_001)).to.be.revertedWithCustomError(f.manager, "FeeOutOfRange");
+  });
+
+  it("locks each market's settlement fee at creation", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the first test event happen?", "YES if official source confirms it.", "official source", closeTime, 3600
+    );
+    expect(await f.manager.marketSettlementFeeBps(1)).to.equal(1_000n);
+
+    // A later policy change applies only to markets created afterwards.
+    await f.manager.setSettlementFeeBps(400);
+    expect(await f.manager.marketSettlementFeeBps(1)).to.equal(1_000n);
+    const nextCloseTime = closeTime + 3600;
+    await f.manager.connect(f.creator).createMarket(
+      0, "Will the second test event happen?", "YES if official source confirms it.", "official source", nextCloseTime, 3600
+    );
+    expect(await f.manager.marketSettlementFeeBps(2)).to.equal(400n);
   });
 
   it("requires two matching validator votes for automated markets", async function () {
