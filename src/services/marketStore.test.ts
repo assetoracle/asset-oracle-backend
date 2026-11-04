@@ -3,7 +3,7 @@ import { afterEach, test } from "node:test";
 
 process.env.DATABASE_URL ??= "postgresql://test:test@127.0.0.1:5432/test";
 const { database } = await import("../config/database.js");
-const { recordOnchainPublication } = await import("./marketStore.js");
+const { recordOnchainPublication, decideAutomatedMarketProposal } = await import("./marketStore.js");
 
 type Row = Record<string, unknown>;
 type Query = (sql: string, values?: unknown[]) => Promise<{ rows: Row[] }>;
@@ -28,6 +28,8 @@ const proposalRow: Row = {
   },
   status: "APPROVED",
   submittedAt: "2026-10-12T00:00:00.000Z",
+  origin: "MANUAL",
+  visibility: "PRIVATE",
   onchain_market_id: null,
   onchain_tx_hash: null,
   onchain_manager_address: null,
@@ -46,6 +48,31 @@ afterEach(() => {
   db.query = originalQuery;
 });
 
+test("approving an automated proposal keeps it private until verified on-chain publication", async () => {
+  const automated = {
+    ...proposalRow,
+    origin: "AUTOMATED",
+    visibility: "PRIVATE",
+    status: "APPROVED",
+    onchain_market_id: "12",
+    onchain_tx_hash: publication.txHash,
+    onchain_manager_address: publication.managerAddress.toLowerCase(),
+    onchain_chain_id: publication.chainId,
+  };
+  let capturedSql = "";
+  db.query = async (sql) => {
+    capturedSql = sql;
+    return { rows: [automated] };
+  };
+
+  const result = await decideAutomatedMarketProposal(proposalRow.id as string, "APPROVED");
+  assert.match(capturedSql, /visibility = 'PRIVATE'/);
+  assert.doesNotMatch(capturedSql, /THEN 'PUBLIC'/);
+  assert.equal(result?.status, "APPROVED");
+  assert.equal(result?.visibility, "PRIVATE");
+});
+
+
 test("records verified publication metadata and returns the stored proposal", async () => {
   const published = {
     ...proposalRow,
@@ -53,6 +80,8 @@ test("records verified publication metadata and returns the stored proposal", as
     onchain_tx_hash: publication.txHash,
     onchain_manager_address: publication.managerAddress.toLowerCase(),
     onchain_chain_id: publication.chainId,
+    origin: "MANUAL",
+    visibility: "PUBLIC",
   };
   db.query = async (sql) => {
     if (sql.includes("UPDATE market_proposals")) return { rows: [published] };
@@ -64,6 +93,7 @@ test("records verified publication metadata and returns the stored proposal", as
   assert.equal(result?.onchainMarketId, publication.marketId);
   assert.equal(result?.onchainTxHash, publication.txHash);
   assert.equal(result?.onchainChainId, publication.chainId);
+  assert.equal(result?.visibility, "PUBLIC", "approved testnet publications become public");
 });
 
 test("same proposal, market ID, and transaction are idempotent", async () => {
@@ -73,6 +103,7 @@ test("same proposal, market ID, and transaction are idempotent", async () => {
     onchain_tx_hash: publication.txHash,
     onchain_manager_address: publication.managerAddress.toLowerCase(),
     onchain_chain_id: publication.chainId,
+    visibility: "PUBLIC",
   };
   let calls = 0;
   db.query = async () => {

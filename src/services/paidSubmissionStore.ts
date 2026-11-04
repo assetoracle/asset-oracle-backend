@@ -299,7 +299,7 @@ export async function decideMarketProposalAtomically(input: {
   try {
     await client.query("BEGIN");
     const proposalResult = await client.query<{ id: string; status: string }>(
-      "SELECT id, status FROM market_proposals WHERE id = $1 FOR UPDATE",
+      "SELECT id, status FROM market_proposals WHERE id = $1 AND origin = 'MANUAL' FOR UPDATE",
       [input.proposalId],
     );
     const proposal = proposalResult.rows[0];
@@ -323,7 +323,7 @@ export async function decideMarketProposalAtomically(input: {
     }
 
     const proposalUpdate = await client.query(
-      "UPDATE market_proposals SET status = $2 WHERE id = $1 AND status = 'PENDING_APPROVAL' RETURNING id",
+      "UPDATE market_proposals SET status = $2 WHERE id = $1 AND origin = 'MANUAL' AND status = 'PENDING_APPROVAL' RETURNING id",
       [input.proposalId, input.decision],
     );
     if ((proposalUpdate.rowCount ?? proposalUpdate.rows.length) !== 1) {

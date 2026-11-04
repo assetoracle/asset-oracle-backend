@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { database } from "../config/database.js";
 import type { MarketProposalInput } from "./marketValidation.js";
-import { createMarketProposal, type StoredMarketProposal } from "./marketStore.js";
+import { createAutomatedMarketProposal, type StoredMarketProposal } from "./marketStore.js";
 
 export type MarketCandidate = {
   id: string;
@@ -148,7 +148,7 @@ export async function reviewMarketCandidate(input: {
       const proposalInput = typeof candidate.proposal === "string"
         ? JSON.parse(candidate.proposal) as MarketProposalInput
         : candidate.proposal;
-      proposal = await createMarketProposal(proposalInput, input.reviewerAddress, client);
+      proposal = await createAutomatedMarketProposal(proposalInput, client);
     }
 
     const updated = await client.query(

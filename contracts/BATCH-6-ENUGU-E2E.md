@@ -1,38 +1,24 @@
 # Batch 6: Enugu Testnet End-to-End Rehearsal
 
-**Purpose:** Verify the deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
+**Purpose:** Verify the newly deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. The new deployment is pending completion of the code review and test gates. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
 
-## Legacy deployment record (historical; do not use for new markets)
+## Deployment status
 
-The address and transaction evidence in this section refer to the earlier manager deployment only. They are retained for audit/history and are **not** the approved manager for new market creation or validator-consensus settlement. Use the current 2-of-3 manager listed under **Current gate** below, and independently verify its deployment transaction/block and live configuration before any lifecycle transaction.
-
-- Network: Asset Chain Enugu testnet, chain ID `42421`
-- RPC: `https://enugu-rpc.assetchain.org`
-- Explorer: `https://scan-testnet.assetchain.org`
-- Market manager: `0xf41fc574765175A59a9d064F7f2719EB7380a452`
-- Deployment transaction: `0x01445c8093ae92e108418cec3e411388d8533cf746935aa53a32682a972103e1`
-- Deployment block: `4502688`
-- Configured USDC: `0xc33741fddEBeA854d265db6F9707900Efb0211a2` (6 decimals)
-- Treasury: `0x650fBE31b1710b27Ea9eBe03862BC93145Fb3d77`
-- Validator reward pool: `0xb86e97b85e816ed0fe170a2dc3b5558232792553`
-- Owner/resolver: `0x3d3724d20d9d5db5a40819869057b37465a0c67d`
-- Deployment, USDC configuration, and resolver configuration transactions were reported successful. The read-only preflight passed for chain ID, manager bytecode, owner, Treasury, validator pool, USDC configuration, and creator/resolver roles.
-- The preflight reported zero markets at the time it was run. Re-read the live count before any market test.
-- Frontend and backend environment variables were reported updated by the operator; confirm live configuration after the backend deployment finishes.
+No contract address is approved for this release yet. The new contract must be deployed only after the reviewed source, contract tests, backend integration tests, and read-only preflight pass. Record the new deployment address and transaction evidence here after deployment.
 
 ## Current gate
 
-- [x] Current 2-of-3 manager address recorded: `0x5fc327f55cf533ed5d05337f835be37ff1e0db1f`.
+- [ ] New 2-of-3 market manager deployed from the reviewed source and address recorded.
 - [x] Fixed validator roster documented: primary/Validator 1 `0x3d3724d20d9d5db5a40819869057b37465a0c67d`, Validator 2 `0xb94185491c78e7331c5d53e9b0df74970b3c9b8a`, Validator 3 `0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01`.
-- [ ] Attach the current manager's deployment transaction/block evidence and rerun read-only Enugu preflight against that address.
-- [ ] Confirm live backend and frontend both use the current 2-of-3 manager.
+- [ ] Attach the new manager's deployment transaction/block evidence and rerun read-only Enugu preflight against that address.
+- [ ] Confirm backend and frontend both use the new manager address.
 - [ ] Latest contract tests and compile pass on the exact source commit.
-- [ ] Ownership-transfer regression test confirms admin, creator, and resolver roles move to the new owner and are revoked from the former owner.
+- [ ] Ownership-transfer regression test confirms owner, manual creator, automated creator and resolver roles; confirms automation wallet has both publication roles; and confirms temporary deployer roles are revoked.
 - [ ] Confirm live backend and frontend both use the same manager address and Enugu RPC.
 - [ ] Owner wallet has testnet gas and only test USDC for this rehearsal.
 - [ ] No private key is committed, pasted into chat, or placed in frontend environment variables.
 
-**Stop condition:** Do not use the legacy manager for new market creation or validator-consensus settlement. The current 2-of-3 manager is `0x5fc327f55cf533ed5d05337f835be37ff1e0db1f`. Before lifecycle transactions, attach its deployment evidence, rerun read-only preflight, confirm its live validator roster and owner permissions, and verify backend/frontend point to this same address. Testnet only; unaudited.
+**Stop condition:** No manager address is approved yet. Do not run lifecycle transactions until the new contract deployment is completed, deployment evidence is attached, read-only preflight passes, the validator roster and both automation roles are verified, and backend/frontend point to the same new address. Testnet only; unaudited.
 
 ## Step 1 — Read-only preflight
 
@@ -45,14 +31,14 @@ npm run compile
 npm run preflight:enugu
 ```
 
-The preflight reads the RPC only. It checks chain ID, approved USDC contract and six decimals, manager code, owner, Treasury, validator pool, USDC configuration, and owner creator/resolver roles. It sends **no transactions**. A missing manager address should report BLOCKED and exit with code 2.
+The read-only preflight must check chain ID, approved USDC contract and six decimals, new manager bytecode, owner, Treasury, validator pool, USDC configuration, all three validators, and the dedicated automation wallet's manual and automated publication roles. It sends **no transactions**. A missing new manager address must block activation.
 
 ## Step 2 — Wallet and network
 
 - [ ] Connect the test wallet to Asset Chain Enugu (chain ID `42421`).
 - [ ] Confirm the connected address is the intended test participant.
 - [ ] Confirm the frontend and backend use the same verified manager address and Enugu RPC.
-- [ ] Confirm only approved Enugu testnet USDC is shown as stake currency (6 decimals). This deployed contract currently configures USDC only; do not show cNGN or USDT as usable on this deployment.
+- [ ] Confirm only approved Enugu testnet USDC is shown as stake currency (6 decimals). The new Enugu testnet build currently configures USDC only; do not show cNGN or USDT as usable until separately enabled and verified.
 
 ## Step 3 — Create and publish a test market
 
@@ -90,7 +76,7 @@ Record market ID, transaction hash, block number, creator, question, close time,
 
 - [ ] Finalize after the challenge window.
 - [ ] Claim from a winning participant and verify payout against the contract's formula.
-- [ ] Verify the 2% settlement fee is split 25% to Validator Reward Pool and 75% to Treasury.
+- [ ] Verify the 10% settlement fee is split 15% to Validator Reward Pool and 85% to Treasury.
 - [ ] Verify losing participants cannot claim a winning payout and cannot claim twice.
 - [ ] Exercise an INVALID outcome on a separate market and verify full net-stake refunds without settlement fee.
 - [ ] Exercise cancellation/unresolved timeout on separate markets and verify eligible net-stake refunds.

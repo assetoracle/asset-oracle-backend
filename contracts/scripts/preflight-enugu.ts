@@ -22,6 +22,8 @@ const MANAGER_ABI = [
   "function isValidator(address) view returns (bool)",
   "function validatorRosterConfigured() view returns (bool)",
   "function marketCount() view returns (uint256)",
+  "function settlementFeeBps() view returns (uint256)",
+  "function VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS() view returns (uint256)",
 ];
 
 function assertAddress(label: string, actual: string, expected: string): void {
@@ -83,6 +85,12 @@ async function main() {
     throw new Error(`Manager USDC config mismatch: decimals=${stablecoin.decimals}, enabled=${stablecoin.enabled}`);
   }
   console.log("PASS manager USDC config: enabled, 6 decimals");
+  const usdtConfig = await manager.stablecoins(1);
+  const cngnConfig = await manager.stablecoins(2);
+  if (usdtConfig.enabled !== false || cngnConfig.enabled !== false) {
+    throw new Error("Initial Enugu testnet deployment must leave USDT and cNGN disabled until their token addresses and decimals are verified.");
+  }
+  console.log("PASS unverified USDT and cNGN remain disabled");
 
   if (!(await manager.validatorRosterConfigured())) {
     throw new Error("Validator roster is not configured.");
@@ -98,11 +106,28 @@ async function main() {
 
   const creatorRole = ethers.keccak256(ethers.toUtf8Bytes("MARKET_CREATOR_ROLE"));
   const resolverRole = ethers.keccak256(ethers.toUtf8Bytes("ORACLE_RESOLVER_ROLE"));
+  const automatedCreatorRole = ethers.keccak256(ethers.toUtf8Bytes("AUTOMATED_MARKET_CREATOR_ROLE"));
   const adminRole = ethers.ZeroHash;
   if (!(await manager.hasRole(adminRole, EXPECTED_OWNER))) throw new Error("Owner lacks DEFAULT_ADMIN_ROLE.");
   if (!(await manager.hasRole(creatorRole, EXPECTED_OWNER))) throw new Error("Owner lacks MARKET_CREATOR_ROLE.");
+  if (!(await manager.hasRole(automatedCreatorRole, EXPECTED_OWNER))) throw new Error("Owner lacks AUTOMATED_MARKET_CREATOR_ROLE.");
   if (!(await manager.hasRole(resolverRole, EXPECTED_OWNER))) throw new Error("Owner lacks ORACLE_RESOLVER_ROLE.");
-  console.log("PASS owner has admin, market-creator, and oracle-resolver roles");
+  console.log("PASS owner has admin, manual creator, automated creator, and oracle-resolver roles");
+
+  const automationWalletRaw = process.env.AUTOMATION_WALLET_ADDRESS?.trim();
+  if (!automationWalletRaw || !ethers.isAddress(automationWalletRaw)) {
+    throw new Error("AUTOMATION_WALLET_ADDRESS is missing or invalid.");
+  }
+  const automationWallet = ethers.getAddress(automationWalletRaw);
+  if (!(await manager.hasRole(creatorRole, automationWallet))) throw new Error("Automation wallet lacks MARKET_CREATOR_ROLE.");
+  if (!(await manager.hasRole(automatedCreatorRole, automationWallet))) throw new Error("Automation wallet lacks AUTOMATED_MARKET_CREATOR_ROLE.");
+  console.log(`PASS automation wallet has both publication roles: ${automationWallet}`);
+
+  const settlementFeeBps = Number(await manager.settlementFeeBps());
+  const validatorShareBps = Number(await manager.VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS());
+  if (settlementFeeBps !== 1000) throw new Error(`Initial settlement fee mismatch: expected 1000 bps (10%), received ${settlementFeeBps}.`);
+  if (validatorShareBps !== 1500) throw new Error(`Validator fee share mismatch: expected 1500 bps (15%), received ${validatorShareBps}.`);
+  console.log("PASS settlement fee policy: 10% fee, 15% validator share, 85% Treasury share");
 
   console.log(`PASS manager contract code: ${normalizedManager}`);
   console.log(`INFO current market count: ${(await manager.marketCount()).toString()}`);

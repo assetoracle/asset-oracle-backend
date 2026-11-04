@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createPublicClient, formatUnits, http, isAddress } from "viem";
 import { formatIndexedAmount, normalizeManagerAddresses, getWalletIndexerStatus } from "./walletHistory.js";
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES } from "../config/assetOracle.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const statsRouter = Router();
 const DEFAULT_RPC_URL = "https://enugu-rpc.assetchain.org";
@@ -18,8 +18,9 @@ const MARKET_MANAGER_ABI = [{
 
 const WALLET_ACCOUNT_ABI = [
   { type: "function", name: "marketCount", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+  { type: "function", name: "settlementFeeBps", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
   { type: "function", name: "getMarket", stateMutability: "view", inputs: [{ name: "marketId", type: "uint256" }], outputs: [{ name: "market", type: "tuple", components: [
-    { name: "id", type: "uint256" }, { name: "creator", type: "address" }, { name: "stablecoin", type: "uint8" },
+    { name: "id", type: "uint256" }, { name: "creator", type: "address" }, { name: "marketType", type: "uint8" }, { name: "stablecoin", type: "uint8" },
     { name: "question", type: "string" }, { name: "resolutionRules", type: "string" }, { name: "evidenceSource", type: "string" },
     { name: "closeTime", type: "uint64" }, { name: "challengePeriod", type: "uint64" }, { name: "resolvedAt", type: "uint64" },
     { name: "totalYes", type: "uint256" }, { name: "totalNo", type: "uint256" }, { name: "totalStaked", type: "uint256" },
@@ -45,10 +46,10 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     const code = await client.getCode({ address: manager });
     if (!code || code === "0x") return res.status(503).json({ error: "Verified market manager contract was not found." });
     const count = Number(await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "marketCount" }));
+    const settlementFeeBps = await client.readContract({ address: manager, abi: WALLET_ACCOUNT_ABI, functionName: "settlementFeeBps" });
     if (!Number.isSafeInteger(count) || count < 0 || count > 5000) return res.status(503).json({ error: "Market count is outside the supported account-history range." });
 
-    const legacyManagers = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")];
-    const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
+    const indexedManagers = normalizeManagerAddresses(manager, []);
     const managerCounts = new Map<string, number>([[manager.toLowerCase(), count]]);
     let positionsComplete = true;
 
@@ -94,15 +95,15 @@ statsRouter.get("/wallet/:address", async (req, res) => {
               id?: bigint; stablecoin?: number; question?: string; totalYes?: bigint; totalNo?: bigint;
               totalStaked?: bigint; outcome?: number; status?: number; resolvedAt?: bigint; challengePeriod?: bigint;
             };
-            const stablecoinId = Number(market.stablecoin ?? market[2]);
-            const question = String(market.question ?? market[3] ?? "");
-            const totalYes = BigInt(market.totalYes ?? market[9] as bigint);
-            const totalNo = BigInt(market.totalNo ?? market[10] as bigint);
-            const totalStake = BigInt(market.totalStaked ?? market[11] as bigint);
-            const outcome = Number(market.outcome ?? market[12]);
-            const status = Number(market.status ?? market[13]);
-            const resolvedAt = BigInt(market.resolvedAt ?? market[8] as bigint);
-            const challengePeriod = BigInt(market.challengePeriod ?? market[7] as bigint);
+            const stablecoinId = Number(market.stablecoin ?? market[3]);
+            const question = String(market.question ?? market[4] ?? "");
+            const totalYes = BigInt(market.totalYes ?? market[10] as bigint);
+            const totalNo = BigInt(market.totalNo ?? market[11] as bigint);
+            const totalStake = BigInt(market.totalStaked ?? market[12] as bigint);
+            const outcome = Number(market.outcome ?? market[13]);
+            const status = Number(market.status ?? market[14]);
+            const resolvedAt = BigInt(market.resolvedAt ?? market[9] as bigint);
+            const challengePeriod = BigInt(market.challengePeriod ?? market[8] as bigint);
             const challengeElapsed = status === 2 && [1, 2, 3].includes(outcome) && resolvedAt > 0n && BigInt(Math.floor(Date.now() / 1000)) >= resolvedAt + challengePeriod;
             const claimableStatus = status === 3 || status === 4 || status === 5 || challengeElapsed;
             const position = positionRaw as unknown as readonly [bigint, bigint, boolean];
@@ -120,7 +121,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
               else {
                 const winningStake = outcome === 1 ? yes : no;
                 if (winningStake > 0n) {
-                  const settlementFee = (totalStake * 200n) / 10000n;
+                  const settlementFee = (totalStake * BigInt(settlementFeeBps)) / 10000n;
                   payout = (winningStake * (totalStake - settlementFee)) / winningPool;
                 }
               }
@@ -147,8 +148,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
     let historyStatus = "INDEXER_DISABLED";
     if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
       try {
-        const legacyManagers = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")];
-        const indexedManagers = normalizeManagerAddresses(manager, legacyManagers);
+        const indexedManagers = normalizeManagerAddresses(manager, []);
         const database = (await import("../config/database.js")).database;
         const result = await database.query<{
           manager_address: string; event_name: string; tx_hash: string; block_number: string; block_timestamp: Date;
@@ -171,7 +171,7 @@ statsRouter.get("/wallet/:address", async (req, res) => {
                 args: [BigInt(marketId)],
               });
               const market = marketRaw as unknown as readonly unknown[] & { stablecoin?: number };
-              const stablecoinId = Number(market.stablecoin ?? market[2]);
+              const stablecoinId = Number(market.stablecoin ?? market[3]);
               if (!Number.isInteger(stablecoinId) || stablecoinId < 0 || stablecoinId > 255) return null;
               const coin = await client.readContract({
                 address: managerAddress as `0x${string}`,
