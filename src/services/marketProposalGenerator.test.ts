@@ -1,7 +1,22 @@
 import { strict as assert } from "node:assert";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import { marketProposalSchema } from "./marketValidation.js";
-import { parseGenerationTemplates } from "./marketProposalGenerator.js";
+
+let parseGenerationTemplates: typeof import("./marketProposalGenerator.js").parseGenerationTemplates;
+const originalDatabaseUrl = process.env.DATABASE_URL;
+
+before(async () => {
+  // The generator imports the database module, but these parser tests never connect to it.
+  process.env.DATABASE_URL ||= "postgresql://unit-test:unit-test@127.0.0.1:5432/unit_test";
+  ({ parseGenerationTemplates } = await import("./marketProposalGenerator.js"));
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
+});
+
+after(() => {
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
+});
 
 const validTemplate = {
   id: "btc-usd-threshold",
