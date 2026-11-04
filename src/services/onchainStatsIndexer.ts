@@ -1,4 +1,4 @@
-import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS, LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES } from "../config/assetOracle.js";
+import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 import { createPublicClient, http, parseAbiItem, type Log } from "viem";
 import { database } from "../config/database.js";
 
@@ -59,8 +59,7 @@ export { decimalAmount };
 
 export async function initializeOnchainStatsIndexer(): Promise<void> {
   const current = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
-  const legacy = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")].map((value) => value.trim()).filter(Boolean);
-  const managers = [...new Set([current, ...legacy].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase()))];
+  const managers = current ? [current.toLowerCase()] : [];
   if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {
     throw new Error("On-chain stats indexer requires valid current and legacy manager addresses.");
   }
@@ -310,8 +309,7 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
   indexerStatus: string;
 }> {
   const manager = managerAddress.toLowerCase();
-  const legacy = [...LEGACY_ASSET_ORACLE_MARKET_MANAGER_ADDRESSES, ...(process.env.ASSET_ORACLE_LEGACY_MARKET_MANAGER_ADDRESSES || "").split(",")].map((value) => value.trim().toLowerCase()).filter(Boolean);
-  const managers = [...new Set([manager, ...legacy])];
+  const managers = [manager];
   const cursor = await database.query<{ last_scanned_block: string; updated_at: Date }>(
     `SELECT last_scanned_block, updated_at FROM onchain_stats_cursors
      WHERE chain_id = $1 AND manager_address = ANY($2::text[])
