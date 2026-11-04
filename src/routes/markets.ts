@@ -159,6 +159,41 @@ marketsRouter.post("/admin/proposals/list/session", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+marketsRouter.post("/admin/proposals/:id/escrow-context/session", async (req, res, next) => {
+  try {
+    const idResult = z.string().uuid().safeParse(req.params.id);
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!idResult.success || !parsed.success) return res.status(400).json({ error: "A valid proposal ID and reviewer wallet are required." });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only authorised proposal reviewers can access escrow review details." });
+
+    const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
+    if (!paidEscrow) return res.status(200).json({ requiresEscrow: false });
+    if (paidEscrow.status !== "PAID_PENDING_REVIEW") {
+      return res.status(409).json({ error: "Paid proposal is not awaiting an escrow decision.", status: paidEscrow.status });
+    }
+    const config = getPaidSubmissionTestnetConfig();
+    const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+    if (!config.enabled || !config.escrowAddress || !config.treasuryAddress || !adminAddress || !isAddress(adminAddress)) {
+      return res.status(503).json({ error: "Proposal escrow is not fully configured.", disabledReasons: config.disabledReasons });
+    }
+    await verifyPaidProposalEscrowConfig({
+      rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
+      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress,
+    });
+    return res.status(200).json({
+      requiresEscrow: true,
+      escrowAddress: config.escrowAddress,
+      proposalIdHash: paidEscrow.proposalIdHash,
+      payer: paidEscrow.payer,
+      amountAtomic: "10000000",
+      tokenAddress: config.tokens.USDC.address,
+      treasuryAddress: config.treasuryAddress,
+    });
+  } catch (error) { return next(error); }
+});
+
 marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
