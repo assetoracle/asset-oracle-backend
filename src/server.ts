@@ -18,6 +18,7 @@ import { initializeValidatorEvidenceStore } from "./services/validatorEvidenceSt
 import { initializeMarketEvidenceStore } from "./services/marketEvidenceStore.js";
 import { initializeMarketGenerationStore } from "./services/marketGenerationStore.js";
 import marketEvidenceRouter from "./routes/marketEvidence.js";
+import marketCandidatesRouter from "./routes/marketCandidates.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
 import { initializeAssetChainIndexer } from "./services/assetChainIndexer.js";
 import { initializePointsStore } from "./services/pointsStore.js";
@@ -74,6 +75,7 @@ app.use("/api/markets", marketsRouter);
 app.use("/api/markets/paid-submissions", paidSubmissionsRouter);
 app.use("/api/validator-evidence", validatorEvidenceRouter);
 app.use("/api/market-evidence", marketEvidenceRouter);
+app.use("/api/market-candidates", marketCandidatesRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/stats", statsRouter);
 app.use("/api/data-sources", dataSourcesRouter);
