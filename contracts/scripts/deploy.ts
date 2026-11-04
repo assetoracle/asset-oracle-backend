@@ -117,6 +117,7 @@ async function main() {
     const creatorReceipt = await creatorTx.wait();
     if (!creatorReceipt) throw new Error(`Creator configuration receipt was not available for ${address}.`);
     creatorReceipts.push({ address, hash: creatorTx.hash, blockNumber: creatorReceipt.blockNumber });
+
   }
 
   // Check configuration before handing control to the main owner.
@@ -137,6 +138,7 @@ async function main() {
   }
   const creatorRole = ethers.keccak256(ethers.toUtf8Bytes("MARKET_CREATOR_ROLE"));
   const resolverRole = ethers.keccak256(ethers.toUtf8Bytes("ORACLE_RESOLVER_ROLE"));
+  const automatedCreatorRole = ethers.keccak256(ethers.toUtf8Bytes("AUTOMATED_MARKET_CREATOR_ROLE"));
   if (!(await manager.hasRole(resolverRole, owner))) {
     throw new Error("Refusing ownership transfer: final owner lacks the oracle resolver role.");
   }
@@ -156,12 +158,12 @@ async function main() {
     throw new Error(`CRITICAL: final owner mismatch. Expected ${owner}, received ${finalOwner}.`);
   }
   const adminRole = ethers.ZeroHash;
-  for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["oracle resolver", resolverRole]] as const) {
+  for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["oracle resolver", resolverRole], ["automated market creator", automatedCreatorRole]] as const) {
     if (!(await manager.hasRole(role, owner))) {
       throw new Error(`CRITICAL: final owner lacks the ${label} role after ownership transfer.`);
     }
   }
-  for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["oracle resolver", resolverRole]] as const) {
+  for (const [label, role] of [["admin", adminRole], ["market creator", creatorRole], ["oracle resolver", resolverRole], ["automated market creator", automatedCreatorRole]] as const) {
     if (await manager.hasRole(role, deployer.address)) {
       throw new Error(`CRITICAL: temporary deployer still has the ${label} role after ownership transfer.`);
     }
