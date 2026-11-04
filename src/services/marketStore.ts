@@ -38,7 +38,7 @@ function mapProposal(row: MarketProposalRow): StoredMarketProposal {
     walletAddress: row.walletAddress,
     question: row.question,
     description: row.description,
-    category: row.category,
+    category: row.category === "Crypto" ? "Digital Assets" : row.category,
     ...(row.sport ? { sport: row.sport } : {}),
     closesAt: new Date(row.closesAt).toISOString(),
     resolvesAt: new Date(row.resolvesAt).toISOString(),
