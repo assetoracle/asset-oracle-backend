@@ -19,7 +19,7 @@ import {
   ASSET_CHAIN_TESTNET_RPC_URL,
   HUMAN_VALIDATOR_ADDRESSES,
 } from "../config/assetOracle.js";
-import { initializeMarketStore, listMarketProposals, recordOnchainPublication } from "../services/marketStore.js";
+import { initializeMarketStore, listMarketProposals, listAutomatedMarketProposals, recordOnchainPublication } from "../services/marketStore.js";
 
 const USDC = "0xc33741fddEBeA854d265db6F9707900Efb0211a2" as Address;
 const EXPLORER = process.env.ASSET_CHAIN_EXPLORER_URL || "https://scan-testnet.assetchain.org";
@@ -46,7 +46,7 @@ const managerAbi = [
   { type: "function", name: "refundTimedOutMarket", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }], outputs: [] },
   { type: "function", name: "refundDisputedTimeout", stateMutability: "nonpayable", inputs: [{ name: "marketId", type: "uint256" }], outputs: [] },
   { type: "function", name: "getMarket", stateMutability: "view", inputs: [{ name: "marketId", type: "uint256" }], outputs: [{ name: "market", type: "tuple", components: [
-    { name: "id", type: "uint256" }, { name: "creator", type: "address" }, { name: "stablecoin", type: "uint8" },
+    { name: "id", type: "uint256" }, { name: "creator", type: "address" }, { name: "marketType", type: "uint8" }, { name: "stablecoin", type: "uint8" },
     { name: "question", type: "string" }, { name: "resolutionRules", type: "string" }, { name: "evidenceSource", type: "string" },
     { name: "closeTime", type: "uint64" }, { name: "challengePeriod", type: "uint64" }, { name: "resolvedAt", type: "uint64" },
     { name: "totalYes", type: "uint256" }, { name: "totalNo", type: "uint256" }, { name: "totalStaked", type: "uint256" },
@@ -58,6 +58,10 @@ const managerAbi = [
   { type: "function", name: "validators", stateMutability: "view", inputs: [{ name: "index", type: "uint256" }], outputs: [{ type: "address" }] },
   { type: "function", name: "stablecoins", stateMutability: "view", inputs: [{ name: "", type: "uint8" }], outputs: [{ name: "token", type: "address" }, { name: "decimals", type: "uint8" }, { name: "enabled", type: "bool" }] },
   { type: "function", name: "createMarket", stateMutability: "nonpayable", inputs: [
+    { name: "stablecoin", type: "uint8" }, { name: "question", type: "string" }, { name: "resolutionRules", type: "string" },
+    { name: "evidenceSource", type: "string" }, { name: "closeTime", type: "uint64" }, { name: "challengePeriod", type: "uint64" },
+  ], outputs: [{ name: "marketId", type: "uint256" }] },
+  { type: "function", name: "createAutomatedMarket", stateMutability: "nonpayable", inputs: [
     { name: "stablecoin", type: "uint8" }, { name: "question", type: "string" }, { name: "resolutionRules", type: "string" },
     { name: "evidenceSource", type: "string" }, { name: "closeTime", type: "uint64" }, { name: "challengePeriod", type: "uint64" },
   ], outputs: [{ name: "marketId", type: "uint256" }] },
@@ -85,6 +89,9 @@ async function main(): Promise<void> {
     throw new Error("This worker is testnet-only and refuses any chain ID other than 42421.");
   }
   const account = privateKeyToAccount(requiredPrivateKey());
+  if (!CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS || !/^0x[0-9a-fA-F]{40}$/.test(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)) {
+    throw new Error("New testnet market manager address is not configured. No transaction was submitted.");
+  }
   const manager = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
   const publicClient = createPublicClient({ chain, transport: http(chain.rpcUrls.default.http[0]) });
   const walletClient = createWalletClient({ account, chain, transport: http(chain.rpcUrls.default.http[0]) });
@@ -106,8 +113,13 @@ async function main(): Promise<void> {
     throw new Error("Canonical manager USDC configuration failed validation; automation stopped.");
   }
 
-  const role = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "hasRole", args: [keccak256(toBytes("MARKET_CREATOR_ROLE")), account.address] });
-  if (!role) throw new Error(`Automation wallet ${account.address} does not have MARKET_CREATOR_ROLE on the canonical testnet manager.`);
+  const [manualCreatorRole, automatedCreatorRole] = await Promise.all([
+    publicClient.readContract({ address: manager, abi: managerAbi, functionName: "hasRole", args: [keccak256(toBytes("MARKET_CREATOR_ROLE")), account.address] }),
+    publicClient.readContract({ address: manager, abi: managerAbi, functionName: "hasRole", args: [keccak256(toBytes("AUTOMATED_MARKET_CREATOR_ROLE")), account.address] }),
+  ]);
+  if (!manualCreatorRole || !automatedCreatorRole) {
+    throw new Error(`Automation wallet ${account.address} must have both MARKET_CREATOR_ROLE and AUTOMATED_MARKET_CREATOR_ROLE on the new testnet manager.`);
+  }
 
   // Prevent overlapping cron runs from submitting duplicate transactions.
   const lockClient = await database.connect();
@@ -128,7 +140,8 @@ async function main(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
-    const proposals = await listMarketProposals();
+    const [manualProposals, automatedProposals] = await Promise.all([listMarketProposals(), listAutomatedMarketProposals()]);
+    const proposals = [...manualProposals, ...automatedProposals];
     let marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
 
     // Publish only proposals already explicitly approved by the admin. The proposal UUID
@@ -153,8 +166,8 @@ async function main(): Promise<void> {
       const count = Number(marketCount > BigInt(MAX_MARKETS_PER_RUN) ? BigInt(MAX_MARKETS_PER_RUN) : marketCount);
       for (let id = 1; id <= count; id++) {
         const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
-        if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id)) {
-          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[15], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
+        if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id) && Number(existing.marketType) === (proposal.origin === "AUTOMATED" ? 1 : 0)) {
+          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[16], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
           const created = logs.find((log) => log.args.marketId === BigInt(id));
           if (created?.transactionHash) {
             const stored = await recordOnchainPublication({ id: proposal.id, marketId: String(id), txHash: created.transactionHash, managerAddress: manager, chainId: actualChainId });
@@ -167,16 +180,26 @@ async function main(): Promise<void> {
       }
       if (recovered) continue;
 
-      const hash = await walletClient.writeContract({
-        address: manager, abi: managerAbi, functionName: "createMarket",
-        args: [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS],
-      });
-      console.log(`Submitted createMarket for proposal ${proposal.id}: ${hash}`);
+      const hash = proposal.origin === "AUTOMATED"
+        ? await walletClient.writeContract({
+            address: manager, abi: managerAbi, functionName: "createAutomatedMarket",
+            args: [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS],
+          })
+        : await walletClient.writeContract({
+            address: manager, abi: managerAbi, functionName: "createMarket",
+            args: [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS],
+          });
+      console.log(`Submitted ${proposal.origin === "AUTOMATED" ? "createAutomatedMarket" : "createMarket"} for proposal ${proposal.id}: ${hash}`);
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
       if (receipt.status !== "success") throw new Error(`createMarket transaction failed: ${hash}`);
       const events = parseEventLogs({ abi: managerAbi, logs: receipt.logs.filter((log) => getAddress(log.address) === manager), eventName: "MarketCreated", strict: false });
       const created = events.find((event) => event.args.question === proposal.question && event.args.creator && getAddress(event.args.creator) === getAddress(account.address) && event.args.closeTime === closeTime);
       if (!created || created.args.marketId === undefined) throw new Error(`Confirmed transaction did not emit the expected MarketCreated event: ${hash}`);
+      const publishedMarket = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [created.args.marketId] });
+      const expectedMarketType = proposal.origin === "AUTOMATED" ? 1 : 0;
+      if (Number(publishedMarket.marketType) !== expectedMarketType) {
+        throw new Error(`Published market ${created.args.marketId} has the wrong market type for proposal ${proposal.id}; manual reconciliation required.`);
+      }
       const stored = await recordOnchainPublication({ id: proposal.id, marketId: created.args.marketId.toString(), txHash: hash, managerAddress: manager, chainId: actualChainId });
       if (!stored) throw new Error(`On-chain market ${created.args.marketId} exists but could not be saved to the database. Reconciliation is required.`);
       console.log(`Published approved proposal ${proposal.id} as market ${created.args.marketId}: ${EXPLORER}/tx/${hash}`);
