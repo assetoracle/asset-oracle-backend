@@ -49,7 +49,7 @@ Do not enable that variable until the staging database connection, wallet role, 
 
 - Keep the repository's default branch protected. Require review for changes to workflow files and worker code; do not allow unreviewed commits to `main`.
 - Environment secrets are available to workflow code running from the permitted branch. A malicious or compromised change merged to `main` could expose them. Review every change to the workflow and worker before merging.
-- Use a dedicated testnet-only wallet with minimal funds and only the required `MARKET_CREATOR_ROLE`.
+- Use a dedicated testnet-only wallet with minimal funds and only the required `MARKET_CREATOR_ROLE` and `AUTOMATED_MARKET_CREATOR_ROLE`.
 - Never configure a mainnet private key, production database URL, or real funds.
 - GitHub-hosted runners are ephemeral. The worker runs as a standalone process and closes its database pool at completion.
 - The PostgreSQL advisory lock prevents overlapping worker instances from submitting duplicate lifecycle actions.
