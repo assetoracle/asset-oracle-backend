@@ -160,6 +160,17 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     expect((await f.manager.getMarket(1)).status).to.equal(4); // REFUNDABLE.
   });
 
+  it("allows only the approved stablecoin enum and requires each token to be configured", async function () {
+    const f = await deployFixture();
+    const closeTime = (await time.latest()) + 3600;
+    await expect(f.manager.connect(f.creator).createMarket(
+      1, "USDT test market", "YES if official source confirms it.", "official source", closeTime, 3600
+    )).to.be.revertedWithCustomError(f.manager, "InvalidToken");
+    await expect(f.manager.connect(f.creator).createMarket(
+      2, "cNGN test market", "YES if official source confirms it.", "official source", closeTime, 3600
+    )).to.be.revertedWithCustomError(f.manager, "InvalidToken");
+  });
+
   it("charges the 0.25% trading fee separately and records the full USDC stake", async function () {
     const f = await deployFixture();
     const closeTime = (await time.latest()) + 3600;
