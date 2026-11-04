@@ -126,6 +126,7 @@ export async function getPaidSubmissionPaymentContext(input: {
   walletAddress: string;
   status: string;
   paymentTxHash: string | null;
+  proposalIdHash: string;
   quote: {
     network: "TESTNET";
     token: "USDC";
@@ -140,12 +141,12 @@ export async function getPaidSubmissionPaymentContext(input: {
   };
 } | null> {
   const result = await database.query<{
-    id: string; wallet_address: string; status: string; payment_tx_hash: string | null;
+    id: string; proposal_id: string; wallet_address: string; status: string; payment_tx_hash: string | null;
     token: "USDC"; token_address: string; token_decimals: number;
     amount_atomic: string; usd_value: string; issued_at_ms: string; expires_at_ms: string;
     rate_source: string; ngn_per_usd: string | null;
   }>(
-    `SELECT s.id, s.wallet_address, s.status, s.payment_tx_hash,
+    `SELECT s.id, s.proposal_id, s.wallet_address, s.status, s.payment_tx_hash,
             q.token, q.token_address, q.token_decimals, q.amount_atomic,
             q.usd_value, q.issued_at_ms, q.expires_at_ms, q.rate_source, q.ngn_per_usd
      FROM paid_market_submissions s
@@ -160,6 +161,7 @@ export async function getPaidSubmissionPaymentContext(input: {
     walletAddress: row.wallet_address,
     status: row.status,
     paymentTxHash: row.payment_tx_hash,
+    proposalIdHash: keccak256(stringToHex(row.proposal_id)),
     quote: {
       network: "TESTNET",
       token: row.token,
