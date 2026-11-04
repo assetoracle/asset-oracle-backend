@@ -39,6 +39,7 @@ Add these **environment secrets** directly in GitHub. Never paste their values i
 Add these **environment variables** to the same `asset-oracle-testnet` environment after the new deployment is verified:
 
 - `ASSET_ORACLE_MARKET_MANAGER_ADDRESS`: the newly deployed contract address only.
+- `ASSET_ORACLE_NEW_CONTRACT_VERIFIED`: set to `true` only after `npm run preflight:enugu` confirms the deployed runtime bytecode, owner, validator roster, USDC configuration, automation roles, and 10% / 15-85 fee policy. Keep it false otherwise.
 - `AUTOMATION_WALLET_ADDRESS`: the public address derived from `AUTOMATION_PRIVATE_KEY`; it must match exactly.
 
 The RPC URL, chain ID, and explorer are configured in the workflow. The workflow remains dormant until the repository variable `ENABLE_TESTNET_AUTOMATION` is set to `true` under **Settings → Secrets and variables → Actions → Variables**.
@@ -57,7 +58,7 @@ Do not enable that variable until the staging database connection, wallet role, 
 
 ## Preflight and safety behavior
 
-Before opening the database lock or sending transactions, the worker checks the RPC chain ID, manager bytecode, configured validator roster, USDC address/decimals, and the automation wallet's on-chain `MARKET_CREATOR_ROLE` and `AUTOMATED_MARKET_CREATOR_ROLE`. It aborts if any check fails.
+Before opening the database lock or sending transactions, the worker requires the explicit new-contract verification flag and checks the RPC chain ID, manager bytecode, configured validator roster, USDC address/decimals, and the automation wallet's on-chain `MARKET_CREATOR_ROLE` and `AUTOMATED_MARKET_CREATOR_ROLE`. It aborts if any check fails.
 
 Settlement automation never chooses an outcome. The 2-of-3 human validator consensus and contract challenge period remain authoritative. The current new-contract testnet build uses USDC only (stablecoin index 0); do not assume cNGN or USDT are enabled on Enugu until a separate verified deployment configuration supports them.
 
