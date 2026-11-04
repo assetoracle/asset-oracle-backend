@@ -1,7 +1,11 @@
 import "dotenv/config";
 import { database } from "../config/database.js";
 import { initializeMarketStore, listMarketProposals } from "../services/marketStore.js";
-import { initializeMarketEvidenceStore, getLatestMarketEvidenceAt } from "../services/marketEvidenceStore.js";
+import {
+  initializeMarketEvidenceStore,
+  getLatestMarketEvidenceAttemptAt,
+  recordMarketEvidenceAttempt,
+} from "../services/marketEvidenceStore.js";
 import { collectMarketEvidence } from "../services/marketEvidenceCollector.js";
 
 const LOCK_ID = 4242182;
@@ -33,13 +37,15 @@ async function main(): Promise<void> {
   const lockResult = await lockClient.query("SELECT pg_try_advisory_lock($1) AS locked", [LOCK_ID]);
   if (!lockResult.rows[0]?.locked) {
     lockClient.release();
+    await database.end();
     console.log("Another market evidence worker is running; exiting.");
     return;
   }
 
   try {
+    const now = Date.now();
     const proposals = (await listMarketProposals())
-      .filter((proposal) => proposal.status === "APPROVED")
+      .filter((proposal) => proposal.status === "APPROVED" && Date.parse(proposal.resolvesAt) > now)
       .sort((a, b) => Date.parse(a.resolvesAt) - Date.parse(b.resolvesAt));
 
     let collected = 0;
@@ -49,14 +55,15 @@ async function main(): Promise<void> {
     for (const proposal of proposals) {
       if (considered >= MAX_MARKETS_PER_RUN) break;
       const provider = proposal.resolutionRule.sourceId.trim().toLowerCase();
-      const latest = await getLatestMarketEvidenceAt(proposal.id, provider);
+      const latestAttempt = await getLatestMarketEvidenceAttemptAt(proposal.id, provider);
       const intervalMs = intervalFor(proposal.category) * 60_000;
-      if (latest && Date.now() - Date.parse(latest) < intervalMs) {
+      if (latestAttempt && Date.now() - Date.parse(latestAttempt) < intervalMs) {
         skippedFresh++;
         continue;
       }
       considered++;
       try {
+        await recordMarketEvidenceAttempt(proposal.id, provider);
         const result = await collectMarketEvidence(proposal.id);
         if (result.inserted) collected++;
         console.log(`Evidence ${result.inserted ? "stored" : "unchanged"} for proposal ${proposal.id} using ${provider}.`);
@@ -65,7 +72,7 @@ async function main(): Promise<void> {
         console.error(`Evidence collection failed for proposal ${proposal.id} (${provider}):`, error instanceof Error ? error.message : "Unknown error");
       }
     }
-    console.log(`Market evidence run complete: ${collected} new, ${skippedFresh} fresh/skipped, ${failed} failed, ${considered} considered.`);
+    console.log(`Market evidence run complete: ${collected} new, ${skippedFresh} fresh/skipped, ${failed} failed, ${considered} attempted; expired proposals excluded.`);
     if (failed > 0) process.exitCode = 1;
   } finally {
     await lockClient.query("SELECT pg_advisory_unlock($1)", [LOCK_ID]).catch(() => undefined);
