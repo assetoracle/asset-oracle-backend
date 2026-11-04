@@ -319,7 +319,6 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
 }> {
   const manager = managerAddress.toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(manager)) throw new Error("Invalid manager address for indexer metrics.");
-  const managers = [manager];
   const cursor = await database.query<{ last_scanned_block: string; updated_at: Date }>(
     `SELECT last_scanned_block, updated_at FROM onchain_stats_cursors
      WHERE chain_id = $1 AND manager_address = $2`,
@@ -343,7 +342,7 @@ export async function readOnchainDashboardMetrics(managerAddress: string): Promi
        COALESCE(SUM(gross_amount) FILTER (WHERE event_name = 'Staked'), 0)::text AS total_trading_volume
      FROM onchain_stats_events
      WHERE chain_id = $1 AND manager_address = $2`,
-    [EXPECTED_CHAIN_ID, managers],
+    [EXPECTED_CHAIN_ID, manager],
   );
   const row = aggregate.rows[0];
   return {
