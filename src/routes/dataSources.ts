@@ -4,6 +4,7 @@ import { z } from "zod";
 import { isAdminWallet } from "../services/adminAuth.js";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { database } from "../config/database.js";
+import { createRateLimiter } from "../middleware/rateLimit.js";
 import {
   apiFootballFixtures,
   coingeckoMarkets,
@@ -19,6 +20,7 @@ import {
 } from "../services/dataProviders.js";
 
 const dataSourcesRouter = Router();
+dataSourcesRouter.use(createRateLimiter({ windowMs: 60_000, max: 30, message: "Provider query limit reached. Wait before requesting more data." }));
 const authSchema = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") });
 
 async function authorize(req: import("express").Request, res: import("express").Response, address: string): Promise<boolean> {
@@ -35,9 +37,8 @@ async function authorize(req: import("express").Request, res: import("express").
   return true;
 }
 
-function providerError(res: import("express").Response, error: unknown) {
-  const message = error instanceof Error ? error.message : "Unknown provider error";
-  return res.status(502).json({ error: "Data provider request failed.", detail: message });
+function providerError(res: import("express").Response, _error: unknown) {
+  return res.status(502).json({ error: "Data provider request failed. Check server logs for the provider and request status." });
 }
 
 dataSourcesRouter.post("/coingecko/markets", async (req, res) => {
