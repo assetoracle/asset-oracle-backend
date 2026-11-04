@@ -85,7 +85,7 @@ router.post("/admin/:candidateId/decision/session", async (req, res, next) => {
     }
     return res.status(200).json({
       message: parsed.data.decision === "PROMOTED"
-        ? "Candidate promoted into the normal market proposal queue for approval."
+        ? "Candidate promoted into the private automated market queue for market-maker approval."
         : "Candidate dismissed.",
       decision: parsed.data.decision,
       ...(result.proposal ? { proposal: result.proposal } : {}),
