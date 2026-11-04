@@ -18,6 +18,20 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 | Sports | Sportmonks | Implemented; fixtures by date |
 | Sports | API-Football | Implemented; fixtures by date, optional league and season |
 
+## Category-scoped provider dispatch
+
+Market processing must select providers from the market's own category before making any external request. The selector in `src/services/marketProviderRouter.ts` enforces this allowlist:
+
+| Market category | Eligible providers |
+|---|---|
+| Crypto | CoinGecko, DexScreener |
+| RWA | DeFiLlama, DexScreener |
+| Sports | Sportmonks, API-Football |
+| Economics | FRED, World Bank |
+| Regional | GDELT, Open-Meteo |
+
+A market with a configured `resolutionRule.sourceId` narrows execution to that single provider, and a provider outside the category allowlist is rejected. The selector is deliberately side-effect-free: it does not call APIs itself. The market evidence worker must call it for the one market being processed and then invoke only the selected provider adapters. Never run all provider adapters as a global fan-out or call providers belonging to other market categories.
+
 ## Admin API routes
 
 All routes require a valid wallet session in the `Authorization: Bearer <session-token>` header and an admin wallet `address` in the JSON body.
