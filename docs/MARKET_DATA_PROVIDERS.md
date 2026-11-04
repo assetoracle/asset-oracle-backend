@@ -36,3 +36,40 @@ DexScreener, DeFiLlama, and GDELT use their documented public endpoints in this 
 - IMF Data and Africa API are not included in this initial adapter set; verify the specific dataset/API and credentials before adding them.
 - External APIs must not select outcomes, bypass human-validator consensus, or independently authorize settlement. Settlement continues to follow the existing contract.
 - Existing contract economics remain unchanged: 0.25% trading fee and 2% settlement fee on eligible winning settlements. Do not edit these constants as part of this integration.
+
+
+## Asset Chain full indexer
+
+The backend includes a separate contract-independent Asset Chain indexer for Enugu testnet (chain ID 42421). It reads confirmed blocks through the official RPC and persists:
+
+- Block number, hash, parent hash, timestamp and transaction count.
+- Full transaction metadata and transaction receipts.
+- Raw contract logs (address, topics, data and log index).
+- Native value transfers and standard ERC-20 `Transfer` events, retaining integer token units.
+- Wallet first-seen and last-seen block records.
+- A durable block cursor and bounded reorg rewind.
+
+This is distinct from the previous manager-event-only statistics indexer and does not require a manager contract address or ABI. It does not decode every custom contract event into business meaning; raw logs are retained so each future contract ABI can be applied after the new contract is deployed.
+
+### Configuration
+
+Keep disabled until the Enugu RPC and intended starting block have been reviewed:
+
+- `ASSET_CHAIN_INDEXER_ENABLED=false`
+- `ASSET_CHAIN_INDEXER_START_BLOCK=0` (genesis; set a later known block only when intentionally limiting historical coverage)
+- `ASSET_CHAIN_INDEXER_POLL_MS=15000`
+- `ASSET_CHAIN_INDEXER_BLOCKS_PER_POLL=3`
+- `ASSET_CHAIN_INDEXER_CONFIRMATIONS=3`
+- `ASSET_CHAIN_INDEXER_REORG_DEPTH=12`
+
+The first full historical scan can be resource-intensive because each transaction receipt is fetched. Use bounded batches and monitor RPC rate limits and database growth. No on-chain transactions are sent.
+
+### Admin endpoints
+
+These endpoints require the same wallet session and admin authorization as other data-source routes:
+
+- `POST /api/data-sources/asset-chain/indexer/status` — cursor and indexed block/transaction/log/transfer/wallet totals.
+- `POST /api/data-sources/asset-chain/wallet` — indexed transactions and transfers for a wallet.
+- `POST /api/data-sources/asset-chain/contract-events` — raw logs emitted by a contract.
+
+The SubQuery starter template `asset-chain-testnet-starter` is a separate local-development route. No hosted SubQuery GraphQL endpoint has been verified, so this implementation uses the official RPC directly and leaves hosted SubQuery connectivity for when a real endpoint and schema are supplied.
