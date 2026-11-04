@@ -26,7 +26,9 @@ import { verifyPublicationEvidence } from "../services/publicationVerification.j
 import { createPaidSubmissionQuote } from "../services/paidSubmissionQuote.js";
 import { getPaidSubmissionTestnetConfig } from "../services/paidSubmissionConfig.js";
 import { persistSubmissionQuote } from "../services/submissionQuoteStore.js";
-import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal } from "../services/paidSubmissionStore.js";
+import { decideMarketProposalAtomically, markPaidSubmissionPublishedForProposal, recordSubmissionRefund } from "../services/paidSubmissionStore.js";
+import { getPaidProposalEscrowContext } from "../services/paidProposalEscrowContext.js";
+import { verifyEscrowDecision } from "../services/verifyEscrowDecision.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
 
 const marketsRouter = Router();
@@ -158,12 +160,38 @@ marketsRouter.post("/admin/proposals/list/session", async (req, res, next) => {
 marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
-    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address"), status: z.enum(["APPROVED", "REJECTED"]) }).safeParse(req.body);
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address"), status: z.enum(["APPROVED", "REJECTED"]), transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional() }).safeParse(req.body);
     if (!idResult.success || !parsed.success) return res.status(400).json({ error: "A valid proposal ID, wallet address, and decision are required." });
     const { address, status } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can decide proposals." });
-    const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+    const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
+    if (paidEscrow) {
+      if (paidEscrow.status !== "PAID_PENDING_REVIEW") return res.status(409).json({ error: "Paid proposal is not awaiting an admin decision.", status: paidEscrow.status });
+      if (!parsed.data.transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
+      const config = getPaidSubmissionTestnetConfig();
+      if (!config.enabled || !config.escrowAddress) return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
+      await verifyEscrowDecision({
+        rpcUrl: config.rpcUrl, expectedChainId: config.chainId,
+        minimumConfirmations: Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2"),
+        transactionHash: parsed.data.transactionHash, authenticatedReviewer: address,
+        escrowAddress: config.escrowAddress, proposalIdHash: paidEscrow.proposalIdHash, decision: status,
+      });
+    }
+      const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
+      if (paidEscrow) {
+        if (paidEscrow.status !== "PAID_PENDING_REVIEW") return res.status(409).json({ error: "Paid proposal is not awaiting an admin decision.", status: paidEscrow.status });
+        if (!bodyResult.data.transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
+        const config = getPaidSubmissionTestnetConfig();
+        if (!config.enabled || !config.escrowAddress) return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
+        await verifyEscrowDecision({
+          rpcUrl: config.rpcUrl, expectedChainId: config.chainId,
+          minimumConfirmations: Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2"),
+          transactionHash: bodyResult.data.transactionHash, authenticatedReviewer: walletAuth.address,
+          escrowAddress: config.escrowAddress, proposalIdHash: paidEscrow.proposalIdHash, decision: status,
+        });
+      }
+      const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
     if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
     if (decision === "CONFLICT") {
       const existing = await getMarketProposal(idResult.data);
@@ -172,6 +200,12 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
         status: existing?.status ?? null,
       });
     }
+    if (paidEscrow && status === "REJECTED" && parsed.data.transactionHash) {
+      await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: parsed.data.transactionHash });
+    }
+      if (paidEscrow && status === "REJECTED" && bodyResult.data.transactionHash) {
+        await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: bodyResult.data.transactionHash });
+      }
     const proposal = await getMarketProposal(idResult.data);
     if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
@@ -571,6 +605,7 @@ marketsRouter.post(
 
       const bodyResult = z.object({
         status: z.enum(["APPROVED", "REJECTED"]),
+        transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
         walletAuth: walletAuthSchema,
       }).safeParse(req.body);
 
