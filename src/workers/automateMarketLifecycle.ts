@@ -14,7 +14,6 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { database } from "../config/database.js";
 import {
-  CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS,
   ASSET_CHAIN_TESTNET_ID,
   ASSET_CHAIN_TESTNET_RPC_URL,
   HUMAN_VALIDATOR_ADDRESSES,
@@ -85,7 +84,11 @@ async function main(): Promise<void> {
     throw new Error("This worker is testnet-only and refuses any chain ID other than 42421.");
   }
   const account = privateKeyToAccount(requiredPrivateKey());
-  const manager = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
+  const configuredManager = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
+  if (!configuredManager || !/^0x[0-9a-fA-F]{40}$/.test(configuredManager)) {
+    throw new Error("Set ASSET_ORACLE_MARKET_MANAGER_ADDRESS to the newly deployed and verified manager before running automation.");
+  }
+  const manager = getAddress(configuredManager);
   const publicClient = createPublicClient({ chain, transport: http(chain.rpcUrls.default.http[0]) });
   const walletClient = createWalletClient({ account, chain, transport: http(chain.rpcUrls.default.http[0]) });
 
