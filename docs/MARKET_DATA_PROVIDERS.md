@@ -7,7 +7,8 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 | Segment | Provider | Status / purpose |
 |---|---|---|
 | Digital Assets | CoinGecko | Active; target-coin market data and token metadata by CoinGecko coin ID |
-| Digital Assets | DexScreener | Active; DEX token pairs, prices, liquidity and volume |\n| Digital Assets | FireScreener | Reserved; pending official API availability, no scraping or guessed endpoints |
+| Digital Assets | DexScreener | Active; DEX token pairs, prices, liquidity and volume |
+| Digital Assets | FireScreener | Reserved; pending official API availability, no scraping or guessed endpoints |
 | RWA | DeFiLlama | Implemented; protocol TVL and DEX overview |
 | RWA | DexScreener | Implemented; token pair and liquidity discovery |
 
