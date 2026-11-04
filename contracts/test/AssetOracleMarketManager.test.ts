@@ -126,11 +126,14 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await expect(f.manager.setMarketCreator(f.outsider.address, false)).to.be.reverted;
   });
 
-  it("allows only USDC on the testnet contract and validates its token decimals", async function () {
+  it("configures only USDC in the initial testnet fixture and validates token decimals", async function () {
     const f = await deployFixture();
     await expect(f.manager.configureStablecoin(0, ethers.ZeroAddress, 6)).to.be.reverted;
     await expect(f.manager.configureStablecoin(0, await f.usdc.getAddress(), 18)).to.be.reverted;
-    await expect(f.manager.configureStablecoin(1, await f.usdc.getAddress(), 6)).to.be.reverted;
+    const usdtConfig = await f.manager.stablecoins(1);
+    const cngnConfig = await f.manager.stablecoins(2);
+    expect(usdtConfig.enabled).to.equal(false);
+    expect(cngnConfig.enabled).to.equal(false);
   });
 
   it("limits market creation to approved creators", async function () {
