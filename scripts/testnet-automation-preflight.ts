@@ -50,6 +50,8 @@ async function main() {
     });
     const client = createPublicClient({ chain, transport: http(RPC_URL) });
     const account = privateKeyToAccount(privateKey as Hex);
+    const expectedAutomationWallet = process.env.AUTOMATION_WALLET_ADDRESS?.trim();
+    assertCheck(expectedAutomationWallet && /^0x[0-9a-fA-F]{40}$/.test(expectedAutomationWallet) && getAddress(expectedAutomationWallet) === getAddress(account.address), "AUTOMATION_PRIVATE_KEY does not match AUTOMATION_WALLET_ADDRESS.");
     const [chainId, managerCode, rosterConfigured, tokenConfig, manualCreatorRole, automatedCreatorRole, gasBalance] = await Promise.all([
       client.getChainId(),
       client.getBytecode({ address: manager }),
