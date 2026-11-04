@@ -34,8 +34,8 @@ contract ManualProposalFeeEscrow is AccessControl, ReentrancyGuard {
         Decision decision;
     }
 
-    IERC20 public immutable usdc;
-    address public immutable treasury;
+    IERC20 public usdc;
+    address public treasury;
     mapping(bytes32 => ProposalPayment) public proposalPayments;
 
     event ProposalFeeEscrowed(bytes32 indexed proposalId, address indexed payer, uint256 amount);
