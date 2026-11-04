@@ -8,6 +8,7 @@ import { isMarketCreatorWallet } from "../services/adminAuth.js";
 import { createPaidSubmissionIntent, getPaidSubmissionPaymentContext } from "../services/paidSubmissionIntentStore.js";
 import { getActiveSubmissionQuote } from "../services/submissionQuoteStore.js";
 import { verifyEscrowSubmissionPayment } from "../services/verifyEscrowSubmissionPayment.js";
+import { verifyPaidProposalEscrowConfig } from "../services/verifyPaidProposalEscrowConfig.js";
 import {
   recordConfirmedSubmissionPayment,
 } from "../services/paidSubmissionStore.js";
