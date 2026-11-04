@@ -2,7 +2,7 @@ import { getMarketProposal } from "./marketStore.js";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
 import { saveMarketEvidence, type StoredMarketEvidence } from "./marketEvidenceStore.js";
 import {
-  apiFootballFixtures, coingeckoMarkets, dexscreenerSearch, dexscreenerTokenPairs,
+  apiFootballFixtures, coingeckoCoinMarketData, dexscreenerSearch, dexscreenerTokenPairs,
   defiLlamaProtocolTvl, fredObservations, gdeltArticles, openMeteoHistorical,
   sportmonksFixturesByDate, worldBankIndicator,
 } from "./dataProviders.js";
@@ -42,7 +42,8 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
 
   switch (selected) {
     case "coingecko":
-      result = await coingeckoMarkets(query.vsCurrency, query.page, query.perPage);
+      if (!query.coinId) throw new Error("CoinGecko evidence requires query.coinId.");
+      result = await coingeckoCoinMarketData(query.coinId, query.vsCurrency);
       break;
     case "dexscreener":
       if (query.tokenAddress && query.chain) result = await dexscreenerTokenPairs(query.chain, query.tokenAddress);
