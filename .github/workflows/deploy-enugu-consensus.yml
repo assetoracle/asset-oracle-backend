@@ -17,9 +17,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  skip-unless-explicitly-confirmed:
+    if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || inputs.confirm_new_contract_deployment != true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm deployment was not requested
+        run: echo "Deployment skipped. Only a confirmed manual dispatch from main may deploy the new testnet contract."
+
   deploy:
     name: Deploy and configure on Enugu testnet
-    if: github.ref == 'refs/heads/main' && inputs.confirm_new_contract_deployment == true
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm_new_contract_deployment == true
     environment: enugu-testnet-deploy
     runs-on: ubuntu-latest
     timeout-minutes: 20
