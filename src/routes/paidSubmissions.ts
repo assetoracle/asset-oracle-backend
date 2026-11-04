@@ -44,6 +44,12 @@ router.post("/intent", async (req, res, next) => {
     if (!config.enabled || !config.treasuryAddress || !config.escrowAddress) {
       return res.status(503).json({ error: "Testnet USDC paid submissions are disabled until the testnet USDC contract and treasury are verified.", network: "TESTNET", chainId: config.chainId, disabledReasons: config.disabledReasons });
     }
+    const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+    if (!adminAddress || !isAddress(adminAddress)) return res.status(503).json({ error: "Configured admin wallet is required to verify the proposal escrow." });
+    await verifyPaidProposalEscrowConfig({
+      rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress!,
+      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress!, adminAddress,
+    });
     const quote = await getActiveSubmissionQuote({ quoteId, walletAddress: walletAuth.address });
     if (!quote) return res.status(409).json({ error: "Quote is missing, expired, already used, or belongs to another wallet. Request a new quote." });
     const tokenConfig = config.tokens[quote.token];
