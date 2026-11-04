@@ -5,8 +5,10 @@ import { isAdminWallet } from "../services/adminAuth.js";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { collectMarketEvidence } from "../services/marketEvidenceCollector.js";
 import { listMarketEvidence } from "../services/marketEvidenceStore.js";
+import { createRateLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
+router.use(createRateLimiter({ windowMs: 60_000, max: 10, message: "Market evidence request limit reached. Wait before collecting more evidence." }));
 const proposalIdSchema = z.string().uuid();
 const addressSchema = z.string().refine(isAddress, "Invalid wallet address");
 
