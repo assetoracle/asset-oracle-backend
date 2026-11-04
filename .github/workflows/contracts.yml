@@ -23,5 +23,9 @@ jobs:
         with:
           node-version: 20
       - run: npm install
+      - name: Report high-severity contract-tooling advisories
+        run: |
+          npm audit --json > /tmp/contract-audit.json || true
+          node -e 'const r=require("/tmp/contract-audit.json"); const rank={low:1,moderate:2,high:3,critical:4}; const high=Object.entries(r.vulnerabilities||{}).filter(([,v])=>rank[v.severity]>=3).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable,via:v.via.map(x=>typeof x==="string"?x:{name:x.name,title:x.title,url:x.url})})); console.log(JSON.stringify({summary:r.metadata?.vulnerabilities,highAndCritical:high},null,2));'
       - run: npm run compile
       - run: npm test
