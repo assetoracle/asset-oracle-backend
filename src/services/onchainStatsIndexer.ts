@@ -61,11 +61,9 @@ export async function initializeOnchainStatsIndexer(): Promise<void> {
   const current = CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS;
   const managers = current ? [current.toLowerCase()] : [];
   if (!managers.length || managers.some((value) => !/^0x[0-9a-f]{40}$/.test(value))) {
-    throw new Error("On-chain stats indexer requires valid current and legacy manager addresses.");
+    throw new Error("On-chain stats indexer requires the newly deployed market manager address.");
   }
-  // The canonical manager is the active source for new markets and validator
-  // settlement. A retired manager's RPC/code failure must not prevent indexing
-  // the canonical manager; legacy account reads remain available independently.
+  // Only the newly deployed canonical manager is indexed for this release.
   for (const managerAddress of managers) {
     try {
       await initializeManagerIndexer(managerAddress);
