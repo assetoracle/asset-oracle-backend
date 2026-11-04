@@ -296,6 +296,14 @@ marketsRouter.post("/paid-submissions/quote", async (req, res, next) => {
         disabledReasons: config.disabledReasons,
       });
     }
+    const adminAddress = process.env.ADMIN_WALLET_ADDRESS?.trim();
+    if (!adminAddress || !isAddress(adminAddress) || !config.escrowAddress || !config.treasuryAddress) {
+      return res.status(503).json({ error: "Verified admin, Treasury and proposal escrow configuration is required." });
+    }
+    await verifyPaidProposalEscrowConfig({
+      rpcUrl: config.rpcUrl, chainId: config.chainId, escrowAddress: config.escrowAddress,
+      usdcAddress: config.tokens.USDC.address, treasuryAddress: config.treasuryAddress, adminAddress,
+    });
     const quote = createPaidSubmissionQuote({ token, config });
     const quoteId = await persistSubmissionQuote({ walletAddress: walletAuth.address, quote });
     return res.status(201).json({
