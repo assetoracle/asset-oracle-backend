@@ -4,7 +4,7 @@ import { claimNextGenerationCategory, saveMarketCandidate } from "./marketGenera
 
 const generationTemplateSchema = z.object({
   id: z.string().trim().min(1).max(100),
-  category: z.enum(["Crypto", "Sports", "Economics", "RWA", "Regional"]),
+  category: z.enum(["Digital Assets", "Sports", "Economics", "RWA", "Regional"]),
   question: z.string().trim().min(15).max(240),
   description: z.string().trim().min(20).max(2000),
   sport: z.enum(["football", "basketball", "tennis"]).optional(),
