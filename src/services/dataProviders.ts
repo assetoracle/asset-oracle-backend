@@ -72,6 +72,23 @@ export function defiLlamaDexOverview() {
   return getJson("defillama", new URL("https://api.llama.fi/overview/dexs"));
 }
 
+export function coingeckoCoinMarketData(coinId: string, vsCurrency = "usd") {
+  if (!/^[a-z0-9-]{1,100}$/i.test(coinId) || !/^[a-z0-9-]{2,12}$/i.test(vsCurrency)) {
+    throw new Error("Invalid CoinGecko coin ID or quote currency.");
+  }
+  const plan = (process.env.COINGECKO_API_PLAN || "demo").trim().toLowerCase();
+  if (plan !== "demo" && plan !== "pro") throw new Error("COINGECKO_API_PLAN must be demo or pro.");
+  const base = plan === "pro" ? "https://pro-api.coingecko.com/api/v3/coins/" : "https://api.coingecko.com/api/v3/coins/";
+  const url = new URL(encodeURIComponent(coinId), base);
+  url.searchParams.set("localization", "false");
+  url.searchParams.set("tickers", "false");
+  url.searchParams.set("market_data", "true");
+  url.searchParams.set("community_data", "false");
+  url.searchParams.set("developer_data", "false");
+  url.searchParams.set("sparkline", "false");
+  return getJson("coingecko", url, { [plan === "pro" ? "x-cg-pro-api-key" : "x-cg-demo-api-key"]: requiredEnv("COINGECKO_API_KEY") });
+}
+
 export function coingeckoMarkets(vsCurrency = "usd", page = 1, perPage = 100) {
   if (!/^[a-z0-9-]{2,12}$/i.test(vsCurrency) || !Number.isInteger(page) || page < 1 || page > 1000 ||
       !Number.isInteger(perPage) || perPage < 1 || perPage > 250) throw new Error("Invalid CoinGecko market query.");
