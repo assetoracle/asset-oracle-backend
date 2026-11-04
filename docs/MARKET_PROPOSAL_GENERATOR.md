@@ -44,7 +44,7 @@ Supported categories and providers are enforced by the existing market proposal 
 
 The category cursor advances in this order: Digital Assets, Economics, Regional, RWA, Sports. A run processes at most ten configured templates from one category. Missing templates produce no candidate for that category; the rotation still advances.
 
-Candidate proposals are validated by the same Zod schema as user proposals. Duplicate proposal payloads are ignored using a SHA-256 uniqueness key. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; candidate promotion creates a private automated market proposal; it does not publish on-chain or bypass market-maker approval.
+Candidate proposals are validated by the same Zod schema as user proposals. Duplicate proposal payloads are ignored using a SHA-256 uniqueness key. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; the normal proposal table and its payment/creator workflow are untouched.
 
 The template thresholds and metric paths are configuration, not predictions derived by the generator. A reviewer must check that each template is meaningful and that its source metric is suitable before enabling the workflow. Provider evidence remains separate and must never independently decide a market outcome.
 
@@ -54,6 +54,6 @@ Generated candidates remain separate from wallet-submitted proposals until a con
 
 - `POST /api/market-candidates/admin/list/session` with `{ "address": "0x...", "limit": 50 }` lists pending candidates (maximum 100).
 - `POST /api/market-candidates/admin/:candidateId/decision/session` with `{ "address": "0x...", "decision": "DISMISSED" }` dismisses a candidate.
-- The same decision endpoint with `"decision": "PROMOTED"` creates a private `AUTOMATED` market proposal with `PENDING_APPROVAL` status and marks the candidate promoted in one database transaction.
+- The same decision endpoint with `"decision": "PROMOTED"` creates a normal `PENDING_APPROVAL` market proposal and marks the candidate promoted in one database transaction.
 
-Promotion does not approve or publish the market and does not submit an on-chain transaction. A configured market maker must then approve or reject the private automated proposal. Only approved automated proposals are published through the dedicated on-chain automated-market role. Candidate review is rate-limited and repeated decisions are rejected.
+Promotion does not approve or publish the market and does not submit an on-chain transaction. The normal proposal approval and publication controls remain separate. Candidate review is rate-limited and repeated decisions are rejected.
