@@ -34,6 +34,8 @@ jobs:
           AUTOMATION_PRIVATE_KEY: ${{ secrets.AUTOMATION_PRIVATE_KEY }}
           ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
           ASSET_CHAIN_ID: "42421"
+          ASSET_ORACLE_MARKET_MANAGER_ADDRESS: ${{ vars.ASSET_ORACLE_MARKET_MANAGER_ADDRESS }}
+          AUTOMATION_WALLET_ADDRESS: ${{ vars.AUTOMATION_WALLET_ADDRESS }}
         run: npm run preflight:testnet-automation
 
   run-testnet-worker:
@@ -65,4 +67,6 @@ jobs:
           ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
           ASSET_CHAIN_ID: "42421"
           ASSET_CHAIN_EXPLORER_URL: https://scan-testnet.assetchain.org
+          ASSET_ORACLE_MARKET_MANAGER_ADDRESS: ${{ vars.ASSET_ORACLE_MARKET_MANAGER_ADDRESS }}
+          AUTOMATION_WALLET_ADDRESS: ${{ vars.AUTOMATION_WALLET_ADDRESS }}
         run: npm run automate:market-lifecycle
