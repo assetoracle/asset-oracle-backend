@@ -4,13 +4,15 @@ import { database } from "../config/database.js";
 export async function getPaidProposalEscrowContext(proposalId: string): Promise<{
   submissionId: string;
   status: string;
+  payer: string;
   proposalIdHash: string;
 } | null> {
   const result = await database.query<{
     id: string;
     status: string;
+    wallet_address: string;
   }>(
-    "SELECT id, status FROM paid_market_submissions WHERE proposal_id = $1",
+    "SELECT id, status, wallet_address FROM paid_market_submissions WHERE proposal_id = $1",
     [proposalId],
   );
   const row = result.rows[0];
@@ -18,6 +20,7 @@ export async function getPaidProposalEscrowContext(proposalId: string): Promise<
   return {
     submissionId: row.id,
     status: row.status,
+    payer: row.wallet_address,
     proposalIdHash: keccak256(stringToHex(proposalId)),
   };
 }
