@@ -26,7 +26,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     uint256 public constant MAX_SETTLEMENT_FEE_BPS = 1_000; // hard cap: 10%
     uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 1_500; // 15% of settlement fee; treasury receives the remaining 85%
     uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
-    uint256 public tradingFeeBps = 100; // 1%, charged in addition to stake
+    uint256 public constant tradingFeeBps = 100; // immutable 1%, charged in addition to stake
     uint256 public settlementFeeBps = 1_000; // 10%
     enum Stablecoin { USDC, USDT, CNGN }
     enum MarketType { MANUAL, AUTOMATED }
@@ -66,6 +66,9 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
 
     mapping(Stablecoin => StablecoinConfig) public stablecoins;
     mapping(uint256 => Market) private markets;
+    // Snapshot the settlement fee when a market is created so later owner changes
+    // cannot alter the economics of an existing market.
+    mapping(uint256 => uint256) public marketSettlementFeeBps;
     mapping(uint256 => mapping(address => Position)) public positions;
     mapping(uint256 => mapping(address => uint256)) public refunds;
     mapping(uint256 => mapping(address => bool)) public participantRegistered;
@@ -100,7 +103,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     event DisputeVoteSubmitted(uint256 indexed marketId, address indexed validator, Outcome outcome, bytes32 evidenceHash, uint8 matchingVotes);
 
     event StablecoinConfigured(Stablecoin indexed kind, address indexed token, uint8 decimals);
-    event TradingFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
     event SettlementFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
     event MarketCreatorUpdated(address indexed account, bool enabled);
     event OracleResolverUpdated(address indexed account, bool enabled);
@@ -235,13 +237,6 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
         validatorRewardPool = validatorPool_;
     }
 
-    function setTradingFeeBps(uint256 newFeeBps) external onlyOwner {
-        if (newFeeBps > MAX_TRADING_FEE_BPS) revert FeeOutOfRange();
-        uint256 oldFeeBps = tradingFeeBps;
-        tradingFeeBps = newFeeBps;
-        emit TradingFeeUpdated(oldFeeBps, newFeeBps);
-    }
-
     function setSettlementFeeBps(uint256 newFeeBps) external onlyOwner {
         if (newFeeBps > MAX_SETTLEMENT_FEE_BPS) revert FeeOutOfRange();
         uint256 oldFeeBps = settlementFeeBps;
@@ -317,6 +312,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             status: Status.OPEN,
             evidenceHash: bytes32(0)
         });
+        marketSettlementFeeBps[marketId] = settlementFeeBps;
         totalMarketsCreated++;
         hasCreatedMarket[msg.sender] = true;
         emit MarketCreated(marketId, msg.sender, stablecoin, closeTime, question);
@@ -531,7 +527,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             return;
         }
 
-        uint256 fee = (market.totalStaked * settlementFeeBps) / BPS;
+        uint256 fee = (market.totalStaked * marketSettlementFeeBps[marketId]) / BPS;
         uint256 validatorFee = (fee * VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS) / BPS;
         uint256 treasuryFee = fee - validatorFee;
         uint256 userWinningStake = market.outcome == Outcome.YES ? position.yes : position.no;
@@ -568,7 +564,7 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
             // Treasury retains 25% of total net stake plus any unclaimable rounding remainder.
             accounted = claimedPayoutsByMarket[marketId] + retainedNoWinnerByMarket[marketId];
         } else {
-            uint256 settlementFee = (market.totalStaked * settlementFeeBps) / BPS;
+            uint256 settlementFee = (market.totalStaked * marketSettlementFeeBps[marketId]) / BPS;
             accounted = claimedPayoutsByMarket[marketId] + settlementFee;
         }
         if (accounted > market.totalStaked) revert InvalidMarketParameters();
