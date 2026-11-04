@@ -183,7 +183,8 @@ marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, nex
       await verifyEscrowDecision({
         rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
         transactionHash, authenticatedReviewer: address, escrowAddress: config.escrowAddress,
-        proposalIdHash: paidEscrow.proposalIdHash, decision: status,
+        proposalIdHash: paidEscrow.proposalIdHash, expectedPayer: paidEscrow.payer,
+        expectedTreasury: config.treasuryAddress!, decision: status,
       });
     }
 
