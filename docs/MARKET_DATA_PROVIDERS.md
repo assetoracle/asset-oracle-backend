@@ -6,7 +6,7 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 
 | Segment | Provider | Status / purpose |
 |---|---|---|
-| Digital assets | CoinGecko | Implemented; market listings and market-cap data |
+| Digital assets | CoinGecko | Implemented; target-coin market data by CoinGecko coin ID |
 | Digital assets | FireScreener | Pending provider API availability; no scraping or guessed endpoints |
 | RWA | DeFiLlama | Implemented; protocol TVL and DEX overview |
 | RWA | DexScreener | Implemented; token pair and liquidity discovery |
@@ -30,7 +30,7 @@ Market processing must select providers from the market's own category before ma
 | Economics | FRED, World Bank |
 | Regional | GDELT, Open-Meteo |
 
-A market with a configured `resolutionRule.sourceId` narrows execution to that single provider, and a provider outside the category allowlist is rejected. The selector is deliberately side-effect-free: it does not call APIs itself. The market evidence worker must call it for the one market being processed and then invoke only the selected provider adapters. Never run all provider adapters as a global fan-out or call providers belonging to other market categories.
+A market with a configured `resolutionRule.sourceId` narrows execution to that single provider, and a provider outside the category allowlist is rejected. Proposal validation also requires provider-specific query parameters (for example a CoinGecko coin ID, FRED series ID, or sports fixture date). `collectMarketEvidence(proposalId)` loads one approved proposal, applies the selector, calls only its configured provider and persists the raw response, retrieval timestamp, SHA-256 hash, metric value (when its configured path exists), and `UNREVIEWED` status. Duplicate provider responses are idempotently ignored. No global provider fan-out occurs.
 
 ## Admin API routes
 
@@ -51,6 +51,15 @@ All routes require a valid wallet session in the `Authorization: Bearer <session
 | POST `/api/data-sources/regional/open-meteo/historical` | `latitude`, `longitude`, `startDate`, `endDate` |
 
 Provider results include provider, source URL, retrieval timestamp and SHA-256 response hash. API credentials are sent in request headers where supported; FRED's query-string key is redacted from returned source references. This metadata helps trace evidence but does not itself prove an outcome.
+
+## Market evidence API
+
+The following endpoints are admin-wallet/session protected:
+
+- `POST /api/market-evidence/:proposalId/collect` — collect one response from the proposal's configured provider and store it for review.
+- `POST /api/market-evidence/:proposalId/list` — retrieve up to 100 stored evidence records for that proposal.
+
+The evidence table is `market_data_evidence`; it is separate from `validator_source_links`, which records on-chain validator vote evidence. Provider observations are always stored as `UNREVIEWED`. This first collector is an explicit admin-triggered operation; scheduled collection and provider freshness policies will be added after the market-specific collection rules are validated.
 
 ## Backend secrets
 

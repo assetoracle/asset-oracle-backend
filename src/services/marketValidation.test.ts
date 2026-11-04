@@ -13,6 +13,7 @@ function validProposal(comparison: string = "AT_LEAST") {
     resolvesAt,
     resolutionRule: {
       sourceId: "coingecko",
+      query: { coinId: "bitcoin", vsCurrency: "usd" },
       metric: "price_usd",
       comparison,
       targetValue: 100000,
@@ -46,7 +47,8 @@ test("market proposal schema requires resolution after closing", () => {
 
 
 test("sports markets require a supported sport", () => {
-  const proposal = { ...validProposal(), category: "Sports" };
+  const base = validProposal();
+  const proposal = { ...base, category: "Sports", resolutionRule: { ...base.resolutionRule, sourceId: "sportmonks", query: { date: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10) } } };
   assert.equal(marketProposalSchema.safeParse(proposal).success, false);
   for (const sport of ["football", "basketball", "tennis"] as const) {
     assert.equal(marketProposalSchema.safeParse({ ...proposal, sport }).success, true);
@@ -55,4 +57,15 @@ test("sports markets require a supported sport", () => {
 
 test("non-sports markets reject a sport selection", () => {
   assert.equal(marketProposalSchema.safeParse({ ...validProposal(), sport: "football" }).success, false);
+});
+
+test("market proposals reject a provider that is not allowlisted for the category", () => {
+  const proposal = { ...validProposal(), category: "RWA" };
+  assert.equal(marketProposalSchema.safeParse(proposal).success, false);
+});
+
+test("market proposals require provider-specific query parameters", () => {
+  const proposal = validProposal();
+  proposal.resolutionRule.query.coinId = "";
+  assert.equal(marketProposalSchema.safeParse(proposal).success, false);
 });
