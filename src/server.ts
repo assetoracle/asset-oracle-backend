@@ -15,6 +15,8 @@ import dataSourcesRouter from "./routes/dataSources.js";
 import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeValidatorEvidenceStore } from "./services/validatorEvidenceStore.js";
+import { initializeMarketEvidenceStore } from "./services/marketEvidenceStore.js";
+import marketEvidenceRouter from "./routes/marketEvidence.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
 import { initializeAssetChainIndexer } from "./services/assetChainIndexer.js";
 import { initializePointsStore } from "./services/pointsStore.js";
@@ -70,6 +72,7 @@ app.use("/api/stats/wallet", createRateLimiter({ windowMs: 60_000, max: 6 }));
 app.use("/api/markets", marketsRouter);
 app.use("/api/markets/paid-submissions", paidSubmissionsRouter);
 app.use("/api/validator-evidence", validatorEvidenceRouter);
+app.use("/api/market-evidence", marketEvidenceRouter);
 app.use("/api/referrals", referralsRouter);
 app.use("/api/stats", statsRouter);
 app.use("/api/data-sources", dataSourcesRouter);
@@ -85,6 +88,7 @@ async function startServer(): Promise<void> {
   try {
     await initializeMarketStore();
     await initializeValidatorEvidenceStore();
+    await initializeMarketEvidenceStore();
     await initializeWalletAuth();
     await initializeReferralStore();
     await initializePointsStore();
