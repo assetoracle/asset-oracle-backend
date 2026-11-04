@@ -20,7 +20,7 @@ Each template supplies the market wording, provider-specific query, resolution m
 [
   {
     "id": "btc-usd-threshold",
-    "category": "Crypto",
+    "category": "Digital Assets",
     "question": "Will Bitcoin trade above 100000 USD?",
     "description": "This candidate resolves using the configured CoinGecko market data at the observation time.",
     "sourceId": "coingecko",
@@ -36,13 +36,13 @@ Each template supplies the market wording, provider-specific query, resolution m
 ```
 
 Supported categories and providers are enforced by the existing market proposal schema:
-- Crypto: CoinGecko, DexScreener
+- Digital Assets: CoinGecko, DexScreener
 - Economics: FRED, World Bank
 - Regional: GDELT, Open-Meteo
 - RWA: DeFiLlama, DexScreener
 - Sports: Sportmonks, API-Football
 
-The category cursor advances in this order: Crypto, Economics, Regional, RWA, Sports. A run processes at most ten configured templates from one category. Missing templates produce no candidate for that category; the rotation still advances.
+The category cursor advances in this order: Digital Assets, Economics, Regional, RWA, Sports. A run processes at most ten configured templates from one category. Missing templates produce no candidate for that category; the rotation still advances.
 
 Candidate proposals are validated by the same Zod schema as user proposals. Duplicate proposal payloads are ignored using a SHA-256 uniqueness key. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; the normal proposal table and its payment/creator workflow are untouched.
 

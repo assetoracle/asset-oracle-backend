@@ -6,8 +6,9 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 
 | Segment | Provider | Status / purpose |
 |---|---|---|
-| Digital assets | CoinGecko | Implemented; target-coin market data by CoinGecko coin ID |
-| Digital assets | FireScreener | Pending provider API availability; no scraping or guessed endpoints |
+| Digital Assets | CoinGecko | Active; target-coin market data and token metadata by CoinGecko coin ID |
+| Digital Assets | DexScreener | Active; DEX token pairs, prices, liquidity and volume |
+| Digital Assets | FireScreener | Reserved; pending official API availability, no scraping or guessed endpoints |
 | RWA | DeFiLlama | Implemented; protocol TVL and DEX overview |
 | RWA | DexScreener | Implemented; token pair and liquidity discovery |
 
@@ -24,7 +25,7 @@ Market processing must select providers from the market's own category before ma
 
 | Market category | Eligible providers |
 |---|---|
-| Crypto | CoinGecko, DexScreener |
+| Digital Assets | CoinGecko, DexScreener |
 | RWA | DeFiLlama, DexScreener |
 | Sports | Sportmonks, API-Football |
 | Economics | FRED, World Bank |
@@ -66,7 +67,7 @@ Worker configuration:
 - `MARKET_EVIDENCE_WORKER_ENABLED=false` by default.
 - `MARKET_EVIDENCE_MAX_PER_RUN=10` maximum due proposals processed per run (bounded to 1–50).
 - `MARKET_EVIDENCE_INTERVAL_MINUTES=15` default freshness interval.
-- Optional category overrides: `MARKET_EVIDENCE_CRYPTO_INTERVAL_MINUTES`, `MARKET_EVIDENCE_RWA_INTERVAL_MINUTES`, `MARKET_EVIDENCE_SPORTS_INTERVAL_MINUTES`, `MARKET_EVIDENCE_ECONOMICS_INTERVAL_MINUTES`, and `MARKET_EVIDENCE_REGIONAL_INTERVAL_MINUTES`.
+- Optional category overrides: `MARKET_EVIDENCE_DIGITAL_ASSETS_INTERVAL_MINUTES (legacy CRYPTO variable remains supported)`, `MARKET_EVIDENCE_RWA_INTERVAL_MINUTES`, `MARKET_EVIDENCE_SPORTS_INTERVAL_MINUTES`, `MARKET_EVIDENCE_ECONOMICS_INTERVAL_MINUTES`, and `MARKET_EVIDENCE_REGIONAL_INTERVAL_MINUTES`.
 
 Run the command from a scheduler only after provider credentials, database capacity, request quotas and the desired cadence have been reviewed. Each run is a bounded batch; no scheduler, cron job or hosted environment setting is enabled by this change.
 

@@ -2,8 +2,8 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
 
-test("selects only digital asset providers for Crypto markets", () => {
-  assert.deepEqual(selectProvidersForMarket({ category: "Crypto" }), ["coingecko", "dexscreener"]);
+test("selects only digital asset providers for Digital Assets markets", () => {
+  assert.deepEqual(selectProvidersForMarket({ category: "Digital Assets" }), ["coingecko", "dexscreener"]);
 });
 
 test("selects only RWA providers for RWA markets", () => {

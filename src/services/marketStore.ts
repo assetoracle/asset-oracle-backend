@@ -19,7 +19,7 @@ type MarketProposalRow = {
   walletAddress: string | null;
   question: string;
   description: string;
-  category: MarketProposalInput["category"];
+  category: string;
   sport?: MarketProposalInput["sport"];
   closesAt: string | Date;
   resolvesAt: string | Date;
@@ -32,13 +32,19 @@ type MarketProposalRow = {
   onchain_chain_id?: number | null;
 };
 
+function normalizeMarketCategory(category: string): MarketProposalInput["category"] {
+  if (category === "Crypto" || category === "Digital Assets") return "Digital Assets";
+  if (category === "Sports" || category === "Economics" || category === "RWA" || category === "Regional") return category;
+  throw new Error(`Unsupported stored market category: ${category}`);
+}
+
 function mapProposal(row: MarketProposalRow): StoredMarketProposal {
   return {
     id: row.id,
     walletAddress: row.walletAddress,
     question: row.question,
     description: row.description,
-    category: row.category,
+    category: normalizeMarketCategory(row.category),
     ...(row.sport ? { sport: row.sport } : {}),
     closesAt: new Date(row.closesAt).toISOString(),
     resolvesAt: new Date(row.resolvesAt).toISOString(),

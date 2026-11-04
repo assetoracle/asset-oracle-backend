@@ -51,7 +51,7 @@ export const marketProposalSchema = z
       .max(2000, "The description cannot exceed 2000 characters"),
 
     category: z.enum([
-      "Crypto",
+      "Digital Assets",
       "Sports",
       "Economics",
       "RWA",
@@ -79,7 +79,7 @@ export const marketProposalSchema = z
       context.addIssue({ code: "custom", path: ["sport"], message: "Sport can only be set for Sports markets." });
     }
     const providerAllowlist: Record<string, string[]> = {
-      Crypto: ["coingecko", "dexscreener"],
+      "Digital Assets": ["coingecko", "dexscreener"],
       Sports: ["sportmonks", "api-football"],
       Economics: ["fred", "world-bank"],
       RWA: ["defillama", "dexscreener"],

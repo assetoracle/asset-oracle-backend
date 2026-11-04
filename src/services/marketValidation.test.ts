@@ -8,7 +8,7 @@ function validProposal(comparison: string = "AT_LEAST") {
   return {
     question: "Will Bitcoin reach $100,000 by November?",
     description: "This market resolves YES if the approved BTC/USD source records the threshold.",
-    category: "Crypto",
+    category: "Digital Assets",
     closesAt,
     resolvesAt,
     resolutionRule: {

@@ -12,7 +12,7 @@ const LOCK_ID = 4242182;
 const MAX_MARKETS_PER_RUN = Math.max(1, Math.min(50, Number(process.env.MARKET_EVIDENCE_MAX_PER_RUN) || 10));
 const DEFAULT_INTERVAL_MINUTES = Math.max(1, Number(process.env.MARKET_EVIDENCE_INTERVAL_MINUTES) || 15);
 const CATEGORY_ENV: Record<string, string> = {
-  Crypto: "MARKET_EVIDENCE_CRYPTO_INTERVAL_MINUTES",
+  "Digital Assets": "MARKET_EVIDENCE_DIGITAL_ASSETS_INTERVAL_MINUTES",
   RWA: "MARKET_EVIDENCE_RWA_INTERVAL_MINUTES",
   Sports: "MARKET_EVIDENCE_SPORTS_INTERVAL_MINUTES",
   Economics: "MARKET_EVIDENCE_ECONOMICS_INTERVAL_MINUTES",
@@ -21,7 +21,7 @@ const CATEGORY_ENV: Record<string, string> = {
 
 function intervalFor(category: string): number {
   const key = CATEGORY_ENV[category];
-  const configured = key ? Number(process.env[key]) : NaN;
+  const configured = key ? Number(process.env[key] ?? (category === "Digital Assets" ? process.env.MARKET_EVIDENCE_CRYPTO_INTERVAL_MINUTES : undefined)) : NaN;
   return Math.max(1, Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_INTERVAL_MINUTES);
 }
 
