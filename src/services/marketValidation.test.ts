@@ -13,6 +13,7 @@ function validProposal(comparison: string = "AT_LEAST") {
     resolvesAt,
     resolutionRule: {
       sourceId: "coingecko",
+      query: { coinId: "bitcoin", vsCurrency: "usd" },
       metric: "price_usd",
       comparison,
       targetValue: 100000,
@@ -55,4 +56,15 @@ test("sports markets require a supported sport", () => {
 
 test("non-sports markets reject a sport selection", () => {
   assert.equal(marketProposalSchema.safeParse({ ...validProposal(), sport: "football" }).success, false);
+});
+
+test("market proposals reject a provider that is not allowlisted for the category", () => {
+  const proposal = { ...validProposal(), category: "RWA" };
+  assert.equal(marketProposalSchema.safeParse(proposal).success, false);
+});
+
+test("market proposals require provider-specific query parameters", () => {
+  const proposal = validProposal();
+  proposal.resolutionRule.query = undefined;
+  assert.equal(marketProposalSchema.safeParse(proposal).success, false);
 });
