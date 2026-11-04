@@ -22,11 +22,11 @@ contract AssetOracleMarketManager is Ownable, AccessControl, ReentrancyGuard {
     bytes32 public constant AUTOMATED_MARKET_CREATOR_ROLE = keccak256("AUTOMATED_MARKET_CREATOR_ROLE");
 
     uint256 public constant BPS = 10_000;
-    uint256 public constant MAX_TRADING_FEE_BPS = 1_000; // hard cap: 10%
+    uint256 public constant MAX_TRADING_FEE_BPS = 100; // fixed policy cap: 1%
     uint256 public constant MAX_SETTLEMENT_FEE_BPS = 1_000; // hard cap: 10%
     uint256 public constant VALIDATOR_SHARE_OF_SETTLEMENT_FEE_BPS = 1_500; // 15% of settlement fee; treasury receives the remaining 85%
     uint64 public constant DISPUTE_RESOLUTION_TIMEOUT = 7 days;
-    uint256 public tradingFeeBps = 25; // 0.25%, charged in addition to stake
+    uint256 public tradingFeeBps = 100; // 1%, charged in addition to stake
     uint256 public settlementFeeBps = 1_000; // 10%
     enum Stablecoin { USDC, USDT, CNGN }
     enum MarketType { MANUAL, AUTOMATED }
