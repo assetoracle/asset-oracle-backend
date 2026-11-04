@@ -160,57 +160,47 @@ marketsRouter.post("/admin/proposals/list/session", async (req, res, next) => {
 marketsRouter.post("/admin/proposals/:id/decision/session", async (req, res, next) => {
   try {
     const idResult = z.string().uuid().safeParse(req.params.id);
-    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address"), status: z.enum(["APPROVED", "REJECTED"]), transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional() }).safeParse(req.body);
+    const parsed = z.object({
+      address: z.string().refine(isAddress, "Invalid wallet address"),
+      status: z.enum(["APPROVED", "REJECTED"]),
+      transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+    }).safeParse(req.body);
     if (!idResult.success || !parsed.success) return res.status(400).json({ error: "A valid proposal ID, wallet address, and decision are required." });
-    const { address, status } = parsed.data;
+    const { address, status, transactionHash } = parsed.data;
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
-    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can decide proposals." });
+    if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only configured admin or market creator wallets can decide proposals." });
+
     const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
     if (paidEscrow) {
       if (paidEscrow.status !== "PAID_PENDING_REVIEW") return res.status(409).json({ error: "Paid proposal is not awaiting an admin decision.", status: paidEscrow.status });
-      if (!parsed.data.transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
+      if (!transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
       const config = getPaidSubmissionTestnetConfig();
-      if (!config.enabled || !config.escrowAddress) return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
+      const confirmations = Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2");
+      if (!config.enabled || !config.escrowAddress || !Number.isSafeInteger(confirmations) || confirmations < 1) {
+        return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
+      }
       await verifyEscrowDecision({
-        rpcUrl: config.rpcUrl, expectedChainId: config.chainId,
-        minimumConfirmations: Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2"),
-        transactionHash: parsed.data.transactionHash, authenticatedReviewer: address,
-        escrowAddress: config.escrowAddress, proposalIdHash: paidEscrow.proposalIdHash, decision: status,
+        rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
+        transactionHash, authenticatedReviewer: address, escrowAddress: config.escrowAddress,
+        proposalIdHash: paidEscrow.proposalIdHash, decision: status,
       });
     }
-      const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
-      if (paidEscrow) {
-        if (paidEscrow.status !== "PAID_PENDING_REVIEW") return res.status(409).json({ error: "Paid proposal is not awaiting an admin decision.", status: paidEscrow.status });
-        if (!bodyResult.data.transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
-        const config = getPaidSubmissionTestnetConfig();
-        if (!config.enabled || !config.escrowAddress) return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
-        await verifyEscrowDecision({
-          rpcUrl: config.rpcUrl, expectedChainId: config.chainId,
-          minimumConfirmations: Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2"),
-          transactionHash: bodyResult.data.transactionHash, authenticatedReviewer: walletAuth.address,
-          escrowAddress: config.escrowAddress, proposalIdHash: paidEscrow.proposalIdHash, decision: status,
-        });
-      }
-      const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+
+    const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
     if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
     if (decision === "CONFLICT") {
       const existing = await getMarketProposal(idResult.data);
-      return res.status(409).json({
-        error: "Only pending proposals with confirmed payment can receive a decision.",
-        status: existing?.status ?? null,
-      });
+      return res.status(409).json({ error: "Only pending proposals with confirmed payment can receive a decision.", status: existing?.status ?? null });
     }
-    if (paidEscrow && status === "REJECTED" && parsed.data.transactionHash) {
-      await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: parsed.data.transactionHash });
+    if (paidEscrow && status === "REJECTED" && transactionHash) {
+      await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: transactionHash });
     }
-      if (paidEscrow && status === "REJECTED" && bodyResult.data.transactionHash) {
-        await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: bodyResult.data.transactionHash });
-      }
     const proposal = await getMarketProposal(idResult.data);
     if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
     return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
   } catch (error) { return next(error); }
 });
+
 // Public role preview lets the UI show the connected wallet's configured role immediately.
  // This endpoint only reports the public role allowlist; protected actions still require a verified session.
 marketsRouter.post("/auth/role/public", (req, res) => {
@@ -596,36 +586,30 @@ marketsRouter.post(
   async (req, res, next) => {
     try {
       const idResult = z.string().uuid().safeParse(req.params.id);
-
-      if (!idResult.success) {
-        return res.status(400).json({
-          error: "Invalid proposal ID",
-        });
-      }
-
+      if (!idResult.success) return res.status(400).json({ error: "Invalid proposal ID" });
       const bodyResult = z.object({
         status: z.enum(["APPROVED", "REJECTED"]),
         transactionHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
         walletAuth: walletAuthSchema,
       }).safeParse(req.body);
+      if (!bodyResult.success) return res.status(400).json({ error: "A valid decision and admin authentication are required." });
+      const { status, walletAuth, transactionHash } = bodyResult.data;
+      const verified = await verifyAdminWallet(walletAuth.address, walletAuth.signature as `0x${string}`, walletAuth.message);
+      if (!verified) return res.status(403).json({ error: "Admin authorization failed" });
 
-      if (!bodyResult.success) {
-        return res.status(400).json({
-          error: "A valid decision and admin authentication are required",
-        });
-      }
-
-      const { status, walletAuth } = bodyResult.data;
-
-      const verified = await verifyAdminWallet(
-        walletAuth.address,
-        walletAuth.signature as `0x${string}`,
-        walletAuth.message,
-      );
-
-      if (!verified) {
-        return res.status(403).json({
-          error: "Admin authorization failed",
+      const paidEscrow = await getPaidProposalEscrowContext(idResult.data);
+      if (paidEscrow) {
+        if (paidEscrow.status !== "PAID_PENDING_REVIEW") return res.status(409).json({ error: "Paid proposal is not awaiting an admin decision.", status: paidEscrow.status });
+        if (!transactionHash) return res.status(400).json({ error: "A confirmed escrow decision transaction hash is required for paid proposals." });
+        const config = getPaidSubmissionTestnetConfig();
+        const confirmations = Number(process.env.ASSET_ORACLE_TESTNET_PAYMENT_CONFIRMATIONS || "2");
+        if (!config.enabled || !config.escrowAddress || !Number.isSafeInteger(confirmations) || confirmations < 1) {
+          return res.status(503).json({ error: "Paid proposal decisions are disabled until escrow configuration is verified.", disabledReasons: config.disabledReasons });
+        }
+        await verifyEscrowDecision({
+          rpcUrl: config.rpcUrl, expectedChainId: config.chainId, minimumConfirmations: confirmations,
+          transactionHash, authenticatedReviewer: walletAuth.address, escrowAddress: config.escrowAddress,
+          proposalIdHash: paidEscrow.proposalIdHash, decision: status,
         });
       }
 
@@ -633,17 +617,14 @@ marketsRouter.post(
       if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
       if (decision === "CONFLICT") {
         const existing = await getMarketProposal(idResult.data);
-        return res.status(409).json({
-          error: "Only pending proposals with confirmed payment can receive a decision.",
-          status: existing?.status ?? null,
-        });
+        return res.status(409).json({ error: "Only pending proposals with confirmed payment can receive a decision.", status: existing?.status ?? null });
+      }
+      if (paidEscrow && status === "REJECTED" && transactionHash) {
+        await recordSubmissionRefund({ id: paidEscrow.submissionId, refundTxHash: transactionHash });
       }
       const proposal = await getMarketProposal(idResult.data);
       if (!proposal) return res.status(500).json({ error: "Decision was recorded but the proposal could not be reloaded." });
-      return res.status(200).json({
-        message: `Market proposal ${status.toLowerCase()}.`,
-        proposal,
-      });
+      return res.status(200).json({ message: `Market proposal ${status.toLowerCase()}.`, proposal });
     } catch (error) {
       return next(error);
     }
