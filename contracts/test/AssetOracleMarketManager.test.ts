@@ -383,7 +383,7 @@ describe("AssetOracleMarketManager (three approved stablecoins; USDC-only testne
     await f.manager.connect(f.bob).claim(1);
     expect((await f.usdc.balanceOf(f.alice.address)) - aliceBefore).to.equal(1_000_000n);
     expect((await f.usdc.balanceOf(f.bob.address)) - bobBefore).to.equal(2_000_000n);
-    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(10_000n);
+    expect(await f.usdc.balanceOf(f.treasury.address)).to.equal(30_000n); // 1% transaction fee on the full 3,000,000 USDC stake; no settlement fee.
     expect(await f.usdc.balanceOf(f.validatorPool.address)).to.equal(0n);
     expect(await f.usdc.balanceOf(await f.manager.getAddress())).to.equal(0n);
   });
