@@ -10,7 +10,7 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 | Digital assets | FireScreener | Pending provider API availability; no scraping or guessed endpoints |
 | RWA | DeFiLlama | Implemented; protocol TVL and DEX overview |
 | RWA | DexScreener | Implemented; token pair and liquidity discovery |
-| RWA | Asset Chain Indexer | Separate chain-data workstream; not an external API key integration |
+
 | Economic & financial | FRED | Implemented; series observations |
 | Economic & financial | World Bank | Implemented; country indicator observations |
 | Regional & global events | GDELT | Implemented; article discovery |
@@ -62,7 +62,9 @@ DeFiLlama, DexScreener, World Bank, GDELT and Open-Meteo currently use public en
 
 ## Deployment boundary
 
-This change does not configure secrets, enable scheduled automation, change contract addresses, submit transactions or deploy services. Contract-specific automation and the Asset Chain indexer must be decoupled from abandoned deployments and prepared for the new contract manifest planned after development.\n\n## Asset Chain full indexer
+This change does not configure secrets, enable scheduled automation, change contract addresses, submit transactions or deploy services. Contract-specific automation and the Asset Chain indexer must be decoupled from abandoned deployments and prepared for the new contract manifest planned after development.
+
+## Asset Chain full indexer
 
 The backend includes a separate contract-independent Asset Chain indexer for Enugu testnet (chain ID 42421). It reads confirmed blocks through the official RPC and persists:
 
