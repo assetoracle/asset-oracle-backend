@@ -16,6 +16,7 @@ import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeValidatorEvidenceStore } from "./services/validatorEvidenceStore.js";
 import { initializeMarketEvidenceStore } from "./services/marketEvidenceStore.js";
+import { initializeMarketGenerationStore } from "./services/marketGenerationStore.js";
 import marketEvidenceRouter from "./routes/marketEvidence.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
 import { initializeAssetChainIndexer } from "./services/assetChainIndexer.js";
@@ -89,6 +90,7 @@ async function startServer(): Promise<void> {
     await initializeMarketStore();
     await initializeValidatorEvidenceStore();
     await initializeMarketEvidenceStore();
+    await initializeMarketGenerationStore();
     await initializeWalletAuth();
     await initializeReferralStore();
     await initializePointsStore();
