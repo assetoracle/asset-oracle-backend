@@ -615,7 +615,9 @@ marketsRouter.post(
         });
       }
 
-      const decision = await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
+      const decision = paidEscrow && transactionHash
+        ? await decidePaidMarketProposalAtomically({ proposalId: idResult.data, decision: status, decisionTxHash: transactionHash })
+        : await decideMarketProposalAtomically({ proposalId: idResult.data, decision: status });
       if (decision === "NOT_FOUND") return res.status(404).json({ error: "Market proposal not found." });
       if (decision === "CONFLICT") {
         const existing = await getMarketProposal(idResult.data);
