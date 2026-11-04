@@ -33,7 +33,6 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
   const proposal = await getMarketProposal(proposalId);
   if (!proposal) throw new Error("Market proposal not found.");
   if (proposal.status !== "APPROVED") throw new Error("Evidence can only be collected for an approved market proposal.");
-  if (proposal.onchainMarketId) throw new Error("This proposal is already published; use its linked market evidence workflow.");
   const rule = proposal.resolutionRule as typeof proposal.resolutionRule & { query?: QueryParams };
   const provider = rule.sourceId.trim().toLowerCase();
   const [selected] = selectProvidersForMarket({ category: proposal.category, sourceId: provider });
