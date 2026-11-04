@@ -40,6 +40,18 @@ export async function initializeMarketEvidenceStore(): Promise<void> {
     CREATE INDEX IF NOT EXISTS market_data_evidence_proposal_retrieved_idx
     ON market_data_evidence (proposal_id, retrieved_at DESC)
   `);
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS market_data_collection_state (
+      proposal_id UUID NOT NULL REFERENCES market_proposals(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      last_attempted_at TIMESTAMPTZ NOT NULL,
+      PRIMARY KEY (proposal_id, provider)
+    )
+  `);
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS market_data_collection_state_attempted_idx
+    ON market_data_collection_state (last_attempted_at DESC)
+  `);
 }
 
 export async function saveMarketEvidence(input: MarketEvidenceInput): Promise<{ evidence: StoredMarketEvidence; inserted: boolean }> {
@@ -97,4 +109,27 @@ export async function getLatestMarketEvidenceAt(proposalId: string, provider: st
   );
   const value = result.rows[0]?.retrieved_at;
   return value ? new Date(value).toISOString() : null;
+}
+
+
+/** Timestamp of the most recent collection attempt, including unchanged or failed responses. */
+export async function getLatestMarketEvidenceAttemptAt(proposalId: string, provider: string): Promise<string | null> {
+  const result = await database.query<{ last_attempted_at: string | Date }>(
+    `SELECT last_attempted_at
+     FROM market_data_collection_state WHERE proposal_id=$1 AND provider=$2`,
+    [proposalId, provider],
+  );
+  const value = result.rows[0]?.last_attempted_at;
+  return value ? new Date(value).toISOString() : null;
+}
+
+/** Record before the provider call so unchanged responses and failures are rate-spaced too. */
+export async function recordMarketEvidenceAttempt(proposalId: string, provider: string): Promise<void> {
+  await database.query(
+    `INSERT INTO market_data_collection_state (proposal_id, provider, last_attempted_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (proposal_id, provider)
+     DO UPDATE SET last_attempted_at = EXCLUDED.last_attempted_at`,
+    [proposalId, provider],
+  );
 }
