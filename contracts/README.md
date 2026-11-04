@@ -25,7 +25,7 @@ The deployment script uses a **dedicated deployment wallet** as temporary contra
 - Keep the deployment wallet key outside source control, in a protected local/ephemeral environment. Do not put the main owner key into GitHub Actions secrets. Avoid running unreviewed workflow code with any signing key available.
 - Keep control of the temporary deployer key until final ownership and role checks have passed. If the script fails after contract creation but before ownership transfer, that wallet remains owner and may be required for recovery.
 - A deployment is not authorized merely because this script exists. Compile, test, inspect the exact parameters and transaction implications, then obtain explicit approval before any on-chain deployment.
-- After deployment, set `ASSET_ORACLE_MARKET_MANAGER_ADDRESS` only to the independently verified address and run `npm run preflight:enugu`. The read-only preflight checks chain ID, token bytecode/decimals, manager bytecode, owner, Treasury, validator pool, USDC configuration, all three validators and owner permissions.
+- After deployment, set `ASSET_ORACLE_MARKET_MANAGER_ADDRESS` only to the independently verified new address and set `AUTOMATION_WALLET_ADDRESS` to the dedicated worker wallet. Run `npm run preflight:enugu`. The read-only preflight checks chain ID, token bytecode/decimals, exact manager runtime bytecode, owner, Treasury, validator pool, USDC configuration, all three validators, both automation wallet roles, and the 10% settlement fee with a 15% validator / 85% Treasury split.
 
 ## Critical review items before deployment
 
