@@ -1,10 +1,10 @@
 # Batch 6: Enugu Testnet End-to-End Rehearsal
 
-**Purpose:** Verify the deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
+**Purpose:** Verify the newly deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. The new deployment is pending completion of the code review and test gates. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
 
 ## Legacy deployment record (historical; do not use for new markets)
 
-The address and transaction evidence in this section refer to the earlier manager deployment only. They are retained for audit/history and are **not** the approved manager for new market creation or validator-consensus settlement. Use the current 2-of-3 manager listed under **Current gate** below, and independently verify its deployment transaction/block and live configuration before any lifecycle transaction.
+No existing deployment is approved for this release. Do not submit market, stake, vote, claim, or settlement transactions until the new contract is deployed from the reviewed source, its address and deployment evidence are recorded, and the read-only preflight passes.
 
 - Network: Asset Chain Enugu testnet, chain ID `42421`
 - RPC: `https://enugu-rpc.assetchain.org`
@@ -22,17 +22,17 @@ The address and transaction evidence in this section refer to the earlier manage
 
 ## Current gate
 
-- [x] Current 2-of-3 manager address recorded: `0x5fc327f55cf533ed5d05337f835be37ff1e0db1f`.
+- [ ] New 2-of-3 market manager deployed from the reviewed source and address recorded.
 - [x] Fixed validator roster documented: primary/Validator 1 `0x3d3724d20d9d5db5a40819869057b37465a0c67d`, Validator 2 `0xb94185491c78e7331c5d53e9b0df74970b3c9b8a`, Validator 3 `0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01`.
-- [ ] Attach the current manager's deployment transaction/block evidence and rerun read-only Enugu preflight against that address.
-- [ ] Confirm live backend and frontend both use the current 2-of-3 manager.
+- [ ] Attach the new manager's deployment transaction/block evidence and rerun read-only Enugu preflight against that address.
+- [ ] Confirm backend and frontend both use the new manager address.
 - [ ] Latest contract tests and compile pass on the exact source commit.
-- [ ] Ownership-transfer regression test confirms admin, creator, and resolver roles move to the new owner and are revoked from the former owner.
+- [ ] Ownership-transfer regression test confirms owner, manual creator, automated creator and resolver roles; confirms automation wallet has both publication roles; and confirms temporary deployer roles are revoked.
 - [ ] Confirm live backend and frontend both use the same manager address and Enugu RPC.
 - [ ] Owner wallet has testnet gas and only test USDC for this rehearsal.
 - [ ] No private key is committed, pasted into chat, or placed in frontend environment variables.
 
-**Stop condition:** Do not use the legacy manager for new market creation or validator-consensus settlement. The current 2-of-3 manager is `0x5fc327f55cf533ed5d05337f835be37ff1e0db1f`. Before lifecycle transactions, attach its deployment evidence, rerun read-only preflight, confirm its live validator roster and owner permissions, and verify backend/frontend point to this same address. Testnet only; unaudited.
+**Stop condition:** No manager address is approved yet. Do not run lifecycle transactions until the new contract deployment is completed, deployment evidence is attached, read-only preflight passes, the validator roster and both automation roles are verified, and backend/frontend point to the same new address. Testnet only; unaudited.
 
 ## Step 1 — Read-only preflight
 
@@ -90,7 +90,7 @@ Record market ID, transaction hash, block number, creator, question, close time,
 
 - [ ] Finalize after the challenge window.
 - [ ] Claim from a winning participant and verify payout against the contract's formula.
-- [ ] Verify the 2% settlement fee is split 25% to Validator Reward Pool and 75% to Treasury.
+- [ ] Verify the 10% settlement fee is split 15% to Validator Reward Pool and 85% to Treasury.
 - [ ] Verify losing participants cannot claim a winning payout and cannot claim twice.
 - [ ] Exercise an INVALID outcome on a separate market and verify full net-stake refunds without settlement fee.
 - [ ] Exercise cancellation/unresolved timeout on separate markets and verify eligible net-stake refunds.
