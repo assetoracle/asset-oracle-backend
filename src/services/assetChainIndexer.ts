@@ -78,7 +78,7 @@ async function addWallet(db: import("pg").PoolClient, chainId:number, wallet:str
 async function indexOneBlock(client: ReturnType<typeof createPublicClient>, chainId:number, height:bigint):Promise<string> {
   const block=await client.getBlock({blockNumber:height,includeTransactions:true});
   if(!block.hash)throw new Error(`Block ${height} has no hash`);
-  const txs=block.transactions;
+  const txs=[...block.transactions];
   const receipts=await concurrent(txs,8,tx=>client.getTransactionReceipt({hash:tx.hash}));
   const db=await database.connect(); const heightText=height.toString();
   try {
