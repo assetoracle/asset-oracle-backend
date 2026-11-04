@@ -27,6 +27,7 @@ function assertCheck(condition: unknown, message: string): asserts condition {
 
 async function main() {
   assertCheck(process.env.DATABASE_URL, "DATABASE_URL is missing.");
+  assertCheck(process.env.ASSET_ORACLE_NEW_CONTRACT_VERIFIED === "true", "ASSET_ORACLE_NEW_CONTRACT_VERIFIED must be true only after the new contract passes its deployment preflight.");
   assertCheck(/^0x[0-9a-fA-F]{40}$/.test(managerAddress), "ASSET_ORACLE_MARKET_MANAGER_ADDRESS must point to the newly deployed and verified testnet contract.");
   const manager = getAddress(managerAddress);
   const privateKey = process.env.AUTOMATION_PRIVATE_KEY?.trim();
