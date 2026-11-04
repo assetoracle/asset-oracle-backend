@@ -1,10 +1,11 @@
 import { strict as assert } from "node:assert";
 import { after, before, test } from "node:test";
-import {
-  getWalletRoleDetails,
-  isAdminWallet,
-  isMarketCreatorWallet,
-} from "./adminAuth.js";
+
+const originalDatabaseUrl = process.env.DATABASE_URL;
+process.env.DATABASE_URL ??= "postgres://test:test@127.0.0.1:5432/test";
+const { getWalletRoleDetails, isAdminWallet, isMarketCreatorWallet } = await import("./adminAuth.js");
+if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+else process.env.DATABASE_URL = originalDatabaseUrl;
 
 const originalAdmin = process.env.ADMIN_WALLET_ADDRESS;
 const originalCreators = process.env.MARKET_CREATOR_WALLET_ADDRESSES;
