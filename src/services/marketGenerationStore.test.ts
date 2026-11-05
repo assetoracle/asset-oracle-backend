@@ -58,16 +58,16 @@ test("candidate identity remains stable when runtime timestamps change", () => {
       query: { vsCurrency: "usd", coinId: "bitcoin" },
     },
   };
-  assert.equal(createMarketCandidateHash("btc-usd-threshold", proposal), createMarketCandidateHash("btc-usd-threshold", later));
+  assert.equal(createMarketCandidateHash(proposal, { closeAfterMinutes: 60, resolveAfterMinutes: 120 }), createMarketCandidateHash(later, { closeAfterMinutes: 60, resolveAfterMinutes: 120 }));
 });
 
-test("candidate identity changes when substantive market terms or template version change", () => {
+test("candidate identity changes when substantive market terms or schedule change", () => {
   const changedThreshold = {
     ...proposal,
     resolutionRule: { ...proposal.resolutionRule, targetValue: 110000 },
   };
-  assert.notEqual(createMarketCandidateHash("btc-usd-threshold", proposal), createMarketCandidateHash("btc-usd-threshold", changedThreshold));
-  assert.notEqual(createMarketCandidateHash("btc-usd-threshold-v2", proposal), createMarketCandidateHash("btc-usd-threshold", proposal));
+  assert.notEqual(createMarketCandidateHash(proposal, { closeAfterMinutes: 60, resolveAfterMinutes: 120 }), createMarketCandidateHash(changedThreshold, { closeAfterMinutes: 60, resolveAfterMinutes: 120 }));
+  assert.notEqual(createMarketCandidateHash(proposal, { closeAfterMinutes: 60, resolveAfterMinutes: 120 }), createMarketCandidateHash(proposal, { closeAfterMinutes: 90, resolveAfterMinutes: 180 }));
 });
 
 test("candidate persistence inserts using a stable unique hash", async () => {
@@ -88,9 +88,9 @@ test("candidate persistence inserts using a stable unique hash", async () => {
       rowCount: 1,
     };
   };
-  const result = await saveMarketCandidate({ templateId: "btc-usd-threshold", proposal });
+  const result = await saveMarketCandidate({ templateId: "btc-usd-threshold", proposal, closeAfterMinutes: 60, resolveAfterMinutes: 120 });
   assert.match(capturedSql, /ON CONFLICT \(proposal_hash\) DO NOTHING/);
-  assert.equal(capturedValues[4], createMarketCandidateHash("btc-usd-threshold", proposal));
+  assert.equal(capturedValues[4], createMarketCandidateHash(proposal, { closeAfterMinutes: 60, resolveAfterMinutes: 120 }));
   assert.equal(result.inserted, true);
   assert.equal(result.candidate?.status, "PENDING_REVIEW");
 });
