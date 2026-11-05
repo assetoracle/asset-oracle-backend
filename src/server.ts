@@ -44,6 +44,7 @@ const allowedFrontendOrigins = new Set([
   ...configuredFrontendOrigins,
   "https://assetoracleapp.xyz",
   "https://www.assetoracleapp.xyz",
+  "https://asset-oracle.vercel.app",
   "https://asset-oracle.onrender.com",
 ]);
 
