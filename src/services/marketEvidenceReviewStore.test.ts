@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveEvidenceConsensus } from "./marketEvidenceReviewStore.js";
+import { resolveEvidenceConsensus } from "./marketEvidenceConsensus.js";
 
 test("evidence remains unreviewed until two validators agree", () => {
   assert.equal(resolveEvidenceConsensus(0, 0), "UNREVIEWED");
