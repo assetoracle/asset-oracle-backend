@@ -125,3 +125,62 @@ test("category rotation advances in the required five-category order", async () 
   assert.ok(statements.filter((sql) => sql === "BEGIN").length === 10);
   assert.ok(statements.filter((sql) => sql === "COMMIT").length === 10);
 });
+
+test("candidate promotion atomically creates a private PENDING_APPROVAL proposal", async () => {
+  const candidateId = "22222222-2222-4222-8222-222222222222";
+  const statements: string[] = [];
+  let insertedProposalSql = "";
+  db.connect = async () => ({
+    query: async (sql, values = []) => {
+      statements.push(sql.trim());
+      if (sql.includes("FROM market_generation_candidates WHERE id=$1 FOR UPDATE")) {
+        return {
+          rows: [{
+            id: candidateId,
+            template_id: "btc-usd-threshold",
+            category: "Digital Assets",
+            proposal,
+            status: "PENDING_REVIEW",
+          }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("INSERT INTO market_proposals")) {
+        insertedProposalSql = sql;
+        return {
+          rows: [{
+            id: "33333333-3333-4333-8333-333333333333",
+            walletAddress: null,
+            question: proposal.question,
+            description: proposal.description,
+            category: proposal.category,
+            closesAt: proposal.closesAt,
+            resolvesAt: proposal.resolvesAt,
+            resolutionRule: proposal.resolutionRule,
+            status: "PENDING_APPROVAL",
+            submittedAt: "2027-01-01T00:00:00.000Z",
+            origin: "AUTOMATED",
+            visibility: "PRIVATE",
+          }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("UPDATE market_generation_candidates")) return { rows: [{ id: candidateId }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => undefined,
+  });
+  const { reviewMarketCandidate } = await import("./marketGenerationStore.js");
+  const result = await reviewMarketCandidate({
+    candidateId,
+    decision: "PROMOTED",
+    reviewerAddress: "0x1111111111111111111111111111111111111111",
+  });
+  assert.match(insertedProposalSql, /'PENDING_APPROVAL', 'AUTOMATED', 'PRIVATE'/);
+  assert.equal(result.result, "UPDATED");
+  assert.equal(result.proposal?.status, "PENDING_APPROVAL");
+  assert.equal(result.proposal?.origin, "AUTOMATED");
+  assert.equal(result.proposal?.visibility, "PRIVATE");
+  assert.ok(statements.includes("BEGIN"));
+  assert.ok(statements.includes("COMMIT"));
+});
