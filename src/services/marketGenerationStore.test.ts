@@ -105,18 +105,6 @@ test("duplicate candidate persistence returns inserted false without creating an
 test("category rotation advances in the required five-category order", async () => {
   let nextIndex = 0;
   const statements: string[] = [];
-  db.connect = async () => ({
-    query: async (sql) => {
-      statements.push(sql.trim());
-      if (sql.includes("SELECT next_category_index")) return { rows: [{ next_category_index: nextIndex }] };
-      if (sql.includes("UPDATE market_generation_state")) {
-        nextIndex = Number(sql ? 0 : 0);
-        return { rows: [], rowCount: 1 };
-      }
-      return { rows: [], rowCount: 0 };
-    },
-    release: () => undefined,
-  });
   // Simulate the locked state update by deriving the new index from the UPDATE parameter.
   let stateIndex = 0;
   db.connect = async () => ({
