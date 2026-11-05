@@ -69,8 +69,10 @@ export async function claimNextGenerationCategory(): Promise<MarketProposalInput
 export async function saveMarketCandidate(input: {
   templateId: string;
   proposal: MarketProposalInput;
+  closeAfterMinutes: number;
+  resolveAfterMinutes: number;
 }): Promise<{ candidate: MarketCandidate | null; inserted: boolean }> {
-  const hash = createMarketCandidateHash(input.templateId, input.proposal);
+  const hash = createMarketCandidateHash(input.proposal, { closeAfterMinutes: input.closeAfterMinutes, resolveAfterMinutes: input.resolveAfterMinutes });
   const id = randomUUID();
   const result = await database.query(
     `INSERT INTO market_generation_candidates
@@ -85,9 +87,8 @@ export async function saveMarketCandidate(input: {
 }
 
 /** Stable identity excludes runtime-generated observation, closing and resolution timestamps. */
-export function createMarketCandidateHash(templateId: string, proposal: MarketProposalInput): string {
+export function createMarketCandidateHash(proposal: MarketProposalInput, schedule: { closeAfterMinutes: number; resolveAfterMinutes: number }): string {
   const identity = {
-    templateId: templateId.trim(),
     category: proposal.category,
     question: proposal.question.trim(),
     description: proposal.description.trim(),
@@ -95,6 +96,8 @@ export function createMarketCandidateHash(templateId: string, proposal: MarketPr
     sourceId: proposal.resolutionRule.sourceId.trim().toLowerCase(),
     metric: proposal.resolutionRule.metric.trim(),
     comparison: proposal.resolutionRule.comparison,
+    closeAfterMinutes: schedule.closeAfterMinutes,
+    resolveAfterMinutes: schedule.resolveAfterMinutes,
     targetValue: proposal.resolutionRule.targetValue,
     currency: proposal.resolutionRule.currency?.trim().toUpperCase() ?? null,
     query: proposal.resolutionRule.query ?? {},
