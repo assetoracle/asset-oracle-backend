@@ -1,0 +1,108 @@
+import { database } from "../config/database.js";
+
+export type EvidenceReviewDecision = "ACCEPTED" | "REJECTED";
+export type EvidenceReview = {
+  validatorAddress: string;
+  decision: EvidenceReviewDecision;
+  note: string | null;
+  reviewedAt: string;
+};
+
+export function resolveEvidenceConsensus(
+  accepted: number,
+  rejected: number,
+): "UNREVIEWED" | "ACCEPTED" | "REJECTED" {
+  if (accepted >= 2) return "ACCEPTED";
+  if (rejected >= 2) return "REJECTED";
+  return "UNREVIEWED";
+}
+
+export async function listEvidenceReviews(proposalId: string) {
+  const result = await database.query(
+    `SELECT r.evidence_id, r.validator_address, r.decision, r.note, r.reviewed_at
+     FROM market_data_evidence_reviews r
+     INNER JOIN market_data_evidence e ON e.id = r.evidence_id
+     WHERE e.proposal_id = $1
+     ORDER BY r.reviewed_at ASC`,
+    [proposalId],
+  );
+  return result.rows.map((row) => ({
+    evidenceId: row.evidence_id as string,
+    validatorAddress: row.validator_address as string,
+    decision: row.decision as EvidenceReviewDecision,
+    note: row.note as string | null,
+    reviewedAt: new Date(row.reviewed_at).toISOString(),
+  }));
+}
+
+export async function submitEvidenceReview(input: {
+  proposalId: string;
+  evidenceId: string;
+  validatorAddress: string;
+  decision: EvidenceReviewDecision;
+  note?: string;
+}) {
+  const client = await database.connect();
+  try {
+    await client.query("BEGIN");
+    const evidence = await client.query(
+      `SELECT id, verification_status FROM market_data_evidence
+       WHERE id = $1 AND proposal_id = $2 FOR UPDATE`,
+      [input.evidenceId, input.proposalId],
+    );
+    if (!evidence.rows[0]) throw new Error("Evidence record not found for this proposal.");
+    if (evidence.rows[0].verification_status !== "UNREVIEWED") {
+      throw new Error("This evidence record already has a final validator decision.");
+    }
+
+    const inserted = await client.query(
+      `INSERT INTO market_data_evidence_reviews
+        (evidence_id, validator_address, decision, note)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (evidence_id, validator_address) DO NOTHING
+       RETURNING validator_address`,
+      [input.evidenceId, input.validatorAddress.toLowerCase(), input.decision, input.note?.trim() || null],
+    );
+    if (!inserted.rows[0]) throw new Error("You have already reviewed this evidence record.");
+
+    const counts = await client.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE decision = 'ACCEPTED')::int AS accepted,
+         COUNT(*) FILTER (WHERE decision = 'REJECTED')::int AS rejected
+       FROM market_data_evidence_reviews WHERE evidence_id = $1`,
+      [input.evidenceId],
+    );
+    const accepted = Number(counts.rows[0]?.accepted ?? 0);
+    const rejected = Number(counts.rows[0]?.rejected ?? 0);
+    const verificationStatus = resolveEvidenceConsensus(accepted, rejected);
+    if (verificationStatus !== "UNREVIEWED") {
+      await client.query(
+        `UPDATE market_data_evidence SET verification_status = $2
+         WHERE id = $1 AND verification_status = 'UNREVIEWED'`,
+        [input.evidenceId, verificationStatus],
+      );
+    }
+    const reviews = await client.query(
+      `SELECT validator_address, decision, note, reviewed_at
+       FROM market_data_evidence_reviews WHERE evidence_id = $1 ORDER BY reviewed_at ASC`,
+      [input.evidenceId],
+    );
+    await client.query("COMMIT");
+    return {
+      verificationStatus,
+      acceptedReviews: accepted,
+      rejectedReviews: rejected,
+      reviews: reviews.rows.map((row) => ({
+        validatorAddress: row.validator_address as string,
+        decision: row.decision as EvidenceReviewDecision,
+        note: row.note as string | null,
+        reviewedAt: new Date(row.reviewed_at).toISOString(),
+      })),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
