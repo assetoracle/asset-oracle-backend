@@ -1,4 +1,5 @@
 import { database } from "../config/database.js";
+import { resolveEvidenceConsensus } from "./marketEvidenceConsensus.js";
 
 export type EvidenceReviewDecision = "ACCEPTED" | "REJECTED";
 export type EvidenceReview = {
@@ -7,15 +8,6 @@ export type EvidenceReview = {
   note: string | null;
   reviewedAt: string;
 };
-
-export function resolveEvidenceConsensus(
-  accepted: number,
-  rejected: number,
-): "UNREVIEWED" | "ACCEPTED" | "REJECTED" {
-  if (accepted >= 2) return "ACCEPTED";
-  if (rejected >= 2) return "REJECTED";
-  return "UNREVIEWED";
-}
 
 export async function listEvidenceReviews(proposalId: string) {
   const result = await database.query(
