@@ -106,3 +106,47 @@ export async function submitEvidenceReview(input: {
     client.release();
   }
 }
+
+export async function listEvidenceReviewQueue() {
+  const result = await database.query(
+    `SELECT e.id, e.proposal_id, p.question, p.category, e.provider, e.source_url,
+            e.retrieved_at, e.content_hash, e.raw_data, e.metric, e.normalized_value,
+            e.verification_status, e.created_at,
+            COUNT(r.id) FILTER (WHERE r.decision = 'ACCEPTED')::int AS accepted_reviews,
+            COUNT(r.id) FILTER (WHERE r.decision = 'REJECTED')::int AS rejected_reviews,
+            COALESCE(
+              jsonb_agg(jsonb_build_object(
+                'validatorAddress', r.validator_address,
+                'decision', r.decision,
+                'note', r.note,
+                'reviewedAt', r.reviewed_at
+              )) FILTER (WHERE r.id IS NOT NULL),
+              '[]'::jsonb
+            ) AS reviews
+     FROM market_data_evidence e
+     INNER JOIN market_proposals p ON p.id = e.proposal_id
+     LEFT JOIN market_data_evidence_reviews r ON r.evidence_id = e.id
+     WHERE p.status = 'APPROVED' AND e.verification_status = 'UNREVIEWED'
+     GROUP BY e.id, p.question, p.category
+     ORDER BY e.retrieved_at DESC
+     LIMIT 100`,
+  );
+  return result.rows.map((row) => ({
+    id: row.id as string,
+    proposalId: row.proposal_id as string,
+    question: row.question as string,
+    category: row.category as string,
+    provider: row.provider as string,
+    sourceUrl: row.source_url as string,
+    retrievedAt: new Date(row.retrieved_at).toISOString(),
+    contentHash: row.content_hash as string,
+    rawData: row.raw_data,
+    metric: row.metric as string,
+    normalizedValue: row.normalized_value,
+    verificationStatus: row.verification_status as string,
+    createdAt: new Date(row.created_at).toISOString(),
+    acceptedReviews: Number(row.accepted_reviews ?? 0),
+    rejectedReviews: Number(row.rejected_reviews ?? 0),
+    reviews: row.reviews ?? [],
+  }));
+}
