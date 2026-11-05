@@ -52,6 +52,21 @@ export async function initializeMarketEvidenceStore(): Promise<void> {
     CREATE INDEX IF NOT EXISTS market_data_collection_state_attempted_idx
     ON market_data_collection_state (last_attempted_at DESC)
   `);
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS market_data_evidence_reviews (
+      id UUID PRIMARY KEY,
+      evidence_id UUID NOT NULL REFERENCES market_data_evidence(id) ON DELETE CASCADE,
+      validator_address TEXT NOT NULL,
+      decision TEXT NOT NULL CHECK (decision IN ('ACCEPTED', 'REJECTED')),
+      note TEXT,
+      reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (evidence_id, validator_address)
+    )
+  `);
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS market_data_evidence_reviews_evidence_idx
+    ON market_data_evidence_reviews (evidence_id, reviewed_at ASC)
+  `);
 }
 
 export async function saveMarketEvidence(input: MarketEvidenceInput): Promise<{ evidence: StoredMarketEvidence; inserted: boolean }> {
