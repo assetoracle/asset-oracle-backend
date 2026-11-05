@@ -1,16 +1,16 @@
 # Batch 6: Enugu Testnet End-to-End Rehearsal
 
-**Purpose:** Verify the newly deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. The new deployment is pending completion of the code review and test gates. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
+**Purpose:** Verify the deployed Asset Oracle market manager and rehearse one complete YES/NO market lifecycle on Enugu testnet. This is a testnet-only runbook. The contracts are unaudited; never use real funds.
 
 ## Deployment status
 
-No contract address is approved for this release yet. The new contract must be deployed only after the reviewed source, contract tests, backend integration tests, and read-only preflight pass. Record the new deployment address and transaction evidence here after deployment.
+Manager deployment is confirmed on Enugu testnet. The deployment receipt succeeded and bytecode is present at the recorded address. The read-only Enugu preflight passed after correcting the manager address in the local environment. The exact source-commit association and live backend/frontend address alignment remain to be verified before lifecycle transactions.
 
 ## Current gate
 
-- [ ] New 2-of-3 market manager deployed from the reviewed source and address recorded.
+- [ ] Match the deployed manager bytecode to the reviewed source commit and record that commit.
 - [x] Fixed validator roster documented: primary/Validator 1 `0x3d3724d20d9d5db5a40819869057b37465a0c67d`, Validator 2 `0xb94185491c78e7331c5d53e9b0df74970b3c9b8a`, Validator 3 `0xb23c61d8506d1cfbc27d56834e6d684b8ee24f01`.
-- [ ] Attach the new manager's deployment transaction/block evidence and rerun read-only Enugu preflight against that address.
+- [x] Deployment receipt and read-only preflight evidence recorded below; preflight passed against the corrected manager address.
 - [ ] Confirm backend and frontend both use the new manager address.
 - [ ] Latest contract tests and compile pass on the exact source commit.
 - [ ] Ownership-transfer regression test confirms owner, manual creator, automated creator and resolver roles; confirms automation wallet has both publication roles; and confirms temporary deployer roles are revoked.
@@ -18,7 +18,7 @@ No contract address is approved for this release yet. The new contract must be d
 - [ ] Owner wallet has testnet gas and only test USDC for this rehearsal.
 - [ ] No private key is committed, pasted into chat, or placed in frontend environment variables.
 
-**Stop condition:** No manager address is approved yet. Do not run lifecycle transactions until the new contract deployment is completed, deployment evidence is attached, read-only preflight passes, the validator roster and both automation roles are verified, and backend/frontend point to the same new address. Testnet only; unaudited.
+**Stop condition:** Do not run lifecycle transactions until the deployed manager is matched to the reviewed source commit, validator roster and both automation roles are independently verified, and backend/frontend point to the same manager address and Enugu RPC. Testnet only; unaudited.
 
 ## Step 1 — Read-only preflight
 
@@ -31,7 +31,7 @@ npm run compile
 npm run preflight:enugu
 ```
 
-The read-only preflight must check chain ID, approved USDC contract and six decimals, new manager bytecode, owner, Treasury, validator pool, USDC configuration, all three validators, and the dedicated automation wallet's manual and automated publication roles. It sends **no transactions**. A missing new manager address must block activation.
+The read-only preflight must check chain ID, approved USDC contract and six decimals, manager bytecode, owner, Treasury, validator pool, USDC configuration, all three validators, and the dedicated automation wallet's manual and automated publication roles. It sends **no transactions**. A missing or unverified manager address must block activation.
 
 ## Step 2 — Wallet and network
 
@@ -56,7 +56,7 @@ Record market ID, transaction hash, block number, creator, question, close time,
 
 - [ ] Fund test participants with test USDC and approve the manager contract.
 - [ ] Stake from two distinct test wallets, one on YES and one on NO.
-- [ ] Confirm the `Staked` event reports gross amount, 0.25% trading fee, and net amount.
+- [ ] Confirm the `Staked` event reports gross amount, 1% trading fee (100 bps), charged separately from the user's stake, and net amount.
 - [ ] Confirm the trading fee reaches Treasury and the position/pool totals update.
 - [ ] Confirm zero stake, insufficient allowance/balance, wrong token, and stake after close are rejected.
 - [ ] Confirm UI and backend values match the on-chain positions and totals.
