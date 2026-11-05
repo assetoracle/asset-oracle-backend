@@ -71,11 +71,6 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
   if (missingCategories.length) {
     throw new Error(`MARKET_GENERATION_TEMPLATES_JSON is missing category coverage: ${missingCategories.join(", ")}.`);
   }
-  const requiredCategories = ["Digital Assets", "Economics", "Regional", "RWA", "Sports"];
-  const missingCategories = requiredCategories.filter((category) => !categoryCounts.has(category));
-  if (missingCategories.length) {
-    throw new Error(`MARKET_GENERATION_TEMPLATES_JSON is missing category coverage: ${missingCategories.join(", ")}.`);
-  }
   return result.data.map((template) => ({
     ...template,
     query: template.query as GenerationTemplate["query"],
