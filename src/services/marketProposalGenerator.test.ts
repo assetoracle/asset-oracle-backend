@@ -101,7 +101,7 @@ test("template parser rejects more than ten templates in one category", () => {
 });
 
 test("template parser accepts DexScreener token-pair query without search", () => {
-  const templates = completeTemplateSet();
+  const templates = completeTemplateSet() as Array<Record<string, unknown>>;
   templates[0] = { ...validTemplate, sourceId: "dexscreener", metric: "priceUsd", query: { chain: "ethereum", tokenAddress: "0x0000000000000000000000000000000000000001" } };
   const parsed = parseGenerationTemplates(JSON.stringify(templates));
   assert.equal(parsed[0].sourceId, "dexscreener");
