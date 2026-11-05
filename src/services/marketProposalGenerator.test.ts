@@ -75,8 +75,34 @@ test("template parser rejects duplicate IDs and unsafe time offsets", () => {
   assert.throws(() => parseGenerationTemplates(JSON.stringify([{ ...validTemplate, resolveAfterMinutes: 30 }])), /resolution time must be after the closing time/i);
 });
 
-test("template parser accepts a structurally valid approved template", () => {
-  const parsed = parseGenerationTemplates(JSON.stringify([validTemplate]));
-  assert.equal(parsed.length, 1);
-  assert.equal(parsed[0].id, validTemplate.id);
+function completeTemplateSet() {
+  return [
+    validTemplate,
+    { ...validTemplate, id: "economics-cpi", category: "Economics", question: "Will US CPI exceed the selected threshold?", description: "This candidate resolves using the configured FRED series at the observation time.", sourceId: "fred", metric: "observations.0.value", query: { seriesId: "CPIAUCSL" } },
+    { ...validTemplate, id: "regional-event", category: "Regional", question: "Will the selected regional event be reported?", description: "This candidate resolves using the configured GDELT article results at the observation time.", sourceId: "gdelt", metric: "articles.0.title", query: { search: "regional event" } },
+    { ...validTemplate, id: "rwa-tvl", category: "RWA", question: "Will the selected RWA protocol TVL exceed the threshold?", description: "This candidate resolves using the configured DeFiLlama protocol TVL at the observation time.", sourceId: "defillama", metric: "tvl", query: { protocol: "example-protocol" } },
+    { ...validTemplate, id: "sports-match", category: "Sports", sport: "football", question: "Will the selected football fixture finish above the threshold?", description: "This candidate resolves using the configured Sportmonks fixture data at the observation time.", sourceId: "sportmonks", metric: "data.0.result_info", query: { date: "2027-01-01" } },
+  ];
+}
+
+test("template parser accepts a structurally valid template set covering all five categories", () => {
+  const parsed = parseGenerationTemplates(JSON.stringify(completeTemplateSet()));
+  assert.equal(parsed.length, 5);
+  assert.deepEqual(new Set(parsed.map((item) => item.category)), new Set(["Digital Assets", "Economics", "Regional", "RWA", "Sports"]));
+});
+
+test("template parser rejects missing category coverage", () => {
+  assert.throws(() => parseGenerationTemplates(JSON.stringify([validTemplate])), /missing category coverage/i);
+});
+
+test("template parser rejects more than ten templates in one category", () => {
+  const tooMany = Array.from({ length: 11 }, (_, index) => ({ ...validTemplate, id: `digital-${index}` }));
+  assert.throws(() => parseGenerationTemplates(JSON.stringify([...tooMany, ...completeTemplateSet().slice(1)])), /maximum of 10 templates/i);
+});
+
+test("template parser accepts DexScreener token-pair query without search", () => {
+  const templates = completeTemplateSet();
+  templates[0] = { ...validTemplate, sourceId: "dexscreener", metric: "priceUsd", query: { chain: "ethereum", tokenAddress: "0x0000000000000000000000000000000000000001" } };
+  const parsed = parseGenerationTemplates(JSON.stringify(templates));
+  assert.equal(parsed[0].sourceId, "dexscreener");
 });
