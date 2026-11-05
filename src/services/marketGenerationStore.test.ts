@@ -97,7 +97,7 @@ test("candidate persistence inserts using a stable unique hash", async () => {
 
 test("duplicate candidate persistence returns inserted false without creating another row", async () => {
   db.query = async () => ({ rows: [], rowCount: 0 });
-  const result = await saveMarketCandidate({ templateId: "btc-usd-threshold", proposal });
+  const result = await saveMarketCandidate({ templateId: "btc-usd-threshold", proposal, closeAfterMinutes: 60, resolveAfterMinutes: 120 });
   assert.equal(result.inserted, false);
   assert.equal(result.candidate, null);
 });
