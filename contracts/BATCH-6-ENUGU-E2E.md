@@ -56,7 +56,7 @@ Record market ID, transaction hash, block number, creator, question, close time,
 
 - [ ] Fund test participants with test USDC and approve the manager contract.
 - [ ] Stake from two distinct test wallets, one on YES and one on NO.
-- [ ] Confirm the `Staked` event reports gross amount, 0.25% trading fee, and net amount.
+- [ ] Confirm the `Staked` event reports gross amount, 1% trading fee (100 bps), charged separately from the user's stake, and net amount.
 - [ ] Confirm the trading fee reaches Treasury and the position/pool totals update.
 - [ ] Confirm zero stake, insufficient allowance/balance, wrong token, and stake after close are rejected.
 - [ ] Confirm UI and backend values match the on-chain positions and totals.
