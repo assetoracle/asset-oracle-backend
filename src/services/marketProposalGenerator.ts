@@ -36,7 +36,11 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
     throw new Error(`Invalid market generation template at ${issue.path.join(".") || "root"}: ${issue.message}`);
   }
   const ids = new Set<string>();
+  const categoryCounts = new Map<string, number>();
   for (const template of result.data) {
+    const count = (categoryCounts.get(template.category) ?? 0) + 1;
+    categoryCounts.set(template.category, count);
+    if (count > 10) throw new Error(`A maximum of 10 templates is allowed for ${template.category} per rotation.`);
     if (ids.has(template.id)) throw new Error(`Duplicate market generation template ID: ${template.id}`);
     ids.add(template.id);
     const proposal = marketProposalSchema.safeParse({
@@ -62,6 +66,11 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
       throw new Error(`Invalid template "${template.id}" at ${issue.path.join(".")}: ${issue.message}`);
     }
   }
+  const requiredCategories = ["Digital Assets", "Economics", "Regional", "RWA", "Sports"];
+  const missingCategories = requiredCategories.filter((category) => !categoryCounts.has(category));
+  if (missingCategories.length) {
+    throw new Error(`MARKET_GENERATION_TEMPLATES_JSON is missing category coverage: ${missingCategories.join(", ")}.`);
+  }
   return result.data.map((template) => ({
     ...template,
     query: template.query as GenerationTemplate["query"],
@@ -70,7 +79,7 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
 
 function readTemplates(): GenerationTemplate[] {
   const raw = process.env.MARKET_GENERATION_TEMPLATES_JSON?.trim();
-  if (!raw) return [];
+  if (!raw) throw new Error("MARKET_GENERATION_TEMPLATES_JSON is required; no candidates were generated.");
   return parseGenerationTemplates(raw);
 }
 
@@ -84,10 +93,13 @@ export async function generateNextMarketCandidate(): Promise<{
   const templates = readTemplates();
   const category = await claimNextGenerationCategory();
   const selected = templates.filter((template) => template.category === category);
+  if (selected.length === 0) {
+    throw new Error(`No approved generation templates are configured for ${category}.`);
+  }
   let inserted = 0, duplicates = 0, invalid = 0;
   const now = Date.now();
 
-  for (const template of selected.slice(0, 10)) {
+  for (const template of selected) {
     const proposal = marketProposalSchema.safeParse({
       question: template.question,
       description: template.description,
