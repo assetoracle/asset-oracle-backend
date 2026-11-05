@@ -5,7 +5,7 @@ import { isAdminWallet, isHumanValidator } from "../services/adminAuth.js";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { collectMarketEvidence } from "../services/marketEvidenceCollector.js";
 import { listMarketEvidence } from "../services/marketEvidenceStore.js";
-import { listEvidenceReviews, submitEvidenceReview } from "../services/marketEvidenceReviewStore.js";
+import { listEvidenceReviews, listEvidenceReviewQueue, submitEvidenceReview } from "../services/marketEvidenceReviewStore.js";
 import { createRateLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
@@ -86,6 +86,20 @@ router.post("/:proposalId/list", async (req, res, next) => {
     });
     return res.status(200).json({ evidence: enriched, count: enriched.length });
   } catch (error) { return next(error); }
+});
+
+router.post("/review-queue", async (req, res, next) => {
+  const parsed = z.object({ address: addressSchema }).safeParse({
+    address: req.body?.address,
+  });
+  if (!parsed.success) return res.status(400).json({ error: "A valid validator wallet address is required." });
+  if (!await authorizeEvidenceReviewer(req, res, parsed.data.address)) return;
+  try {
+    const evidence = await listEvidenceReviewQueue(getAddress(parsed.data.address));
+    return res.status(200).json({ evidence, count: evidence.length });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.post("/:proposalId/:evidenceId/review", async (req, res, next) => {
