@@ -42,9 +42,9 @@ Supported categories and providers are enforced by the existing market proposal 
 - RWA: DeFiLlama, DexScreener
 - Sports: Sportmonks, API-Football
 
-The category cursor advances in this order: Digital Assets, Economics, Regional, RWA, Sports. A run processes at most ten configured templates from one category. Missing templates produce no candidate for that category; the rotation still advances.
+The category cursor advances in this order: Digital Assets, Economics, Regional, RWA, Sports. A run processes up to ten configured templates from one category. The configuration must contain at least one valid template in every category and no more than ten templates per category; missing or incomplete configuration fails closed before the category cursor advances.
 
-Candidate proposals are validated by the same Zod schema as user proposals. Duplicate proposal payloads are ignored using a SHA-256 uniqueness key. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; the normal proposal table and its payment/creator workflow are untouched.
+Candidate proposals are validated by the same Zod schema as user proposals. Duplicate candidates are ignored using a SHA-256 identity key built from the template ID and substantive market fields. Runtime observation, closing and resolution timestamps are excluded, so repeated runs of the same template do not bypass deduplication. Change the template ID when intentionally introducing a new version of a market template, including a changed schedule or market definition. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; the normal proposal table and its payment/creator workflow are untouched.
 
 The template thresholds and metric paths are configuration, not predictions derived by the generator. A reviewer must check that each template is meaningful and that its source metric is suitable before enabling the workflow. Provider evidence remains separate and must never independently decide a market outcome.
 
