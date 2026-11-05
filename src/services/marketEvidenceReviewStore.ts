@@ -107,11 +107,13 @@ export async function submitEvidenceReview(input: {
   }
 }
 
-export async function listEvidenceReviewQueue() {
+export async function listEvidenceReviewQueue(validatorAddress: string) {
   const result = await database.query(
     `SELECT e.id, e.proposal_id, p.question, p.category, e.provider, e.source_url,
             e.retrieved_at, e.content_hash, e.raw_data, e.metric, e.normalized_value,
             e.verification_status, e.created_at,
+            (SELECT own.decision FROM market_data_evidence_reviews own
+             WHERE own.evidence_id = e.id AND lower(own.validator_address) = lower($1)) AS my_decision,
             COUNT(r.id) FILTER (WHERE r.decision = 'ACCEPTED')::int AS accepted_reviews,
             COUNT(r.id) FILTER (WHERE r.decision = 'REJECTED')::int AS rejected_reviews,
             COALESCE(
@@ -130,6 +132,7 @@ export async function listEvidenceReviewQueue() {
      GROUP BY e.id, p.question, p.category
      ORDER BY e.retrieved_at DESC
      LIMIT 100`,
+    [validatorAddress],
   );
   return result.rows.map((row) => ({
     id: row.id as string,
@@ -144,6 +147,7 @@ export async function listEvidenceReviewQueue() {
     metric: row.metric as string,
     normalizedValue: row.normalized_value,
     verificationStatus: row.verification_status as string,
+    myDecision: row.my_decision as EvidenceReviewDecision | null,
     createdAt: new Date(row.created_at).toISOString(),
     acceptedReviews: Number(row.accepted_reviews ?? 0),
     rejectedReviews: Number(row.rejected_reviews ?? 0),
