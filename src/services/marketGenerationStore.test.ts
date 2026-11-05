@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import test, { after, afterEach, before } from "node:test";
+import test, { afterEach } from "node:test";
 
 const originalDatabaseUrl = process.env.DATABASE_URL;
 process.env.DATABASE_URL ||= "postgresql://unit-test:unit-test@127.0.0.1:5432/unit_test";
@@ -103,7 +103,6 @@ test("duplicate candidate persistence returns inserted false without creating an
 });
 
 test("category rotation advances in the required five-category order", async () => {
-  let nextIndex = 0;
   const statements: string[] = [];
   // Simulate the locked state update by deriving the new index from the UPDATE parameter.
   let stateIndex = 0;
