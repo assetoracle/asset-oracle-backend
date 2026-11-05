@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { database } from "../config/database.js";
 import type { MarketProposalInput } from "./marketValidation.js";
 import { createAutomatedMarketProposal, type StoredMarketProposal } from "./marketStore.js";
@@ -70,7 +70,7 @@ export async function saveMarketCandidate(input: {
   templateId: string;
   proposal: MarketProposalInput;
 }): Promise<{ candidate: MarketCandidate | null; inserted: boolean }> {
-  const hash = createProposalHash(input.proposal);
+  const hash = createMarketCandidateHash(input.templateId, input.proposal);
   const id = randomUUID();
   const result = await database.query(
     `INSERT INTO market_generation_candidates
@@ -84,11 +84,34 @@ export async function saveMarketCandidate(input: {
   return { candidate: mapCandidate(result.rows[0]), inserted: true };
 }
 
-function createProposalHash(proposal: MarketProposalInput): string {
-  return createHash("sha256").update(JSON.stringify(proposal)).digest("hex");
+/** Stable identity excludes runtime-generated observation, closing and resolution timestamps. */
+export function createMarketCandidateHash(templateId: string, proposal: MarketProposalInput): string {
+  const identity = {
+    templateId: templateId.trim(),
+    category: proposal.category,
+    question: proposal.question.trim(),
+    description: proposal.description.trim(),
+    sport: proposal.sport ?? null,
+    sourceId: proposal.resolutionRule.sourceId.trim().toLowerCase(),
+    metric: proposal.resolutionRule.metric.trim(),
+    comparison: proposal.resolutionRule.comparison,
+    targetValue: proposal.resolutionRule.targetValue,
+    currency: proposal.resolutionRule.currency?.trim().toUpperCase() ?? null,
+    query: proposal.resolutionRule.query ?? {},
+  };
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, item]) => [key, canonical(item)]),
+      );
+    }
+    return value;
+  };
+  return createHash("sha256").update(JSON.stringify(canonical(identity))).digest("hex");
 }
-
-import { createHash } from "node:crypto";
 
 function mapCandidate(row: any): MarketCandidate {
   return {
