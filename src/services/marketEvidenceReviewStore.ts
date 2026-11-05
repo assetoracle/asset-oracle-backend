@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { database } from "../config/database.js";
 import { resolveEvidenceConsensus } from "./marketEvidenceConsensus.js";
 
@@ -49,11 +50,11 @@ export async function submitEvidenceReview(input: {
 
     const inserted = await client.query(
       `INSERT INTO market_data_evidence_reviews
-        (evidence_id, validator_address, decision, note)
-       VALUES ($1, $2, $3, $4)
+        (id, evidence_id, validator_address, decision, note)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (evidence_id, validator_address) DO NOTHING
        RETURNING validator_address`,
-      [input.evidenceId, input.validatorAddress.toLowerCase(), input.decision, input.note?.trim() || null],
+      [randomUUID(), input.evidenceId, input.validatorAddress.toLowerCase(), input.decision, input.note?.trim() || null],
     );
     if (!inserted.rows[0]) throw new Error("You have already reviewed this evidence record.");
 
