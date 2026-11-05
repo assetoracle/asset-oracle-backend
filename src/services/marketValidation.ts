@@ -91,15 +91,15 @@ export const marketProposalSchema = z
     }
     const query = market.resolutionRule.query;
     const requiredQueryFields: Record<string, string[]> = {
-      coingecko: ["coinId"], dexscreener: ["search"], defillama: ["protocol"], sportmonks: ["date"],
+      coingecko: ["coinId"], dexscreener: [], defillama: ["protocol"], sportmonks: ["date"],
       "api-football": ["date"], fred: ["seriesId"], "world-bank": ["country", "indicator"],
       gdelt: ["search"], "open-meteo": ["latitude", "longitude", "startDate", "endDate"],
     };
     const missing = (requiredQueryFields[sourceId] ?? []).filter((field) =>
       !query || query[field as keyof typeof query] === undefined
     );
-    if (sourceId === "dexscreener" && query?.chain && query?.tokenAddress) {
-      missing.splice(0, missing.length);
+    if (sourceId === "dexscreener" && !query?.search?.trim() && !(query?.chain?.trim() && query?.tokenAddress)) {
+      missing.push("search or both chain and tokenAddress");
     }
     if (missing.length) {
       context.addIssue({ code: "custom", path: ["resolutionRule", "query"], message: `Provider query requires: ${missing.join(", ")}.` });
