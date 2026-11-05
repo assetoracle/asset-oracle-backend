@@ -3,12 +3,13 @@ import test, { after, before } from "node:test";
 import { marketProposalSchema } from "./marketValidation.js";
 
 let parseGenerationTemplates: typeof import("./marketProposalGenerator.js").parseGenerationTemplates;
+let generateNextMarketCandidate: typeof import("./marketProposalGenerator.js").generateNextMarketCandidate;
 const originalDatabaseUrl = process.env.DATABASE_URL;
 
 before(async () => {
   // The generator imports the database module, but these parser tests never connect to it.
   process.env.DATABASE_URL ||= "postgresql://unit-test:unit-test@127.0.0.1:5432/unit_test";
-  ({ parseGenerationTemplates } = await import("./marketProposalGenerator.js"));
+  ({ parseGenerationTemplates, generateNextMarketCandidate } = await import("./marketProposalGenerator.js"));
   if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalDatabaseUrl;
 });
@@ -105,4 +106,15 @@ test("template parser accepts DexScreener token-pair query without search", () =
   templates[0] = { ...validTemplate, sourceId: "dexscreener", metric: "priceUsd", query: { chain: "ethereum", tokenAddress: "0x0000000000000000000000000000000000000001" } };
   const parsed = parseGenerationTemplates(JSON.stringify(templates));
   assert.equal(parsed[0].sourceId, "dexscreener");
+});
+
+test("generator fails closed before database rotation when template configuration is missing", async () => {
+  const originalTemplates = process.env.MARKET_GENERATION_TEMPLATES_JSON;
+  delete process.env.MARKET_GENERATION_TEMPLATES_JSON;
+  try {
+    await assert.rejects(generateNextMarketCandidate(), /MARKET_GENERATION_TEMPLATES_JSON is required/i);
+  } finally {
+    if (originalTemplates === undefined) delete process.env.MARKET_GENERATION_TEMPLATES_JSON;
+    else process.env.MARKET_GENERATION_TEMPLATES_JSON = originalTemplates;
+  }
 });
