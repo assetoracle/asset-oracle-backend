@@ -122,7 +122,7 @@ export async function generateNextMarketCandidate(): Promise<{
       invalid++;
       continue;
     }
-    const saved = await saveMarketCandidate({ templateId: template.id, proposal: proposal.data });
+    const saved = await saveMarketCandidate({ templateId: template.id, proposal: proposal.data, closeAfterMinutes: template.closeAfterMinutes, resolveAfterMinutes: template.resolveAfterMinutes });
     if (saved.inserted) inserted++; else duplicates++;
   }
 
