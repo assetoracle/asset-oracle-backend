@@ -17,6 +17,8 @@ const resolutionRuleSchema = z.object({
     page: z.number().int().min(1).max(1000).optional(),
     perPage: z.number().int().min(1).max(250).optional(),
     search: z.string().trim().min(1).max(250).optional(),
+    timespan: z.string().regex(/^(15min|[1-9]\d*(min|h|hours|d|days|w|weeks|m|months))$/).max(12).optional(),
+    maxRecords: z.number().int().min(1).max(250).optional(),
     chain: z.string().trim().min(1).max(40).optional(),
     tokenAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
     protocol: z.string().trim().min(1).max(100).optional(),
@@ -26,6 +28,7 @@ const resolutionRuleSchema = z.object({
     seriesId: z.string().trim().min(1).max(80).optional(),
     start: z.string().date().optional(),
     end: z.string().date().optional(),
+    units: z.enum(["lin", "chg", "ch1", "pch", "pc1", "pca", "cch", "cca", "log"]).optional(),
     country: z.string().trim().min(2).max(3).optional(),
     indicator: z.string().trim().min(1).max(80).optional(),
     dateRange: z.string().regex(/^\d{4}:\d{4}$/).optional(),
@@ -91,15 +94,15 @@ export const marketProposalSchema = z
     }
     const query = market.resolutionRule.query;
     const requiredQueryFields: Record<string, string[]> = {
-      coingecko: ["coinId"], dexscreener: ["search"], defillama: ["protocol"], sportmonks: ["date"],
+      coingecko: ["coinId"], dexscreener: [], defillama: ["protocol"], sportmonks: ["date"],
       "api-football": ["date"], fred: ["seriesId"], "world-bank": ["country", "indicator"],
-      gdelt: ["search"], "open-meteo": ["latitude", "longitude", "startDate", "endDate"],
+      gdelt: ["search", "timespan"], "open-meteo": ["latitude", "longitude", "startDate", "endDate"],
     };
     const missing = (requiredQueryFields[sourceId] ?? []).filter((field) =>
       !query || query[field as keyof typeof query] === undefined
     );
-    if (sourceId === "dexscreener" && query?.chain && query?.tokenAddress) {
-      missing.splice(0, missing.length);
+    if (sourceId === "dexscreener" && !query?.search?.trim() && !(query?.chain?.trim() && query?.tokenAddress)) {
+      missing.push("search or both chain and tokenAddress");
     }
     if (missing.length) {
       context.addIssue({ code: "custom", path: ["resolutionRule", "query"], message: `Provider query requires: ${missing.join(", ")}.` });

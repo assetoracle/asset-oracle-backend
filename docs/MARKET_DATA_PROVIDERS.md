@@ -14,10 +14,14 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 
 | Economic & financial | FRED | Implemented; series observations |
 | Economic & financial | World Bank | Implemented; country indicator observations |
-| Regional & global events | GDELT | Implemented; article discovery |
+| Regional & global events | GDELT | Implemented; article discovery with bounded timespan |
 | Regional & global events | Open-Meteo | Implemented; historical weather observations |
 | Sports | Sportmonks | Implemented; fixtures by date |
 | Sports | API-Football | Implemented; fixtures by date, optional league and season |
+
+## FRED observation semantics
+
+The FRED adapter used by market evidence always requests the newest available observation first and limits the response to one record. Optional `units` can request a documented FRED transformation (for example, `pc1` for percent change from a year earlier). A configured metric such as `observations.0.value` therefore resolves to that latest returned value, not the oldest observation in the series. Reviewers must still inspect the observation date and release cadence; a latest observation may remain unchanged until the next scheduled data release.
 
 ## Category-scoped provider dispatch
 
@@ -60,7 +64,7 @@ The following endpoints are admin-wallet/session protected:
 - `POST /api/market-evidence/:proposalId/collect` — collect one response from the proposal's configured provider and store it for review.
 - `POST /api/market-evidence/:proposalId/list` — retrieve up to 100 stored evidence records for that proposal.
 
-The evidence table is `market_data_evidence`; it is separate from `validator_source_links`, which records on-chain validator vote evidence. Provider observations are always stored as `UNREVIEWED`. The admin-triggered endpoints remain available for manual collection. A standalone category-aware worker is now available as `npm run automate:market-evidence`. It processes only approved proposals whose resolution time is still in the future, uses each proposal's configured provider, skips proposals whose last collection attempt is still within the freshness interval, and uses a PostgreSQL advisory lock to prevent overlapping runs. Collection attempts are tracked separately from evidence records, so unchanged provider responses and failed requests do not trigger an API call on every scheduler tick. It never fans out across all providers. The worker is disabled unless `MARKET_EVIDENCE_WORKER_ENABLED=true`; it is not scheduled or enabled by this code change.
+The evidence table is `market_data_evidence`; it is separate from `validator_source_links`, which records on-chain validator vote evidence. GDELT article searches accept a bounded `timespan` (for example `24h` or `7d`) and return the configured article list; evidence rules can count it using `articles.length`. The time window is relative to the evidence request time. Provider observations are always stored as `UNREVIEWED`. The admin-triggered endpoints remain available for manual collection. A standalone category-aware worker is now available as `npm run automate:market-evidence`. It processes only approved proposals whose resolution time is still in the future, uses each proposal's configured provider, skips proposals whose last collection attempt is still within the freshness interval, and uses a PostgreSQL advisory lock to prevent overlapping runs. Collection attempts are tracked separately from evidence records, so unchanged provider responses and failed requests do not trigger an API call on every scheduler tick. It never fans out across all providers. The worker is disabled unless `MARKET_EVIDENCE_WORKER_ENABLED=true`; it is not scheduled or enabled by this code change.
 
 Worker configuration:
 
@@ -77,7 +81,7 @@ Set these only in the backend service's secret environment settings. Never commi
 
 - `COINGECKO_API_KEY` — CoinGecko key; sent using the Demo or Pro API header.
 - `COINGECKO_API_PLAN` — `demo` (default) or `pro`; selects the matching API host and authentication header.
-- `FRED_API_KEY` — FRED observations.
+- `FRED_API_KEY` — FRED observations. The evidence collector requests the newest observation first (`sort_order=desc`, `limit=1`) and supports documented unit transformations such as `pc1` (percent change from a year earlier).
 - `SPORTMONKS_API_TOKEN` — Sportmonks Football API.
 - `API_FOOTBALL_API_KEY` — API-Football v3.
 - `FIRE_SCREENER_API_KEY` — reserve only if/when FireScreener publishes a supported API and authentication method.

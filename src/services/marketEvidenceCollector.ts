@@ -1,5 +1,5 @@
 import { getMarketProposal } from "./marketStore.js";
-import { objectValue } from "./marketEvidenceMetrics.js";
+import { extractMetricValue } from "./marketEvidenceMetrics.js";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
 import { saveMarketEvidence, type StoredMarketEvidence } from "./marketEvidenceStore.js";
 import {
@@ -9,10 +9,10 @@ import {
 } from "./dataProviders.js";
 
 type QueryParams = {
-  vsCurrency?: string; page?: number; perPage?: number; search?: string;
+  vsCurrency?: string; page?: number; perPage?: number; search?: string; timespan?: string; maxRecords?: number;
   chain?: string; tokenAddress?: string; protocol?: string;
   date?: string; league?: number; season?: number;
-  seriesId?: string; start?: string; end?: string;
+  seriesId?: string; start?: string; end?: string; units?: string;
   country?: string; indicator?: string; dateRange?: string;
   latitude?: number; longitude?: number; startDate?: string; endDate?: string;
 };
@@ -54,15 +54,15 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       break;
     case "fred":
       if (!query.seriesId) throw new Error("FRED evidence requires query.seriesId.");
-      result = await fredObservations(query.seriesId, query.start, query.end);
+      result = await fredObservations(query.seriesId, query.start, query.end, query.units);
       break;
     case "world-bank":
       if (!query.country || !query.indicator) throw new Error("World Bank evidence requires query.country and query.indicator.");
       result = await worldBankIndicator(query.country, query.indicator, query.dateRange);
       break;
     case "gdelt":
-      if (!query.search) throw new Error("GDELT evidence requires query.search.");
-      result = await gdeltArticles(query.search);
+      if (!query.search || !query.timespan) throw new Error("GDELT evidence requires query.search and query.timespan.");
+      result = await gdeltArticles(query.search, query.maxRecords ?? 25, query.timespan);
       break;
     case "open-meteo":
       if (query.latitude === undefined || query.longitude === undefined || !query.startDate || !query.endDate) {
@@ -74,7 +74,7 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       throw new Error("No collector is implemented for this provider.");
   }
 
-  const normalizedValue = objectValue(result.data, rule.metric);
+  const normalizedValue = extractMetricValue(selected, result.data, rule.metric);
   const saved = await saveMarketEvidence({
     proposalId: proposal.id,
     provider: selected,

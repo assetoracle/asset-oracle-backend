@@ -7,3 +7,19 @@ export function objectValue(value: unknown, path: string): unknown | null {
   }
   return current === undefined ? null : current;
 }
+
+/**
+ * Extracts the configured metric from a provider response.
+ * DeFiLlama's /tvl/{protocol} endpoint returns the TVL itself as a JSON
+ * number rather than an object containing a tvl property.
+ */
+export function extractMetricValue(provider: string, data: unknown, metric: string): unknown | null {
+  if (provider === "defillama" && metric === "tvl" && typeof data === "number" && Number.isFinite(data)) {
+    return data;
+  }
+  if (provider === "gdelt" && metric === "articles.length") {
+    const articles = objectValue(data, "articles");
+    return Array.isArray(articles) ? articles.length : null;
+  }
+  return objectValue(data, metric);
+}
