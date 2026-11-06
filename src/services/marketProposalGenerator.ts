@@ -19,6 +19,9 @@ const generationTemplateSchema = z.object({
   resolveAfterMinutes: z.number().int().min(6).max(525600),
 }).strict().superRefine((template, context) => {
   const isSports = template.category === "Sports";
+  if (isSports && template.sport !== "football") {
+    context.addIssue({ code: "custom", path: ["sport"], message: "The configured Sportmonks and API-Football adapters currently support football only." });
+  }
   if (isSports && !template.query.date && template.dateOffsetDays === undefined) {
     context.addIssue({ code: "custom", path: ["dateOffsetDays"], message: "Sports templates require query.date or dateOffsetDays." });
   }
