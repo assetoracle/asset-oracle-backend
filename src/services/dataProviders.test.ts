@@ -56,6 +56,29 @@ test("validates FRED series identifiers and date range", () => {
   assert.throws(() => fredObservations("GDP", "2026-02-01", "2026-01-01"), /Invalid FRED date range/);
 });
 
+
+test("GDELT requests include the configured rolling timespan and result limit", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ articles: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    await gdeltArticles('"Nigeria" flood', 100, "24h");
+    const url = new URL(requestedUrl);
+    assert.equal(url.searchParams.get("timespan"), "24h");
+    assert.equal(url.searchParams.get("maxrecords"), "100");
+    assert.equal(url.searchParams.get("mode"), "ArtList");
+    assert.equal(url.searchParams.get("format"), "json");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("validates GDELT query size and record limits", () => {
   assert.throws(() => gdeltArticles(""), /Invalid GDELT query/);
   assert.throws(() => gdeltArticles("regional event", 251), /Invalid GDELT query or timespan/);
