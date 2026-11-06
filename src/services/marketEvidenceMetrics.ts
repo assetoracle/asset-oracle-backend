@@ -17,5 +17,9 @@ export function extractMetricValue(provider: string, data: unknown, metric: stri
   if (provider === "defillama" && metric === "tvl" && typeof data === "number" && Number.isFinite(data)) {
     return data;
   }
+  if (provider === "gdelt" && metric === "articles.length") {
+    const articles = objectValue(data, "articles");
+    return Array.isArray(articles) ? articles.length : null;
+  }
   return objectValue(data, metric);
 }
