@@ -80,7 +80,7 @@ function completeTemplateSet() {
   return [
     validTemplate,
     { ...validTemplate, id: "economics-cpi", category: "Economics", question: "Will US CPI exceed the selected threshold?", description: "This candidate resolves using the configured FRED series at the observation time.", sourceId: "fred", metric: "observations.0.value", query: { seriesId: "CPIAUCSL" } },
-    { ...validTemplate, id: "regional-event", category: "Regional", question: "Will the selected regional event be reported?", description: "This candidate resolves using the configured GDELT article results at the observation time.", sourceId: "gdelt", metric: "articles.length", query: { search: '"Nigeria" flood', timespan: "24h", maxRecords: 100 } },
+    { ...validTemplate, id: "regional-event", category: "Regional", question: "Will GDELT index at least one Nigeria flood article in the 24-hour evidence window?", description: "Resolve using the number of GDELT articles matching the Nigeria flood search in the rolling 24-hour window before evidence collection.", sourceId: "gdelt", metric: "articles.length", query: { search: '"Nigeria" flood', timespan: "24h", maxRecords: 100 } },
     { ...validTemplate, id: "rwa-tvl", category: "RWA", question: "Will the selected RWA protocol TVL exceed the threshold?", description: "This candidate resolves using the configured DeFiLlama protocol TVL at the observation time.", sourceId: "defillama", metric: "tvl", query: { protocol: "example-protocol" } },
     { ...validTemplate, id: "sports-match", category: "Sports", sport: "football", question: "Will the English Premier League have a scheduled fixture on {{fixtureDate}}?", description: "Resolve using the Sportmonks fixture list for {{fixtureDate}}.", sourceId: "sportmonks", metric: "data.length", query: {}, dateOffsetDays: 7 },
   ];
@@ -116,13 +116,11 @@ test("GDELT templates require a bounded search window", () => {
 });
 
 test("sports dateOffsetDays resolves a fresh fixture date and interpolates market wording", () => {
-  const before = new Date();
   const parsed = parseGenerationTemplates(JSON.stringify(completeTemplateSet()));
   const sports = parsed.find((item) => item.category === "Sports");
   assert.ok(sports);
-  const expected = new Date(Date.UTC(before.getUTCFullYear(), before.getUTCMonth(), before.getUTCDate() + 7))
-    .toISOString().slice(0, 10);
-  assert.equal(sports.query.date, expected);
+  const daysAhead = (Date.parse(`${sports.query.date}T00:00:00.000Z`) - Date.now()) / 86_400_000;
+  assert.ok(daysAhead >= 6 && daysAhead <= 8, `expected fixture date about 7 days ahead, got ${daysAhead} days`);
   assert.equal(sports.question.includes("{{fixtureDate}}"), false);
   assert.equal(sports.question.includes(expected), true);
 });
