@@ -42,8 +42,6 @@ export async function initializeMarketGenerationStore(): Promise<void> {
   `);
 }
 
-const CATEGORIES = ["Digital Assets", "Economics", "Regional", "RWA", "Sports"] as const;
-
 type CandidateQueryExecutor = {
   query: (sql: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
 };
