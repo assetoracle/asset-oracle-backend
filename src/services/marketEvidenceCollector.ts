@@ -9,7 +9,7 @@ import {
 } from "./dataProviders.js";
 
 type QueryParams = {
-  vsCurrency?: string; page?: number; perPage?: number; search?: string;
+  vsCurrency?: string; page?: number; perPage?: number; search?: string; timespan?: string; maxRecords?: number;
   chain?: string; tokenAddress?: string; protocol?: string;
   date?: string; league?: number; season?: number;
   seriesId?: string; start?: string; end?: string;
@@ -61,8 +61,8 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       result = await worldBankIndicator(query.country, query.indicator, query.dateRange);
       break;
     case "gdelt":
-      if (!query.search) throw new Error("GDELT evidence requires query.search.");
-      result = await gdeltArticles(query.search);
+      if (!query.search || !query.timespan) throw new Error("GDELT evidence requires query.search and query.timespan.");
+      result = await gdeltArticles(query.search, query.maxRecords ?? 25, query.timespan);
       break;
     case "open-meteo":
       if (query.latitude === undefined || query.longitude === undefined || !query.startDate || !query.endDate) {
