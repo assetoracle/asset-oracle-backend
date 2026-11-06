@@ -8,6 +8,7 @@ const generationTemplateSchema = z.object({
   question: z.string().trim().min(15).max(240),
   description: z.string().trim().min(20).max(2000),
   sport: z.enum(["football", "basketball", "tennis"]).optional(),
+  dateOffsetDays: z.number().int().min(1).max(30).optional(),
   sourceId: z.string().trim().min(1).max(80),
   metric: z.string().trim().min(1).max(200),
   comparison: z.enum(["ABOVE", "AT_LEAST", "BELOW", "EQUALS"]),
@@ -16,11 +17,48 @@ const generationTemplateSchema = z.object({
   query: z.record(z.string(), z.unknown()),
   closeAfterMinutes: z.number().int().min(5).max(525600),
   resolveAfterMinutes: z.number().int().min(6).max(525600),
-}).strict();
+}).strict().superRefine((template, context) => {
+  const isSports = template.category === "Sports";
+  if (isSports && !template.query.date && template.dateOffsetDays === undefined) {
+    context.addIssue({ code: "custom", path: ["dateOffsetDays"], message: "Sports templates require query.date or dateOffsetDays." });
+  }
+  if (isSports && template.query.date && template.dateOffsetDays !== undefined) {
+    context.addIssue({ code: "custom", path: ["dateOffsetDays"], message: "Use either a fixed query.date or dateOffsetDays, not both." });
+  }
+  if (!isSports && template.dateOffsetDays !== undefined) {
+    context.addIssue({ code: "custom", path: ["dateOffsetDays"], message: "dateOffsetDays is only valid for Sports templates." });
+  }
+});
 
 export type GenerationTemplate = z.infer<typeof generationTemplateSchema> & {
   query: NonNullable<MarketProposalInput["resolutionRule"]["query"]>;
 };
+
+function utcDateOffset(baseTime: number, offsetDays: number): string {
+  const base = new Date(baseTime);
+  return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() + offsetDays))
+    .toISOString()
+    .slice(0, 10);
+}
+
+function resolveTemplate(template: z.infer<typeof generationTemplateSchema>, now: number): GenerationTemplate {
+  const query = { ...template.query };
+  if (template.category === "Sports" && template.dateOffsetDays !== undefined) {
+    const fixtureDate = utcDateOffset(now, template.dateOffsetDays);
+    query.date = fixtureDate;
+    if (template.sourceId.trim().toLowerCase() === "api-football") {
+      const date = new Date(`${fixtureDate}T00:00:00.000Z`);
+      query.season = date.getUTCMonth() >= 7 ? date.getUTCFullYear() : date.getUTCFullYear() - 1;
+    }
+  }
+  const fixtureDate = template.category === "Sports" ? String(query.date ?? "") : "";
+  return {
+    ...template,
+    question: template.question.replaceAll("{{fixtureDate}}", fixtureDate),
+    description: template.description.replaceAll("{{fixtureDate}}", fixtureDate),
+    query: query as GenerationTemplate["query"],
+  };
+}
 
 /** Parse the secret as untrusted configuration before any database writes occur. */
 export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
@@ -37,7 +75,9 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
   }
   const ids = new Set<string>();
   const categoryCounts = new Map<string, number>();
-  for (const template of result.data) {
+  const now = Date.now();
+  const templates = result.data.map((template) => resolveTemplate(template, now));
+  for (const template of templates) {
     const count = (categoryCounts.get(template.category) ?? 0) + 1;
     categoryCounts.set(template.category, count);
     if (count > 10) throw new Error(`A maximum of 10 templates is allowed for ${template.category} per rotation.`);
@@ -48,15 +88,15 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
       description: template.description,
       category: template.category,
       ...(template.sport ? { sport: template.sport } : {}),
-      closesAt: new Date(Date.now() + template.closeAfterMinutes * 60_000).toISOString(),
-      resolvesAt: new Date(Date.now() + template.resolveAfterMinutes * 60_000).toISOString(),
+      closesAt: new Date(now + template.closeAfterMinutes * 60_000).toISOString(),
+      resolvesAt: new Date(now + template.resolveAfterMinutes * 60_000).toISOString(),
       resolutionRule: {
         sourceId: template.sourceId,
         metric: template.metric,
         comparison: template.comparison,
         targetValue: template.targetValue,
         ...(template.currency ? { currency: template.currency } : {}),
-        observationTime: new Date().toISOString(),
+        observationTime: new Date(now).toISOString(),
         description: `Resolve using the configured ${template.sourceId} source and the ${template.metric} metric at the specified observation time.`,
         query: template.query,
       },
@@ -71,10 +111,7 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
   if (missingCategories.length) {
     throw new Error(`MARKET_GENERATION_TEMPLATES_JSON is missing category coverage: ${missingCategories.join(", ")}.`);
   }
-  return result.data.map((template) => ({
-    ...template,
-    query: template.query as GenerationTemplate["query"],
-  }));
+  return templates;
 }
 
 function readTemplates(): GenerationTemplate[] {
