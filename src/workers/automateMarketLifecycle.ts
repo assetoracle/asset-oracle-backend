@@ -115,7 +115,7 @@ async function main(): Promise<void> {
   const walletClient = createWalletClient({ account, chain, transport: http(chain.rpcUrls.default.http[0]) });
   const waitForReceipt = async (hash: Hex) => {
     try {
-      return await waitForReceipt(hash);
+      return await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown RPC error";
       throw new Error(`Confirmation outcome is unknown for transaction ${hash}. Do not submit a replacement until chain state is checked. RPC detail: ${detail}`);
