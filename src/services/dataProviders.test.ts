@@ -51,9 +51,36 @@ test("validates API-Football fixture filters before checking credentials", () =>
   assert.throws(() => apiFootballFixtures("bad-date"), /Invalid API-Football fixture query/);
 });
 
-test("validates FRED series identifiers and date range", () => {
+test("validates FRED series identifiers, date range and units", () => {
   assert.throws(() => fredObservations("bad series id"), /Invalid FRED series ID/);
   assert.throws(() => fredObservations("GDP", "2026-02-01", "2026-01-01"), /Invalid FRED date range/);
+  assert.throws(() => fredObservations("GDP", undefined, undefined, "invalid"), /Invalid FRED observation units/);
+});
+
+test("FRED requests the newest observation only and supports year-over-year percent change", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.FRED_API_KEY;
+  let requestedUrl = "";
+  process.env.FRED_API_KEY = "test-fred-key";
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ observations: [{ date: "2026-10-01", value: "3.1" }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    await fredObservations("CPIAUCSL", undefined, undefined, "pc1");
+    const url = new URL(requestedUrl);
+    assert.equal(url.searchParams.get("series_id"), "CPIAUCSL");
+    assert.equal(url.searchParams.get("sort_order"), "desc");
+    assert.equal(url.searchParams.get("limit"), "1");
+    assert.equal(url.searchParams.get("units"), "pc1");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.FRED_API_KEY;
+    else process.env.FRED_API_KEY = originalKey;
+  }
 });
 
 
