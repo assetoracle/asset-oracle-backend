@@ -15,7 +15,7 @@ concurrency:
 jobs:
   # Manual, read-only verification while the recurring worker remains disabled.
   testnet-preflight:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.ENABLE_TESTNET_AUTOMATION != 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: asset-oracle-testnet
     timeout-minutes: 5
@@ -42,7 +42,7 @@ jobs:
   run-testnet-worker:
     # This worker must run only from the reviewed default branch and only after
     # the owner explicitly enables the testnet environment.
-    if: github.ref == 'refs/heads/main' && vars.ENABLE_TESTNET_AUTOMATION == 'true'
+    if: github.event_name == 'schedule' && github.ref == 'refs/heads/main' && vars.ENABLE_TESTNET_AUTOMATION == 'true'
     runs-on: ubuntu-latest
     environment: asset-oracle-testnet
     timeout-minutes: 9
