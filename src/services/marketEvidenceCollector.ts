@@ -1,5 +1,5 @@
 import { getMarketProposal } from "./marketStore.js";
-import { objectValue } from "./marketEvidenceMetrics.js";
+import { extractMetricValue } from "./marketEvidenceMetrics.js";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
 import { saveMarketEvidence, type StoredMarketEvidence } from "./marketEvidenceStore.js";
 import {
@@ -74,7 +74,7 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       throw new Error("No collector is implemented for this provider.");
   }
 
-  const normalizedValue = objectValue(result.data, rule.metric);
+  const normalizedValue = extractMetricValue(selected, result.data, rule.metric);
   const saved = await saveMarketEvidence({
     proposalId: proposal.id,
     provider: selected,
