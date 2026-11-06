@@ -144,6 +144,13 @@ test("dynamic API-Football fixture templates derive the correct football season"
   assert.equal(sports.query.season, expectedSeason);
 });
 
+
+test("sports generator templates reject unsupported basketball and tennis adapters", () => {
+  const templates = completeTemplateSet() as Array<Record<string, unknown>>;
+  templates[4] = { ...templates[4], sport: "basketball" };
+  assert.throws(() => parseGenerationTemplates(JSON.stringify(templates)), /football only/i);
+});
+
 test("sports templates reject missing or conflicting fixture date configuration", () => {
   const templates = completeTemplateSet() as Array<Record<string, unknown>>;
   templates[4] = { ...templates[4], query: {} };
