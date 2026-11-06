@@ -12,7 +12,7 @@ type QueryParams = {
   vsCurrency?: string; page?: number; perPage?: number; search?: string; timespan?: string; maxRecords?: number;
   chain?: string; tokenAddress?: string; protocol?: string;
   date?: string; league?: number; season?: number;
-  seriesId?: string; start?: string; end?: string;
+  seriesId?: string; start?: string; end?: string; units?: string;
   country?: string; indicator?: string; dateRange?: string;
   latitude?: number; longitude?: number; startDate?: string; endDate?: string;
 };
