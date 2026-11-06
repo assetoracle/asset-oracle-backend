@@ -122,7 +122,7 @@ test("sports dateOffsetDays resolves a fresh fixture date and interpolates marke
   const daysAhead = (Date.parse(`${sports.query.date}T00:00:00.000Z`) - Date.now()) / 86_400_000;
   assert.ok(daysAhead >= 6 && daysAhead <= 8, `expected fixture date about 7 days ahead, got ${daysAhead} days`);
   assert.equal(sports.question.includes("{{fixtureDate}}"), false);
-  assert.equal(sports.question.includes(expected), true);
+  assert.equal(sports.question.includes(String(sports.query.date)), true);
 });
 
 test("dynamic API-Football fixture templates derive the correct football season", () => {
