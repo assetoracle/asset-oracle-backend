@@ -44,6 +44,31 @@ Supported categories and providers are enforced by the existing market proposal 
 
 For Sports templates, use either a fixed `query.date` or `dateOffsetDays`, never both. Prefer `dateOffsetDays` for recurring templates. API-Football templates using this option have their season set automatically according to the football season start year.
 
+
+
+Example forward-looking Economics template (FRED):
+
+```json
+{
+  "id": "us-cpi-year-over-year",
+  "category": "Economics",
+  "question": "Will the latest published US CPI year-over-year inflation rate exceed 3 percent at resolution?",
+  "description": "Resolve using the newest published FRED CPIAUCSL observation transformed to percent change from a year earlier, fetched at resolution.",
+  "sourceId": "fred",
+  "metric": "observations.0.value",
+  "comparison": "ABOVE",
+  "targetValue": 3,
+  "currency": "PERCENT",
+  "query": { "seriesId": "CPIAUCSL", "units": "pc1" },
+  "closeAfterMinutes": 43200,
+  "resolveAfterMinutes": 44640
+}
+```
+
+FRED observations are requested newest-first with `sort_order=desc` and `limit=1`, so `observations.0.value` is the latest observation available when evidence is collected. The optional `query.units` transformation supports FRED's documented units, including `pc1` (percent change from a year earlier). The example is a one-month market window; the market wording intentionally refers to the latest published observation at resolution, not a future release date guaranteed by the generator. FRED may not yet have published a new CPI observation by that time, so validators must inspect the observation date and release timing before considering evidence.
+
+For RWA, a DeFiLlama market using `protocol: "ondo-finance"` measures Ondo Finance protocol TVL only. Protocol TVL must not be described as total RWA assets under management or as the value of all Ondo-issued assets.
+
 Example Regional event template:
 
 ```json
@@ -90,7 +115,7 @@ Candidate proposals are validated by the same Zod schema as user proposals. Dupl
 
 GDELT templates must configure both `query.search` and `query.timespan` (for example `24h` or `7d`); `query.maxRecords` is optional and bounded to 1–250. The evidence collector requests only articles inside that rolling window, counted through `articles.length`. The window is relative to the time evidence is fetched, not a fixed future calendar interval, so the final evidence collection time must be considered during market review. GDELT article counts establish indexed coverage, not the truth of the reported event.
 
-The template thresholds and metric paths are configuration, not predictions derived by the generator. A reviewer must check that each template is meaningful and that its source metric is suitable before enabling the workflow. Provider evidence remains separate and must never independently decide a market outcome.
+The template thresholds and metric paths are configuration, not predictions derived by the generator. For FRED, the evidence collector requests the latest observation in descending date order and supports an explicit units transformation such as `pc1`; reviewers must check the returned observation date and whether a new release is expected during the market window. A reviewer must check that each template is meaningful and that its source metric is suitable before enabling the workflow. Provider evidence remains separate and must never independently decide a market outcome.
 
 ## Candidate review API
 
