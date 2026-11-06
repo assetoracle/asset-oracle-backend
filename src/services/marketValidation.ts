@@ -17,6 +17,8 @@ const resolutionRuleSchema = z.object({
     page: z.number().int().min(1).max(1000).optional(),
     perPage: z.number().int().min(1).max(250).optional(),
     search: z.string().trim().min(1).max(250).optional(),
+    timespan: z.string().regex(/^(15min|[1-9]\\d*(min|h|hours|d|days|w|weeks|m|months))$/).max(12).optional(),
+    maxRecords: z.number().int().min(1).max(250).optional(),
     chain: z.string().trim().min(1).max(40).optional(),
     tokenAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
     protocol: z.string().trim().min(1).max(100).optional(),
@@ -93,7 +95,7 @@ export const marketProposalSchema = z
     const requiredQueryFields: Record<string, string[]> = {
       coingecko: ["coinId"], dexscreener: [], defillama: ["protocol"], sportmonks: ["date"],
       "api-football": ["date"], fred: ["seriesId"], "world-bank": ["country", "indicator"],
-      gdelt: ["search"], "open-meteo": ["latitude", "longitude", "startDate", "endDate"],
+      gdelt: ["search", "timespan"], "open-meteo": ["latitude", "longitude", "startDate", "endDate"],
     };
     const missing = (requiredQueryFields[sourceId] ?? []).filter((field) =>
       !query || query[field as keyof typeof query] === undefined
