@@ -29,6 +29,15 @@ const MAX_PAYOUT_BATCHES_PER_RUN = 10;
 const PAYOUT_BATCH_SIZE = 50n;
 const DISPUTE_RESOLUTION_TIMEOUT_SECONDS = 7n * 24n * 60n * 60n;
 import { buildMarketScanIds, orderMarketIdsFromCursor, nextMarketCursor } from "./marketLifecycleScheduling.js";
+import {
+  canProcessPayoutBatch,
+  getPayoutBatchSize,
+  isDisputeRefundDue,
+  isMarketClosable,
+  isMarketFinalizable,
+  isUnresolvedRefundDue,
+  normalizePayoutStartIndex,
+} from "./marketLifecyclePolicy.js";
 
 const chain = defineChain({
   id: ASSET_CHAIN_TESTNET_ID,
@@ -246,27 +255,27 @@ async function main(): Promise<void> {
     const orderedMarketIds = orderMarketIdsFromCursor(scanIds, nextPayoutMarketId, currentCount);
     for (const id of orderedMarketIds) {
       const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
-      if (market.status === 0 && market.closeTime <= now) {
+      if (isMarketClosable(market.status, market.closeTime, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "closeMarket", args: [BigInt(id)] });
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status === "success") console.log(`Closed expired market ${id}: ${EXPLORER}/tx/${hash}`);
         else console.error(`closeMarket failed for market ${id}: ${hash}`);
-      } else if (market.status === 1 && market.closeTime + market.challengePeriod <= now) {
+      } else if (isUnresolvedRefundDue(market.status, market.closeTime, market.challengePeriod, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "refundTimedOutMarket", args: [BigInt(id)] });
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status === "success") console.log(`Marked unresolved market ${id} refundable after its timeout: ${EXPLORER}/tx/${hash}`);
         else console.error(`refundTimedOutMarket failed for market ${id}: ${hash}`);
-      } else if (market.status === 2 && market.resolvedAt + market.challengePeriod <= now) {
+      } else if (isMarketFinalizable(market.status, market.resolvedAt, market.challengePeriod, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "finalizeMarket", args: [BigInt(id)] });
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status === "success") console.log(`Finalized validator-resolved market ${id}: ${EXPLORER}/tx/${hash}`);
         else console.error(`finalizeMarket failed for market ${id}: ${hash}`);
-      } else if (market.status === 6 && market.resolvedAt + DISPUTE_RESOLUTION_TIMEOUT_SECONDS <= now) {
+      } else if (isDisputeRefundDue(market.status, market.resolvedAt, DISPUTE_RESOLUTION_TIMEOUT_SECONDS, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "refundDisputedTimeout", args: [BigInt(id)] });
         const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
         if (receipt.status === "success") console.log(`Marked unresolved arbitration market ${id} refundable after timeout: ${EXPLORER}/tx/${hash}`);
         else console.error(`refundDisputedTimeout failed for market ${id}: ${hash}`);
-      } else if (market.status === 3 && payoutBatchesProcessed < MAX_PAYOUT_BATCHES_PER_RUN) {
+      } else if (canProcessPayoutBatch(market.status, payoutBatchesProcessed, MAX_PAYOUT_BATCHES_PER_RUN)) {
         const participantCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "participantCountByMarket", args: [BigInt(id)] });
         const claimCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "claimCountByMarket", args: [BigInt(id)] });
         if (participantCount === 0n || claimCount >= participantCount) {
@@ -282,15 +291,14 @@ async function main(): Promise<void> {
           "SELECT next_index FROM market_lifecycle_payout_progress WHERE market_id = $1",
           [String(id)],
         );
-        let startIndex = Number(progress.rows[0]?.next_index ?? 0);
-        if (startIndex >= Number(participantCount)) {
-          startIndex = 0;
+        const startIndex = normalizePayoutStartIndex(Number(participantCount), Number(progress.rows[0]?.next_index ?? 0));
+        if (startIndex === 0 && Number(progress.rows[0]?.next_index ?? 0) !== 0) {
           await database.query(
             "UPDATE market_lifecycle_payout_progress SET next_index = 0, updated_at = NOW() WHERE market_id = $1",
             [String(id)],
           );
         }
-        const batchSize = BigInt(Math.min(Number(PAYOUT_BATCH_SIZE), Number(participantCount) - startIndex));
+        const batchSize = BigInt(getPayoutBatchSize(Number(participantCount), startIndex, Number(PAYOUT_BATCH_SIZE)));
         const hash = await walletClient.writeContract({
           address: manager,
           abi: managerAbi,
