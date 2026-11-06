@@ -1,0 +1,86 @@
+[
+  {
+    "id": "btc-usd-above-100k",
+    "category": "Digital Assets",
+    "question": "Will Bitcoin trade above 100000 USD at resolution?",
+    "description": "Resolve using CoinGecko Bitcoin market data. Use the USD current price observation collected for this market.",
+    "sourceId": "coingecko",
+    "metric": "market_data.current_price.usd",
+    "comparison": "ABOVE",
+    "targetValue": 100000,
+    "currency": "USD",
+    "query": {
+      "coinId": "bitcoin",
+      "vsCurrency": "usd"
+    },
+    "closeAfterMinutes": 60,
+    "resolveAfterMinutes": 120
+  },
+  {
+    "id": "nigeria-annual-cpi-above-20",
+    "category": "Economics",
+    "question": "Will Nigeria's latest published annual consumer price inflation rate exceed 20 percent at resolution?",
+    "description": "Resolve using the latest available World Bank annual consumer price inflation observation for Nigeria. Review the observation year and publication date when evaluating the evidence; this market measures the latest published annual observation, not an intraday inflation reading.",
+    "sourceId": "world-bank",
+    "metric": "1.0.value",
+    "comparison": "ABOVE",
+    "targetValue": 20,
+    "currency": "PERCENT",
+    "query": {
+      "country": "NGA",
+      "indicator": "FP.CPI.TOTL.ZG"
+    },
+    "closeAfterMinutes": 43200,
+    "resolveAfterMinutes": 44640
+  },
+  {
+    "id": "nigeria-flood-coverage-gdelt",
+    "category": "Regional",
+    "question": "Will GDELT index at least one Nigeria flood article in the 24-hour evidence window?",
+    "description": "Resolve using the count of GDELT articles matching the Nigeria flood search in the rolling 24-hour window before evidence collection. Article indexing measures media coverage and is not independent confirmation that a reported flood event occurred.",
+    "sourceId": "gdelt",
+    "metric": "articles.length",
+    "comparison": "ABOVE",
+    "targetValue": 0,
+    "query": {
+      "search": "\"Nigeria\" flood",
+      "timespan": "24h",
+      "maxRecords": 100
+    },
+    "closeAfterMinutes": 1440,
+    "resolveAfterMinutes": 1500
+  },
+  {
+    "id": "ondo-finance-protocol-tvl-above-3b",
+    "category": "RWA",
+    "question": "Will Ondo Finance protocol TVL exceed 3000000000 USD at resolution?",
+    "description": "Resolve using DeFiLlama's reported total value locked for the Ondo Finance protocol. This is protocol TVL as defined by DeFiLlama and must not be described as total RWA market size or as a separate RWA Active AUM figure.",
+    "sourceId": "defillama",
+    "metric": "tvl",
+    "comparison": "ABOVE",
+    "targetValue": 3000000000,
+    "currency": "USD",
+    "query": {
+      "protocol": "ondo-finance"
+    },
+    "closeAfterMinutes": 10080,
+    "resolveAfterMinutes": 10140
+  },
+  {
+    "id": "epl-fixture-seven-days-ahead",
+    "category": "Sports",
+    "sport": "football",
+    "question": "Will the English Premier League have a scheduled fixture on {{fixtureDate}}?",
+    "description": "Resolve using the API-Football fixture list for the dynamically selected UTC fixture date and the English Premier League competition.",
+    "sourceId": "api-football",
+    "metric": "response.length",
+    "comparison": "ABOVE",
+    "targetValue": 0,
+    "query": {
+      "league": 39
+    },
+    "dateOffsetDays": 7,
+    "closeAfterMinutes": 1440,
+    "resolveAfterMinutes": 1500
+  }
+]
