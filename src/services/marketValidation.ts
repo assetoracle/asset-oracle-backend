@@ -17,7 +17,7 @@ const resolutionRuleSchema = z.object({
     page: z.number().int().min(1).max(1000).optional(),
     perPage: z.number().int().min(1).max(250).optional(),
     search: z.string().trim().min(1).max(250).optional(),
-    timespan: z.string().regex(/^(15min|[1-9]\\d*(min|h|hours|d|days|w|weeks|m|months))$/).max(12).optional(),
+    timespan: z.string().regex(/^(15min|[1-9]\d*(min|h|hours|d|days|w|weeks|m|months))$/).max(12).optional(),
     maxRecords: z.number().int().min(1).max(250).optional(),
     chain: z.string().trim().min(1).max(40).optional(),
     tokenAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
