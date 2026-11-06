@@ -80,7 +80,7 @@ function completeTemplateSet() {
   return [
     validTemplate,
     { ...validTemplate, id: "economics-cpi", category: "Economics", question: "Will US CPI exceed the selected threshold?", description: "This candidate resolves using the configured FRED series at the observation time.", sourceId: "fred", metric: "observations.0.value", query: { seriesId: "CPIAUCSL" } },
-    { ...validTemplate, id: "regional-event", category: "Regional", question: "Will the selected regional event be reported?", description: "This candidate resolves using the configured GDELT article results at the observation time.", sourceId: "gdelt", metric: "articles.0.title", query: { search: '"Nigeria" flood', timespan: "24h", maxRecords: 100 } },
+    { ...validTemplate, id: "regional-event", category: "Regional", question: "Will the selected regional event be reported?", description: "This candidate resolves using the configured GDELT article results at the observation time.", sourceId: "gdelt", metric: "articles.length", query: { search: '"Nigeria" flood', timespan: "24h", maxRecords: 100 } },
     { ...validTemplate, id: "rwa-tvl", category: "RWA", question: "Will the selected RWA protocol TVL exceed the threshold?", description: "This candidate resolves using the configured DeFiLlama protocol TVL at the observation time.", sourceId: "defillama", metric: "tvl", query: { protocol: "example-protocol" } },
     { ...validTemplate, id: "sports-match", category: "Sports", sport: "football", question: "Will the English Premier League have a scheduled fixture on {{fixtureDate}}?", description: "Resolve using the Sportmonks fixture list for {{fixtureDate}}.", sourceId: "sportmonks", metric: "data.length", query: {}, dateOffsetDays: 7 },
   ];
