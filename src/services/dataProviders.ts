@@ -147,13 +147,19 @@ export function apiFootballFixtures(date: string, league?: number, season?: numb
   return getJson("api-football", url, { "x-apisports-key": requiredEnv("API_FOOTBALL_API_KEY") });
 }
 
-export function fredObservations(seriesId: string, start?: string, end?: string) {
+export function fredObservations(seriesId: string, start?: string, end?: string, units?: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(seriesId)) throw new Error("Invalid FRED series ID.");
   if ((start && !validDate(start)) || (end && !validDate(end)) || (start && end && start > end)) throw new Error("Invalid FRED date range.");
+  const supportedUnits = ["lin", "chg", "ch1", "pch", "pc1", "pca", "cch", "cca", "log"];
+  if (units !== undefined && !supportedUnits.includes(units)) throw new Error("Invalid FRED observation units.");
   const url = new URL("https://api.stlouisfed.org/fred/series/observations");
   url.searchParams.set("series_id", seriesId);
   url.searchParams.set("api_key", requiredEnv("FRED_API_KEY"));
   url.searchParams.set("file_type", "json");
+  // Return only the newest published observation, not the API's default oldest-first series.
+  url.searchParams.set("sort_order", "desc");
+  url.searchParams.set("limit", "1");
+  if (units) url.searchParams.set("units", units);
   if (start) url.searchParams.set("observation_start", start);
   if (end) url.searchParams.set("observation_end", end);
   return getJson("fred", url);
