@@ -14,7 +14,7 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 
 | Economic & financial | FRED | Implemented; series observations |
 | Economic & financial | World Bank | Implemented; country indicator observations |
-| Regional & global events | GDELT | Implemented; article discovery |
+| Regional & global events | GDELT | Implemented; article discovery with bounded timespan |
 | Regional & global events | Open-Meteo | Implemented; historical weather observations |
 | Sports | Sportmonks | Implemented; fixtures by date |
 | Sports | API-Football | Implemented; fixtures by date, optional league and season |
@@ -60,7 +60,7 @@ The following endpoints are admin-wallet/session protected:
 - `POST /api/market-evidence/:proposalId/collect` — collect one response from the proposal's configured provider and store it for review.
 - `POST /api/market-evidence/:proposalId/list` — retrieve up to 100 stored evidence records for that proposal.
 
-The evidence table is `market_data_evidence`; it is separate from `validator_source_links`, which records on-chain validator vote evidence. Provider observations are always stored as `UNREVIEWED`. The admin-triggered endpoints remain available for manual collection. A standalone category-aware worker is now available as `npm run automate:market-evidence`. It processes only approved proposals whose resolution time is still in the future, uses each proposal's configured provider, skips proposals whose last collection attempt is still within the freshness interval, and uses a PostgreSQL advisory lock to prevent overlapping runs. Collection attempts are tracked separately from evidence records, so unchanged provider responses and failed requests do not trigger an API call on every scheduler tick. It never fans out across all providers. The worker is disabled unless `MARKET_EVIDENCE_WORKER_ENABLED=true`; it is not scheduled or enabled by this code change.
+The evidence table is `market_data_evidence`; it is separate from `validator_source_links`, which records on-chain validator vote evidence. GDELT article searches accept a bounded `timespan` (for example `24h` or `7d`) and return the configured article list; evidence rules can count it using `articles.length`. The time window is relative to the evidence request time. Provider observations are always stored as `UNREVIEWED`. The admin-triggered endpoints remain available for manual collection. A standalone category-aware worker is now available as `npm run automate:market-evidence`. It processes only approved proposals whose resolution time is still in the future, uses each proposal's configured provider, skips proposals whose last collection attempt is still within the freshness interval, and uses a PostgreSQL advisory lock to prevent overlapping runs. Collection attempts are tracked separately from evidence records, so unchanged provider responses and failed requests do not trigger an API call on every scheduler tick. It never fans out across all providers. The worker is disabled unless `MARKET_EVIDENCE_WORKER_ENABLED=true`; it is not scheduled or enabled by this code change.
 
 Worker configuration:
 
