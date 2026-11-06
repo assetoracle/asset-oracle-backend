@@ -58,5 +58,6 @@ test("validates FRED series identifiers and date range", () => {
 
 test("validates GDELT query size and record limits", () => {
   assert.throws(() => gdeltArticles(""), /Invalid GDELT query/);
-  assert.throws(() => gdeltArticles("regional event", 251), /Invalid GDELT query/);
+  assert.throws(() => gdeltArticles("regional event", 251), /Invalid GDELT query or timespan/);
+  assert.throws(() => gdeltArticles("regional event", 25, "whenever"), /Invalid GDELT query or timespan/);
 });
