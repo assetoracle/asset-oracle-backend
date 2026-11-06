@@ -43,7 +43,7 @@ import {
 const chain = defineChain({
   id: ASSET_CHAIN_TESTNET_ID,
   name: "Asset Chain Enugu Testnet",
-  nativeCurrency: { name: "Asset", symbol: "ASSET", decimals: 18 },
+  nativeCurrency: { name: "RWA", symbol: "RWA", decimals: 18 },
   rpcUrls: { default: { http: [process.env.ASSET_CHAIN_RPC_URL?.trim() || ASSET_CHAIN_TESTNET_RPC_URL] } },
   blockExplorers: { default: { name: "Asset Chain Testnet Explorer", url: EXPLORER } },
   testnet: true,
