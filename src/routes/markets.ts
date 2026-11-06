@@ -816,6 +816,7 @@ marketsRouter.post("/admin/proposals/:id/publish", async (req, res, next) => {
       eventStablecoin: matching?.args.stablecoin === undefined ? null : Number(matching.args.stablecoin),
       eventCloseTime: matching?.args.closeTime ?? null,
       expectedCloseTime: BigInt(Math.floor(Date.parse(proposal.closesAt) / 1000)),
+      marketChallengePeriod: Number(onchainMarket.challengePeriod),
       eventCreator: matching?.args.creator ?? null,
     });
     if (evidenceError) {
@@ -939,6 +940,7 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
       eventStablecoin: matching?.args.stablecoin === undefined ? null : Number(matching.args.stablecoin),
       eventCloseTime: matching?.args.closeTime ?? null,
       expectedCloseTime: BigInt(Math.floor(Date.parse(proposal.closesAt) / 1000)),
+      marketChallengePeriod: Number(onchainMarket.challengePeriod),
       eventCreator: matching?.args.creator ?? null,
     });
     if (evidenceError) {

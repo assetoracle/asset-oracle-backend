@@ -13,10 +13,14 @@ export type PublicationEvidence = {
   eventStablecoin: number | null;
   eventCloseTime: bigint | null;
   expectedCloseTime: bigint;
+  marketChallengePeriod: number;
   eventCreator: string | null;
 };
 
 export function verifyPublicationEvidence(evidence: PublicationEvidence): string | null {
+  if (evidence.marketChallengePeriod !== 3600) {
+    return "On-chain market challenge period must be exactly 3600 seconds.";
+  }
   if (evidence.expectedChainId !== 42421 || evidence.actualChainId !== 42421 ||
       evidence.actualChainId !== evidence.expectedChainId) {
     return "Configured RPC does not report the expected Asset Chain Enugu testnet chain ID.";

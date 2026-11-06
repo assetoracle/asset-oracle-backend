@@ -85,6 +85,9 @@ function requiredPrivateKey(): Hex {
 }
 
 async function main(): Promise<void> {
+  if (process.env.ASSET_ORACLE_NEW_CONTRACT_VERIFIED !== "true") {
+    throw new Error("ASSET_ORACLE_NEW_CONTRACT_VERIFIED must be true after deployment preflight. Lifecycle worker stopped before database access or transactions.");
+  }
   if (process.env.ASSET_CHAIN_ID && Number(process.env.ASSET_CHAIN_ID) !== ASSET_CHAIN_TESTNET_ID) {
     throw new Error("This worker is testnet-only and refuses any chain ID other than 42421.");
   }
@@ -171,6 +174,9 @@ async function main(): Promise<void> {
       for (let id = 1; id <= count; id++) {
         const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
         if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id) && Number(existing.marketType) === (proposal.origin === "AUTOMATED" ? 1 : 0)) {
+          if (existing.challengePeriod !== CHALLENGE_PERIOD_SECONDS) {
+            throw new Error(`Recovered market ${id} has challenge period ${existing.challengePeriod}; expected exactly ${CHALLENGE_PERIOD_SECONDS}. Manual reconciliation required.`);
+          }
           const logs = await publicClient.getLogs({ address: manager, event: managerAbi[16], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
           const created = logs.find((log) => log.args.marketId === BigInt(id));
           if (created?.transactionHash) {
@@ -203,6 +209,9 @@ async function main(): Promise<void> {
       const expectedMarketType = proposal.origin === "AUTOMATED" ? 1 : 0;
       if (Number(publishedMarket.marketType) !== expectedMarketType) {
         throw new Error(`Published market ${created.args.marketId} has the wrong market type for proposal ${proposal.id}; manual reconciliation required.`);
+      }
+      if (publishedMarket.challengePeriod !== CHALLENGE_PERIOD_SECONDS) {
+        throw new Error(`Published market ${created.args.marketId} has challenge period ${publishedMarket.challengePeriod}; expected exactly ${CHALLENGE_PERIOD_SECONDS}. Manual reconciliation required.`);
       }
       const stored = await recordOnchainPublication({ id: proposal.id, marketId: created.args.marketId.toString(), txHash: hash, managerAddress: manager, chainId: actualChainId });
       if (!stored) throw new Error(`On-chain market ${created.args.marketId} exists but could not be saved to the database. Reconciliation is required.`);

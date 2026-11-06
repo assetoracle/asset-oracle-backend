@@ -20,6 +20,7 @@ const validEvidence: PublicationEvidence = {
   eventStablecoin: 0,
   eventCloseTime: 1_800_000_000n,
   expectedCloseTime: 1_800_000_000n,
+  marketChallengePeriod: 3600,
   eventCreator: wallet,
 };
 
@@ -67,4 +68,9 @@ test("rejects a creator address that differs only by identity", () => {
     verifyPublicationEvidence({ ...validEvidence, eventCreator: "0x3333333333333333333333333333333333333333" }) ?? "",
     /MarketCreated/i,
   );
+});
+
+test("rejects a market with a challenge period other than exactly one hour", () => {
+  assert.match(verifyPublicationEvidence({ ...validEvidence, marketChallengePeriod: 86400 }) ?? "", /challenge period.*3600 seconds/i);
+  assert.match(verifyPublicationEvidence({ ...validEvidence, marketChallengePeriod: 0 }) ?? "", /challenge period.*3600 seconds/i);
 });
