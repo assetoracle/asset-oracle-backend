@@ -188,7 +188,7 @@ async function main(): Promise<void> {
       // before writing its DB record.
       let recovered = false;
       marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
-      const count = Number(marketCount > BigInt(MAX_MARKETS_PER_RUN) ? BigInt(MAX_MARKETS_PER_RUN) : marketCount);
+      const count = Number(marketCount);
       for (let id = 1; id <= count; id++) {
         const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
         if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id) && Number(existing.marketType) === (proposal.origin === "AUTOMATED" ? 1 : 0)) {
