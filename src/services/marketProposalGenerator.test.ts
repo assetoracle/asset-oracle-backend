@@ -153,7 +153,7 @@ test("sports generator templates reject unsupported basketball and tennis adapte
 
 test("sports templates reject missing or conflicting fixture date configuration", () => {
   const templates = completeTemplateSet() as Array<Record<string, unknown>>;
-  templates[4] = { ...templates[4], query: {} };
+  templates[4] = { ...templates[4], query: {}, dateOffsetDays: undefined };
   assert.throws(() => parseGenerationTemplates(JSON.stringify(templates)), /dateOffsetDays/i);
   templates[4] = { ...templates[4], query: { date: "2027-01-01" }, dateOffsetDays: 7 };
   assert.throws(() => parseGenerationTemplates(JSON.stringify(templates)), /either a fixed query.date or dateOffsetDays/i);
