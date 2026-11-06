@@ -243,7 +243,7 @@ async function main(): Promise<void> {
     const now = BigInt(Math.floor(Date.now() / 1000));
     let payoutBatchesProcessed = 0;
     const scanIds = buildMarketScanIds(currentCount, Number(workerState.rows[0]?.next_market_id ?? 1), MAX_MARKETS_PER_RUN);
-    const orderedMarketIds = orderMarketIdsFromCursor(scanIds, nextPayoutMarketId);
+    const orderedMarketIds = orderMarketIdsFromCursor(scanIds, nextPayoutMarketId, currentCount);
     for (const id of orderedMarketIds) {
       const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
       if (market.status === 0 && market.closeTime <= now) {
