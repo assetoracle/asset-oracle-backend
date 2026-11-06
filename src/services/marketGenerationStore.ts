@@ -58,10 +58,10 @@ export async function generateWithinNextCategory<T>(
   const client = await database.connect();
   try {
     await client.query("BEGIN");
-    const state = await client.query<{ next_category_index: number }>(
+    const state = await client.query(
       "SELECT next_category_index FROM market_generation_state WHERE id=1 FOR UPDATE",
     );
-    const index = Number(state.rows[0]?.next_category_index ?? 0);
+    const index = Number((state.rows[0] as { next_category_index?: number } | undefined)?.next_category_index ?? 0);
     if (!Number.isInteger(index) || index < 0 || index >= CATEGORIES.length) {
       throw new Error("Market generation category cursor is outside the supported range.");
     }
