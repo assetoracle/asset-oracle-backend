@@ -124,7 +124,7 @@ dataSourcesRouter.post("/regional/gdelt", async (req, res) => {
   const parsed = authSchema.extend({
     query: z.string().trim().min(1).max(250),
     maxRecords: z.number().int().min(1).max(250).optional(),
-    timespan: z.string().regex(/^(15min|[1-9]\\d*(min|h|hours|d|days|w|weeks|m|months))$/).max(12).optional(),
+    timespan: z.string().regex(/^(15min|[1-9]\d*(min|h|hours|d|days|w|weeks|m|months))$/).max(12).optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Valid admin address and GDELT query are required." });
   if (!await authorize(req, res, parsed.data.address)) return;
