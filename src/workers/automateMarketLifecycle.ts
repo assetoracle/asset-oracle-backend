@@ -28,6 +28,7 @@ const MAX_MARKETS_PER_RUN = 500;
 const MAX_PAYOUT_BATCHES_PER_RUN = 10;
 const PAYOUT_BATCH_SIZE = 50n;
 const DISPUTE_RESOLUTION_TIMEOUT_SECONDS = 7n * 24n * 60n * 60n;
+import { buildMarketScanIds, orderMarketIdsFromCursor, nextMarketCursor } from "./marketLifecycleScheduling.js";
 
 const chain = defineChain({
   id: ASSET_CHAIN_TESTNET_ID,
@@ -147,6 +148,23 @@ async function main(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await database.query(`
+      CREATE TABLE IF NOT EXISTS market_lifecycle_worker_state (
+        worker_key TEXT PRIMARY KEY,
+        next_market_id INTEGER NOT NULL DEFAULT 1,
+        next_payout_market_id INTEGER NOT NULL DEFAULT 1,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await database.query(`
+      INSERT INTO market_lifecycle_worker_state (worker_key)
+      VALUES ('enugu')
+      ON CONFLICT (worker_key) DO NOTHING
+    `);
+    const workerState = await database.query<{ next_market_id: number; next_payout_market_id: number }>(
+      "SELECT next_market_id, next_payout_market_id FROM market_lifecycle_worker_state WHERE worker_key = 'enugu'",
+    );
+    let nextPayoutMarketId = Number(workerState.rows[0]?.next_payout_market_id ?? 1);
     const [manualProposals, automatedProposals] = await Promise.all([listMarketProposals(), listAutomatedMarketProposals()]);
     const proposals = [...manualProposals, ...automatedProposals];
     let marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
@@ -221,10 +239,12 @@ async function main(): Promise<void> {
     // Settlement automation never chooses an outcome. The 2-of-3 human validator
     // consensus and the contract's challenge window remain authoritative.
     marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
-    const currentCount = Number(marketCount > BigInt(MAX_MARKETS_PER_RUN) ? BigInt(MAX_MARKETS_PER_RUN) : marketCount);
+    const currentCount = Number(marketCount);
     const now = BigInt(Math.floor(Date.now() / 1000));
     let payoutBatchesProcessed = 0;
-    for (let id = 1; id <= currentCount; id++) {
+    const scanIds = buildMarketScanIds(currentCount, Number(workerState.rows[0]?.next_market_id ?? 1), MAX_MARKETS_PER_RUN);
+    const orderedMarketIds = orderMarketIdsFromCursor(scanIds, nextPayoutMarketId);
+    for (const id of orderedMarketIds) {
       const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
       if (market.status === 0 && market.closeTime <= now) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "closeMarket", args: [BigInt(id)] });
@@ -284,8 +304,20 @@ async function main(): Promise<void> {
           [String(id), startIndex + Number(batchSize)],
         );
         payoutBatchesProcessed++;
+        nextPayoutMarketId = nextMarketCursor(id, currentCount);
+        await database.query(
+          "UPDATE market_lifecycle_worker_state SET next_payout_market_id = $2, updated_at = NOW() WHERE worker_key = 'enugu'",
+          [nextPayoutMarketId],
+        );
         console.log(`Processed payout batch for market ${id} (participants ${startIndex}-${startIndex + Number(batchSize) - 1}): ${EXPLORER}/tx/${hash}`);
       }
+    }
+    if (scanIds.length > 0) {
+      const nextMarketId = nextMarketCursor(scanIds[scanIds.length - 1], currentCount);
+      await database.query(
+        "UPDATE market_lifecycle_worker_state SET next_market_id = $2, updated_at = NOW() WHERE worker_key = 'enugu'",
+        [nextMarketId],
+      );
     }
   } finally {
     await lockClient.query("SELECT pg_advisory_unlock($1)", [42421001]).catch(() => undefined);
