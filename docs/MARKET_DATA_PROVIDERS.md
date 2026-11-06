@@ -19,6 +19,10 @@ Backend-only provider clients and admin-authenticated routes. Provider credentia
 | Sports | Sportmonks | Implemented; fixtures by date |
 | Sports | API-Football | Implemented; fixtures by date, optional league and season |
 
+## FRED observation semantics
+
+The FRED adapter used by market evidence always requests the newest available observation first and limits the response to one record. Optional `units` can request a documented FRED transformation (for example, `pc1` for percent change from a year earlier). A configured metric such as `observations.0.value` therefore resolves to that latest returned value, not the oldest observation in the series. Reviewers must still inspect the observation date and release cadence; a latest observation may remain unchanged until the next scheduled data release.
+
 ## Category-scoped provider dispatch
 
 Market processing must select providers from the market's own category before making any external request. The selector in `src/services/marketProviderRouter.ts` enforces this allowlist:
@@ -77,7 +81,7 @@ Set these only in the backend service's secret environment settings. Never commi
 
 - `COINGECKO_API_KEY` — CoinGecko key; sent using the Demo or Pro API header.
 - `COINGECKO_API_PLAN` — `demo` (default) or `pro`; selects the matching API host and authentication header.
-- `FRED_API_KEY` — FRED observations.
+- `FRED_API_KEY` — FRED observations. The evidence collector requests the newest observation first (`sort_order=desc`, `limit=1`) and supports documented unit transformations such as `pc1` (percent change from a year earlier).
 - `SPORTMONKS_API_TOKEN` — Sportmonks Football API.
 - `API_FOOTBALL_API_KEY` — API-Football v3.
 - `FIRE_SCREENER_API_KEY` — reserve only if/when FireScreener publishes a supported API and authentication method.
