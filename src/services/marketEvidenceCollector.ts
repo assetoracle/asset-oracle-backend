@@ -54,7 +54,7 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       break;
     case "fred":
       if (!query.seriesId) throw new Error("FRED evidence requires query.seriesId.");
-      result = await fredObservations(query.seriesId, query.start, query.end);
+      result = await fredObservations(query.seriesId, query.start, query.end, query.units);
       break;
     case "world-bank":
       if (!query.country || !query.indicator) throw new Error("World Bank evidence requires query.country and query.indicator.");
