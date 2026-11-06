@@ -12,6 +12,19 @@ test("evidence metric path returns null for missing or unsafe paths", () => {
   assert.equal(objectValue({ a: 1 }, ""), null);
 });
 
+
+test("GDELT article count returns zero for an empty result list", () => {
+  assert.equal(extractMetricValue("gdelt", { articles: [] }, "articles.length"), 0);
+});
+
+test("GDELT article count returns the number of indexed articles", () => {
+  assert.equal(extractMetricValue("gdelt", { articles: [{ title: "A" }, { title: "B" }] }, "articles.length"), 2);
+});
+
+test("GDELT article count remains unavailable when the response omits articles", () => {
+  assert.equal(extractMetricValue("gdelt", { message: "no article data" }, "articles.length"), null);
+});
+
 test("DeFiLlama scalar TVL response is extracted for the tvl metric", () => {
   assert.equal(extractMetricValue("defillama", 1250000.5, "tvl"), 1250000.5);
 });
