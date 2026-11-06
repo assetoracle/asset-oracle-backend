@@ -80,9 +80,9 @@ function completeTemplateSet() {
   return [
     validTemplate,
     { ...validTemplate, id: "economics-cpi", category: "Economics", question: "Will US CPI exceed the selected threshold?", description: "This candidate resolves using the configured FRED series at the observation time.", sourceId: "fred", metric: "observations.0.value", query: { seriesId: "CPIAUCSL" } },
-    { ...validTemplate, id: "regional-event", category: "Regional", question: "Will the selected regional event be reported?", description: "This candidate resolves using the configured GDELT article results at the observation time.", sourceId: "gdelt", metric: "articles.0.title", query: { search: "regional event" } },
+    { ...validTemplate, id: "regional-event", category: "Regional", question: "Will the selected regional event be reported?", description: "This candidate resolves using the configured GDELT article results at the observation time.", sourceId: "gdelt", metric: "articles.0.title", query: { search: '"Nigeria" flood', timespan: "24h", maxRecords: 100 } },
     { ...validTemplate, id: "rwa-tvl", category: "RWA", question: "Will the selected RWA protocol TVL exceed the threshold?", description: "This candidate resolves using the configured DeFiLlama protocol TVL at the observation time.", sourceId: "defillama", metric: "tvl", query: { protocol: "example-protocol" } },
-    { ...validTemplate, id: "sports-match", category: "Sports", sport: "football", question: "Will the selected football fixture finish above the threshold?", description: "This candidate resolves using the configured Sportmonks fixture data at the observation time.", sourceId: "sportmonks", metric: "data.0.result_info", query: { date: "2027-01-01" } },
+    { ...validTemplate, id: "sports-match", category: "Sports", sport: "football", question: "Will the English Premier League have a scheduled fixture on {{fixtureDate}}?", description: "Resolve using the Sportmonks fixture list for {{fixtureDate}}.", sourceId: "sportmonks", metric: "data.length", query: {}, dateOffsetDays: 7 },
   ];
 }
 
@@ -106,6 +106,52 @@ test("template parser accepts DexScreener token-pair query without search", () =
   templates[0] = { ...validTemplate, sourceId: "dexscreener", metric: "priceUsd", query: { chain: "ethereum", tokenAddress: "0x0000000000000000000000000000000000000001" } };
   const parsed = parseGenerationTemplates(JSON.stringify(templates));
   assert.equal(parsed[0].sourceId, "dexscreener");
+});
+
+
+test("GDELT templates require a bounded search window", () => {
+  const templates = completeTemplateSet() as Array<Record<string, unknown>>;
+  templates[2] = { ...templates[2], query: { search: '"Nigeria" flood' } };
+  assert.throws(() => parseGenerationTemplates(JSON.stringify(templates)), /timespan/i);
+});
+
+test("sports dateOffsetDays resolves a fresh fixture date and interpolates market wording", () => {
+  const before = new Date();
+  const parsed = parseGenerationTemplates(JSON.stringify(completeTemplateSet()));
+  const sports = parsed.find((item) => item.category === "Sports");
+  assert.ok(sports);
+  const expected = new Date(Date.UTC(before.getUTCFullYear(), before.getUTCMonth(), before.getUTCDate() + 7))
+    .toISOString().slice(0, 10);
+  assert.equal(sports.query.date, expected);
+  assert.equal(sports.question.includes("{{fixtureDate}}"), false);
+  assert.equal(sports.question.includes(expected), true);
+});
+
+test("dynamic API-Football fixture templates derive the correct football season", () => {
+  const templates = completeTemplateSet() as Array<Record<string, unknown>>;
+  templates[4] = {
+    ...templates[4],
+    sourceId: "api-football",
+    metric: "response.length",
+    query: { league: 39 },
+    dateOffsetDays: 7,
+  };
+  const parsed = parseGenerationTemplates(JSON.stringify(templates));
+  const sports = parsed.find((item) => item.category === "Sports");
+  assert.ok(sports);
+  const fixtureDate = new Date(`${sports.query.date}T00:00:00.000Z`);
+  const expectedSeason = fixtureDate.getUTCMonth() >= 7
+    ? fixtureDate.getUTCFullYear()
+    : fixtureDate.getUTCFullYear() - 1;
+  assert.equal(sports.query.season, expectedSeason);
+});
+
+test("sports templates reject missing or conflicting fixture date configuration", () => {
+  const templates = completeTemplateSet() as Array<Record<string, unknown>>;
+  templates[4] = { ...templates[4], query: {} };
+  assert.throws(() => parseGenerationTemplates(JSON.stringify(templates)), /dateOffsetDays/i);
+  templates[4] = { ...templates[4], query: { date: "2027-01-01" }, dateOffsetDays: 7 };
+  assert.throws(() => parseGenerationTemplates(JSON.stringify(templates)), /either a fixed query.date or dateOffsetDays/i);
 });
 
 test("generator fails closed before database rotation when template configuration is missing", async () => {
