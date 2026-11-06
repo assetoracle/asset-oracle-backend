@@ -45,7 +45,7 @@ async function main() {
     const chain = defineChain({
       id: EXPECTED_CHAIN_ID,
       name: "Asset Chain Enugu Testnet",
-      nativeCurrency: { name: "Asset", symbol: "ASSET", decimals: 18 },
+      nativeCurrency: { name: "RWA", symbol: "RWA", decimals: 18 },
       rpcUrls: { default: { http: [RPC_URL] } },
       testnet: true,
     });
