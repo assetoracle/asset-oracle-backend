@@ -28,6 +28,7 @@ const resolutionRuleSchema = z.object({
     seriesId: z.string().trim().min(1).max(80).optional(),
     start: z.string().date().optional(),
     end: z.string().date().optional(),
+    units: z.enum(["lin", "chg", "ch1", "pch", "pc1", "pca", "cch", "cca", "log"]).optional(),
     country: z.string().trim().min(2).max(3).optional(),
     indicator: z.string().trim().min(1).max(80).optional(),
     dateRange: z.string().regex(/^\d{4}:\d{4}$/).optional(),
