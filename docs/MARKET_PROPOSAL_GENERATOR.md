@@ -14,7 +14,7 @@ Required GitHub Actions secrets:
 
 ## Template format
 
-Each template supplies the market wording, provider-specific query, resolution metric and threshold. Dates are generated at runtime from `closeAfterMinutes` and `resolveAfterMinutes`.
+Each template supplies the market wording, provider-specific query, resolution metric and threshold. Market closing and resolution timestamps are generated at runtime from `closeAfterMinutes` and `resolveAfterMinutes`. Sports templates can use `dateOffsetDays` (1–30) instead of a fixed `query.date`; the generator calculates the UTC fixture date on each run, interpolates `{{fixtureDate}}` in the question/description, and derives the API-Football season from the fixture date.
 
 ```json
 [
@@ -42,9 +42,13 @@ Supported categories and providers are enforced by the existing market proposal 
 - RWA: DeFiLlama, DexScreener
 - Sports: Sportmonks, API-Football
 
+For Sports templates, use either a fixed `query.date` or `dateOffsetDays`, never both. Prefer `dateOffsetDays` for recurring templates. API-Football templates using this option have their season set automatically according to the football season start year.
+
 The category cursor advances in this order: Digital Assets, Economics, Regional, RWA, Sports. A run processes up to ten configured templates from one category. The configuration must contain at least one valid template in every category and no more than ten templates per category; missing or incomplete configuration fails closed before the category cursor advances.
 
 Candidate proposals are validated by the same Zod schema as user proposals. Duplicate candidates are ignored using a SHA-256 identity key built from substantive market fields and the configured relative close/resolve offsets. Runtime observation, closing and resolution timestamps are excluded, so repeated runs of the same market definition do not bypass deduplication. Equivalent candidates are deduplicated even if they use different template IDs. Change the market wording, threshold, provider query or configured schedule when intentionally defining a materially different market. Candidates are stored in `market_generation_candidates` with `PENDING_REVIEW`; the normal proposal table and its payment/creator workflow are untouched.
+
+GDELT templates must configure both `query.search` and `query.timespan` (for example `24h` or `7d`); `query.maxRecords` is optional and bounded to 1–250. The evidence collector requests only articles inside that rolling window, counted through `articles.length`. The window is relative to the time evidence is fetched, not a fixed future calendar interval, so the final evidence collection time must be considered during market review. GDELT article counts establish indexed coverage, not the truth of the reported event.
 
 The template thresholds and metric paths are configuration, not predictions derived by the generator. A reviewer must check that each template is meaningful and that its source metric is suitable before enabling the workflow. Provider evidence remains separate and must never independently decide a market outcome.
 
