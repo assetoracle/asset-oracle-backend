@@ -29,6 +29,7 @@ const MAX_PAYOUT_BATCHES_PER_RUN = 10;
 const PAYOUT_BATCH_SIZE = 50n;
 const DISPUTE_RESOLUTION_TIMEOUT_SECONDS = 7n * 24n * 60n * 60n;
 import { buildMarketScanIds, orderMarketIdsFromCursor, nextMarketCursor } from "./marketLifecycleScheduling.js";
+import { findLogInBlockRanges } from "./marketLifecycleLogRecovery.js";
 import {
   canProcessPayoutBatch,
   getPayoutBatchSize,
@@ -112,6 +113,14 @@ async function main(): Promise<void> {
   const manager = getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS);
   const publicClient = createPublicClient({ chain, transport: http(chain.rpcUrls.default.http[0]) });
   const walletClient = createWalletClient({ account, chain, transport: http(chain.rpcUrls.default.http[0]) });
+  const waitForReceipt = async (hash: Hex) => {
+    try {
+      return await waitForReceipt(hash);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown RPC error";
+      throw new Error(`Confirmation outcome is unknown for transaction ${hash}. Do not submit a replacement until chain state is checked. RPC detail: ${detail}`);
+    }
+  };
 
   const actualChainId = await publicClient.getChainId();
   if (actualChainId !== ASSET_CHAIN_TESTNET_ID) throw new Error(`RPC chain ID mismatch: expected 42421, got ${actualChainId}`);
@@ -140,8 +149,16 @@ async function main(): Promise<void> {
 
   // Prevent overlapping cron runs from submitting duplicate transactions.
   const lockClient = await database.connect();
-  const lock = await lockClient.query("SELECT pg_try_advisory_lock($1) AS locked", [42421001]);
-  if (!lock.rows[0]?.locked) {
+  let lockAcquired = false;
+  try {
+    const lock = await lockClient.query("SELECT pg_try_advisory_lock($1) AS locked", [42421001]);
+    lockAcquired = Boolean(lock.rows[0]?.locked);
+  } catch (error) {
+    lockClient.release();
+    await database.end().catch(() => undefined);
+    throw error;
+  }
+  if (!lockAcquired) {
     lockClient.release();
     await database.end();
     console.log("Another lifecycle worker is running; exiting without changes.");
@@ -204,8 +221,12 @@ async function main(): Promise<void> {
           if (existing.challengePeriod !== CHALLENGE_PERIOD_SECONDS) {
             throw new Error(`Recovered market ${id} has challenge period ${existing.challengePeriod}; expected exactly ${CHALLENGE_PERIOD_SECONDS}. Manual reconciliation required.`);
           }
-          const logs = await publicClient.getLogs({ address: manager, event: managerAbi[16], fromBlock: 0n, toBlock: "latest" }).catch(() => []);
-          const created = logs.find((log) => log.args.marketId === BigInt(id));
+          const latestBlock = await publicClient.getBlockNumber();
+          const created = await findLogInBlockRanges(
+            latestBlock,
+            (fromBlock, toBlock) => publicClient.getLogs({ address: manager, event: managerAbi[16], fromBlock, toBlock }),
+            (log) => log.args.marketId === BigInt(id),
+          );
           if (created?.transactionHash) {
             const stored = await recordOnchainPublication({ id: proposal.id, marketId: String(id), txHash: created.transactionHash, managerAddress: manager, chainId: actualChainId });
             console.log(`Recovered publication for proposal ${proposal.id}: market ${id}`);
@@ -227,7 +248,7 @@ async function main(): Promise<void> {
             args: [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS],
           });
       console.log(`Submitted ${proposal.origin === "AUTOMATED" ? "createAutomatedMarket" : "createMarket"} for proposal ${proposal.id}: ${hash}`);
-      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      const receipt = await waitForReceipt(hash);
       if (receipt.status !== "success") throw new Error(`createMarket transaction failed: ${hash}`);
       const events = parseEventLogs({ abi: managerAbi, logs: receipt.logs.filter((log) => getAddress(log.address) === manager), eventName: "MarketCreated", strict: false });
       const created = events.find((event) => event.args.question === proposal.question && event.args.creator && getAddress(event.args.creator) === getAddress(account.address) && event.args.closeTime === closeTime);
@@ -257,22 +278,22 @@ async function main(): Promise<void> {
       const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
       if (isMarketClosable(market.status, market.closeTime, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "closeMarket", args: [BigInt(id)] });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const receipt = await waitForReceipt(hash);
         if (receipt.status === "success") console.log(`Closed expired market ${id}: ${EXPLORER}/tx/${hash}`);
         else console.error(`closeMarket failed for market ${id}: ${hash}`);
       } else if (isUnresolvedRefundDue(market.status, market.closeTime, market.challengePeriod, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "refundTimedOutMarket", args: [BigInt(id)] });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const receipt = await waitForReceipt(hash);
         if (receipt.status === "success") console.log(`Marked unresolved market ${id} refundable after its timeout: ${EXPLORER}/tx/${hash}`);
         else console.error(`refundTimedOutMarket failed for market ${id}: ${hash}`);
       } else if (isMarketFinalizable(market.status, market.resolvedAt, market.challengePeriod, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "finalizeMarket", args: [BigInt(id)] });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const receipt = await waitForReceipt(hash);
         if (receipt.status === "success") console.log(`Finalized validator-resolved market ${id}: ${EXPLORER}/tx/${hash}`);
         else console.error(`finalizeMarket failed for market ${id}: ${hash}`);
       } else if (isDisputeRefundDue(market.status, market.resolvedAt, DISPUTE_RESOLUTION_TIMEOUT_SECONDS, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "refundDisputedTimeout", args: [BigInt(id)] });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const receipt = await waitForReceipt(hash);
         if (receipt.status === "success") console.log(`Marked unresolved arbitration market ${id} refundable after timeout: ${EXPLORER}/tx/${hash}`);
         else console.error(`refundDisputedTimeout failed for market ${id}: ${hash}`);
       } else if (canProcessPayoutBatch(market.status, payoutBatchesProcessed, MAX_PAYOUT_BATCHES_PER_RUN)) {
@@ -305,7 +326,7 @@ async function main(): Promise<void> {
           functionName: "distributePayouts",
           args: [BigInt(id), BigInt(startIndex), batchSize],
         });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+        const receipt = await waitForReceipt(hash);
         if (receipt.status !== "success") throw new Error(`distributePayouts failed for market ${id}: ${hash}`);
         await database.query(
           "UPDATE market_lifecycle_payout_progress SET next_index = $2, updated_at = NOW() WHERE market_id = $1",
