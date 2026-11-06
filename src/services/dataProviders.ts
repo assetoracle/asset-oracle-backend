@@ -159,13 +159,17 @@ export function fredObservations(seriesId: string, start?: string, end?: string)
   return getJson("fred", url);
 }
 
-export function gdeltArticles(query: string, maxRecords = 25) {
-  if (!query.trim() || query.length > 250 || !Number.isInteger(maxRecords) || maxRecords < 1 || maxRecords > 250) throw new Error("Invalid GDELT query.");
+export function gdeltArticles(query: string, maxRecords = 25, timespan = "24h") {
+  if (!query.trim() || query.length > 250 || !Number.isInteger(maxRecords) || maxRecords < 1 || maxRecords > 250 ||
+      !/^(15min|[1-9]\d*(min|h|hours|d|days|w|weeks|m|months))$/.test(timespan) || timespan.length > 12) {
+    throw new Error("Invalid GDELT query or timespan.");
+  }
   const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
   url.searchParams.set("query", query.trim());
   url.searchParams.set("mode", "ArtList");
   url.searchParams.set("format", "json");
   url.searchParams.set("maxrecords", String(maxRecords));
   url.searchParams.set("sort", "DateDesc");
+  url.searchParams.set("timespan", timespan);
   return getJson("gdelt", url);
 }
