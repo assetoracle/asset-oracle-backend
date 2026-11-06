@@ -42,22 +42,37 @@ export async function initializeMarketGenerationStore(): Promise<void> {
   `);
 }
 
+type CandidateQueryExecutor = {
+  query: (sql: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
+};
+
 const CATEGORIES = ["Digital Assets", "Economics", "Regional", "RWA", "Sports"] as const;
 
-export async function claimNextGenerationCategory(): Promise<MarketProposalInput["category"]> {
+/**
+ * Holds the rotation row lock while candidate writes run. The cursor update and
+ * candidate inserts commit together, so a failed batch cannot skip a category.
+ */
+export async function generateWithinNextCategory<T>(
+  work: (category: MarketProposalInput["category"], client: CandidateQueryExecutor) => Promise<T>,
+): Promise<{ category: MarketProposalInput["category"]; result: T }> {
   const client = await database.connect();
   try {
     await client.query("BEGIN");
-    const result = await client.query<{ next_category_index: number }>(
+    const state = await client.query(
       "SELECT next_category_index FROM market_generation_state WHERE id=1 FOR UPDATE",
     );
-    const index = Number(result.rows[0]?.next_category_index ?? 0) % CATEGORIES.length;
+    const index = Number((state.rows[0] as { next_category_index?: number } | undefined)?.next_category_index ?? 0);
+    if (!Number.isInteger(index) || index < 0 || index >= CATEGORIES.length) {
+      throw new Error("Market generation category cursor is outside the supported range.");
+    }
+    const category = CATEGORIES[index];
+    const result = await work(category, client);
     await client.query(
       "UPDATE market_generation_state SET next_category_index=$1, updated_at=NOW() WHERE id=1",
       [(index + 1) % CATEGORIES.length],
     );
     await client.query("COMMIT");
-    return CATEGORIES[index];
+    return { category, result };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
@@ -66,15 +81,19 @@ export async function claimNextGenerationCategory(): Promise<MarketProposalInput
   }
 }
 
-export async function saveMarketCandidate(input: {
-  templateId: string;
-  proposal: MarketProposalInput;
-  closeAfterMinutes: number;
-  resolveAfterMinutes: number;
-}): Promise<{ candidate: MarketCandidate | null; inserted: boolean }> {
+export async function saveMarketCandidate(
+  input: {
+    templateId: string;
+    proposal: MarketProposalInput;
+    closeAfterMinutes: number;
+    resolveAfterMinutes: number;
+  },
+  executor?: CandidateQueryExecutor,
+): Promise<{ candidate: MarketCandidate | null; inserted: boolean }> {
   const hash = createMarketCandidateHash(input.proposal, { closeAfterMinutes: input.closeAfterMinutes, resolveAfterMinutes: input.resolveAfterMinutes });
   const id = randomUUID();
-  const result = await database.query(
+  const queryExecutor = executor ?? database as unknown as CandidateQueryExecutor;
+  const result = await queryExecutor.query(
     `INSERT INTO market_generation_candidates
       (id, template_id, category, proposal, proposal_hash)
      VALUES ($1, $2, $3, $4::jsonb, $5)

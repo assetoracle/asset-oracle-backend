@@ -6,7 +6,7 @@ process.env.DATABASE_URL ||= "postgresql://unit-test:unit-test@127.0.0.1:5432/un
 
 const { database } = await import("../config/database.js");
 const {
-  claimNextGenerationCategory,
+  generateWithinNextCategory,
   createMarketCandidateHash,
   saveMarketCandidate,
 } = await import("./marketGenerationStore.js");
@@ -102,10 +102,9 @@ test("duplicate candidate persistence returns inserted false without creating an
   assert.equal(result.candidate, null);
 });
 
-test("category rotation advances in the required five-category order", async () => {
-  const statements: string[] = [];
-  // Simulate the locked state update by deriving the new index from the UPDATE parameter.
+test("category cursor advances only after the candidate batch succeeds", async () => {
   let stateIndex = 0;
+  const statements: string[] = [];
   db.connect = async () => ({
     query: async (sql, values = []) => {
       statements.push(sql.trim());
@@ -115,14 +114,42 @@ test("category rotation advances in the required five-category order", async () 
     },
     release: () => undefined,
   });
-  const categories = [];
-  for (let i = 0; i < 10; i++) categories.push(await claimNextGenerationCategory());
-  assert.deepEqual(categories, [
-    "Digital Assets", "Economics", "Regional", "RWA", "Sports",
-    "Digital Assets", "Economics", "Regional", "RWA", "Sports",
-  ]);
-  assert.ok(statements.filter((sql) => sql === "BEGIN").length === 10);
-  assert.ok(statements.filter((sql) => sql === "COMMIT").length === 10);
+
+  const first = await generateWithinNextCategory(async (category) => {
+    assert.equal(category, "Digital Assets");
+    assert.equal(stateIndex, 0, "cursor must not advance before the batch work completes");
+    return "saved";
+  });
+  assert.equal(first.category, "Digital Assets");
+  assert.equal(first.result, "saved");
+  assert.equal(stateIndex, 1);
+  assert.ok(statements.includes("COMMIT"));
+});
+
+test("failed candidate batch rolls back and preserves the category cursor", async () => {
+  let stateIndex = 2;
+  const statements: string[] = [];
+  db.connect = async () => ({
+    query: async (sql, values = []) => {
+      statements.push(sql.trim());
+      if (sql.includes("SELECT next_category_index")) return { rows: [{ next_category_index: stateIndex }] };
+      if (sql.includes("UPDATE market_generation_state")) stateIndex = Number(values[0]);
+      return { rows: [], rowCount: 1 };
+    },
+    release: () => undefined,
+  });
+
+  await assert.rejects(
+    generateWithinNextCategory(async (category) => {
+      assert.equal(category, "Regional");
+      throw new Error("simulated candidate persistence failure");
+    }),
+    /simulated candidate persistence failure/,
+  );
+  assert.equal(stateIndex, 2);
+  assert.ok(statements.includes("ROLLBACK"));
+  assert.equal(statements.some((sql) => sql.includes("UPDATE market_generation_state")), false);
+  assert.equal(statements.includes("COMMIT"), false);
 });
 
 test("candidate promotion atomically creates a private PENDING_APPROVAL proposal", async () => {

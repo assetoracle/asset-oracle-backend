@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { marketProposalSchema, type MarketProposalInput } from "./marketValidation.js";
-import { claimNextGenerationCategory, saveMarketCandidate } from "./marketGenerationStore.js";
+import { generateWithinNextCategory, saveMarketCandidate } from "./marketGenerationStore.js";
 
 const generationTemplateSchema = z.object({
   id: z.string().trim().min(1).max(100),
@@ -131,40 +131,48 @@ export async function generateNextMarketCandidate(): Promise<{
   invalid: number;
 }> {
   const templates = readTemplates();
-  const category = await claimNextGenerationCategory();
-  const selected = templates.filter((template) => template.category === category);
-  if (selected.length === 0) {
-    throw new Error(`No approved generation templates are configured for ${category}.`);
-  }
-  let inserted = 0, duplicates = 0, invalid = 0;
-  const now = Date.now();
-
-  for (const template of selected) {
-    const proposal = marketProposalSchema.safeParse({
-      question: template.question,
-      description: template.description,
-      category: template.category,
-      ...(template.sport ? { sport: template.sport } : {}),
-      closesAt: new Date(now + template.closeAfterMinutes * 60_000).toISOString(),
-      resolvesAt: new Date(now + template.resolveAfterMinutes * 60_000).toISOString(),
-      resolutionRule: {
-        sourceId: template.sourceId,
-        metric: template.metric,
-        comparison: template.comparison,
-        targetValue: template.targetValue,
-        ...(template.currency ? { currency: template.currency } : {}),
-        observationTime: new Date(now).toISOString(),
-        description: `Resolve using the configured ${template.sourceId} source and the ${template.metric} metric at the specified observation time.`,
-        query: template.query,
-      },
-    });
-    if (!proposal.success) {
-      invalid++;
-      continue;
+  const { category, result } = await generateWithinNextCategory(async (category, client) => {
+    const selected = templates.filter((template) => template.category === category);
+    if (selected.length === 0) {
+      throw new Error(`No approved generation templates are configured for ${category}.`);
     }
-    const saved = await saveMarketCandidate({ templateId: template.id, proposal: proposal.data, closeAfterMinutes: template.closeAfterMinutes, resolveAfterMinutes: template.resolveAfterMinutes });
-    if (saved.inserted) inserted++; else duplicates++;
-  }
+    let inserted = 0, duplicates = 0, invalid = 0;
+    const now = Date.now();
 
-  return { category, considered: selected.length, inserted, duplicates, invalid };
+    for (const template of selected) {
+      const proposal = marketProposalSchema.safeParse({
+        question: template.question,
+        description: template.description,
+        category: template.category,
+        ...(template.sport ? { sport: template.sport } : {}),
+        closesAt: new Date(now + template.closeAfterMinutes * 60_000).toISOString(),
+        resolvesAt: new Date(now + template.resolveAfterMinutes * 60_000).toISOString(),
+        resolutionRule: {
+          sourceId: template.sourceId,
+          metric: template.metric,
+          comparison: template.comparison,
+          targetValue: template.targetValue,
+          ...(template.currency ? { currency: template.currency } : {}),
+          observationTime: new Date(now).toISOString(),
+          description: `Resolve using the configured ${template.sourceId} source and the ${template.metric} metric at the specified observation time.`,
+          query: template.query,
+        },
+      });
+      if (!proposal.success) {
+        invalid++;
+        continue;
+      }
+      const saved = await saveMarketCandidate({
+        templateId: template.id,
+        proposal: proposal.data,
+        closeAfterMinutes: template.closeAfterMinutes,
+        resolveAfterMinutes: template.resolveAfterMinutes,
+      }, client);
+      if (saved.inserted) inserted++; else duplicates++;
+    }
+
+    return { considered: selected.length, inserted, duplicates, invalid };
+  });
+
+  return { category, ...result };
 }
