@@ -10,20 +10,19 @@ export function validateCandidateForPromotion(
   candidateCategory: string,
   now = Date.now(),
 ): CandidatePromotionValidation {
+  if (typeof proposal === "object" && proposal !== null && "closesAt" in proposal) {
+    const closesAt = (proposal as { closesAt?: unknown }).closesAt;
+    if (typeof closesAt === "string") {
+      const closingTime = Date.parse(closesAt);
+      if (Number.isFinite(closingTime) && closingTime <= now) {
+        return { valid: false, reason: "This candidate has expired. Dismiss it and generate a fresh candidate before promotion." };
+      }
+    }
+  }
+
   const parsed = marketProposalSchema.safeParse(proposal);
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const expired = issue.path[0] === "closesAt" &&
-      typeof proposal === "object" && proposal !== null &&
-      "closesAt" in proposal &&
-      typeof (proposal as { closesAt?: unknown }).closesAt === "string" &&
-      Date.parse((proposal as { closesAt: string }).closesAt) <= now;
-    return {
-      valid: false,
-      reason: expired
-        ? "This candidate has expired. Dismiss it and generate a fresh candidate before promotion."
-        : `This candidate is no longer valid: ${issue.message}`,
-    };
+    return { valid: false, reason: `This candidate is no longer valid: ${parsed.error.issues[0].message}` };
   }
   const normalizedCategory = candidateCategory === "Crypto" ? "Digital Assets" : candidateCategory;
   if (parsed.data.category !== normalizedCategory) {
