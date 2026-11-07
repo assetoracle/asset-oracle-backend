@@ -80,7 +80,8 @@ async function main() {
      client.readContract({address:manager,abi,functionName:"claimCountByMarket",args:[BigInt(id)]})
     ]);
     if(participants>0n&&claims<participants){
-     const p=await db.query("SELECT next_index FROM market_lifecycle_payout_progress WHERE market_id=$1",[String(id)]).catch(()=>({rows:[]}));
+     const table=await db.query("SELECT to_regclass('public.market_lifecycle_payout_progress') AS name");
+     const p=table.rows[0]?.name ? await db.query("SELECT next_index FROM market_lifecycle_payout_progress WHERE market_id=$1",[String(id)]) : {rows:[]};
      const saved=Number(p.rows[0]?.next_index??0);
      const start=normalizePayoutStartIndex(Number(participants),saved);
      const size=getPayoutBatchSize(Number(participants),start,BATCH_SIZE);
