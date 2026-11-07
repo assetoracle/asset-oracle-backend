@@ -89,7 +89,7 @@ test("candidate persistence inserts using a stable unique hash", async () => {
     };
   };
   const result = await saveMarketCandidate({ templateId: "btc-usd-threshold", proposal, closeAfterMinutes: 60, resolveAfterMinutes: 120 });
-  assert.match(capturedSql, /ON CONFLICT \(proposal_hash\) DO NOTHING/);
+  assert.match(capturedSql, /ON CONFLICT \(proposal_hash\) WHERE status <> 'EXPIRED' DO NOTHING/);
   assert.equal(capturedValues[4], createMarketCandidateHash(proposal, { closeAfterMinutes: 60, resolveAfterMinutes: 120 }));
   assert.equal(result.inserted, true);
   assert.equal(result.candidate?.status, "PENDING_REVIEW");
@@ -123,6 +123,7 @@ test("category cursor advances only after the candidate batch succeeds", async (
   assert.equal(first.category, "Digital Assets");
   assert.equal(first.result, "saved");
   assert.equal(stateIndex, 1);
+  assert.ok(statements.some((sql) => sql.includes("SET status='EXPIRED'")));
   assert.ok(statements.includes("COMMIT"));
 });
 

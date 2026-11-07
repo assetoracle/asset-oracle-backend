@@ -9,7 +9,7 @@ export type MarketCandidate = {
   templateId: string;
   category: MarketProposalInput["category"];
   proposal: MarketProposalInput;
-  status: "PENDING_REVIEW" | "DISMISSED" | "PROMOTED";
+  status: "PENDING_REVIEW" | "DISMISSED" | "PROMOTED" | "EXPIRED";
   createdAt: string;
 };
 
@@ -31,12 +31,17 @@ export async function initializeMarketGenerationStore(): Promise<void> {
       template_id TEXT NOT NULL,
       category TEXT NOT NULL,
       proposal JSONB NOT NULL,
-      proposal_hash TEXT NOT NULL UNIQUE CHECK (proposal_hash ~ '^[a-f0-9]{64}$'),
+      proposal_hash TEXT NOT NULL CHECK (proposal_hash ~ '^[a-f0-9]{64}$'),
       status TEXT NOT NULL DEFAULT 'PENDING_REVIEW'
-        CHECK (status IN ('PENDING_REVIEW', 'DISMISSED', 'PROMOTED')),
+        CHECK (status IN ('PENDING_REVIEW', 'DISMISSED', 'PROMOTED', 'EXPIRED')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Upgrade existing installations without changing candidate records.
+  await database.query(`ALTER TABLE market_generation_candidates DROP CONSTRAINT IF EXISTS market_generation_candidates_status_check`);
+  await database.query(`ALTER TABLE market_generation_candidates ADD CONSTRAINT market_generation_candidates_status_check CHECK (status IN ('PENDING_REVIEW', 'DISMISSED', 'PROMOTED', 'EXPIRED'))`);
+  await database.query(`ALTER TABLE market_generation_candidates DROP CONSTRAINT IF EXISTS market_generation_candidates_proposal_hash_key`);
+  await database.query(`CREATE UNIQUE INDEX IF NOT EXISTS market_generation_candidates_active_hash_idx ON market_generation_candidates (proposal_hash) WHERE status <> 'EXPIRED'`);
   await database.query(`
     CREATE INDEX IF NOT EXISTS market_generation_candidates_status_created_idx
     ON market_generation_candidates (status, created_at DESC)
@@ -66,6 +71,7 @@ export async function generateWithinNextCategory<T>(
     if (!Number.isInteger(index) || index < 0 || index >= CATEGORIES.length) {
       throw new Error("Market generation category cursor is outside the supported range.");
     }
+    await client.query(`UPDATE market_generation_candidates SET status='EXPIRED' WHERE status='PENDING_REVIEW' AND proposal->>'closesAt' IS NOT NULL AND (proposal->>'closesAt')::timestamptz <= NOW()`);
     const category = CATEGORIES[index];
     const result = await work(category, client);
     await client.query(
@@ -98,7 +104,7 @@ export async function saveMarketCandidate(
     `INSERT INTO market_generation_candidates
       (id, template_id, category, proposal, proposal_hash)
      VALUES ($1, $2, $3, $4::jsonb, $5)
-     ON CONFLICT (proposal_hash) DO NOTHING
+     ON CONFLICT (proposal_hash) WHERE status <> 'EXPIRED' DO NOTHING
      RETURNING id, template_id, category, proposal, status, created_at`,
     [id, input.templateId, input.proposal.category, JSON.stringify(input.proposal), hash],
   );
