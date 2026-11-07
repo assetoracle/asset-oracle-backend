@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { database } from "../config/database.js";
 import type { MarketProposalInput } from "./marketValidation.js";
+import { validateCandidateForPromotion } from "./marketCandidateEligibility.js";
 import { createAutomatedMarketProposal, type StoredMarketProposal } from "./marketStore.js";
 
 export type MarketCandidate = {
@@ -163,7 +164,7 @@ export async function reviewMarketCandidate(input: {
   candidateId: string;
   decision: "DISMISSED" | "PROMOTED";
   reviewerAddress: string;
-}): Promise<{ result: "UPDATED" | "NOT_FOUND" | "CONFLICT"; proposal?: StoredMarketProposal }> {
+}): Promise<{ result: "UPDATED" | "NOT_FOUND" | "CONFLICT" | "INVALID"; proposal?: StoredMarketProposal; reason?: string }> {
   const client = await database.connect();
   try {
     await client.query("BEGIN");
@@ -190,10 +191,15 @@ export async function reviewMarketCandidate(input: {
 
     let proposal: StoredMarketProposal | undefined;
     if (input.decision === "PROMOTED") {
-      const proposalInput = typeof candidate.proposal === "string"
-        ? JSON.parse(candidate.proposal) as MarketProposalInput
+      const rawProposal = typeof candidate.proposal === "string"
+        ? JSON.parse(candidate.proposal) as unknown
         : candidate.proposal;
-      proposal = await createAutomatedMarketProposal(proposalInput, client);
+      const eligibility = validateCandidateForPromotion(rawProposal, candidate.category);
+      if (!eligibility.valid) {
+        await client.query("ROLLBACK");
+        return { result: "INVALID", reason: eligibility.reason };
+      }
+      proposal = await createAutomatedMarketProposal(eligibility.proposal, client);
     }
 
     const updated = await client.query(
