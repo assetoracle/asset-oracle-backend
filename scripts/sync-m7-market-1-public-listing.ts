@@ -39,8 +39,11 @@ async function main() {
   if (market.id !== MARKET_ID || market.question !== QUESTION || market.stablecoin !== 0 || market.challengePeriod !== 3600n) {
     throw new Error("On-chain market fields do not match the approved M7 BTC market details.");
   }
-  if (token.token.toLowerCase() !== USDC || token.decimals !== 6 || !token.enabled) {
-    throw new Error("On-chain USDC configuration does not match the approved testnet token.");
+  // Viem returns Solidity multi-value outputs as a positional tuple. Do not
+  // assume the ABI output names are exposed as object properties at runtime.
+  const [tokenAddress, tokenDecimals, tokenEnabled] = token;
+  if (typeof tokenAddress !== "string" || tokenAddress.toLowerCase() !== USDC || tokenDecimals !== 6 || tokenEnabled !== true) {
+    throw new Error("On-chain USDC configuration is missing or does not match the approved testnet token.");
   }
 
   const closesAt = new Date(Number(market.closeTime) * 1000).toISOString();
