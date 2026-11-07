@@ -63,6 +63,30 @@ async function main() {
   const db = await pool.connect();
   try {
     await db.query("BEGIN");
+
+    // Bring older database instances up to the market-store schema before
+    // attempting the public listing insert. These migrations are additive or
+    // relax a legacy NOT NULL constraint; they do not modify existing records.
+    await db.query(`
+      ALTER TABLE market_proposals
+        ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'MANUAL',
+        ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'PRIVATE'
+    `);
+    await db.query(`
+      ALTER TABLE market_proposals
+        ALTER COLUMN "walletAddress" DROP NOT NULL
+    `);
+    await db.query("ALTER TABLE market_proposals DROP CONSTRAINT IF EXISTS market_proposals_origin_check");
+    await db.query(`
+      ALTER TABLE market_proposals ADD CONSTRAINT market_proposals_origin_check
+      CHECK (origin IN ('MANUAL', 'AUTOMATED'))
+    `);
+    await db.query("ALTER TABLE market_proposals DROP CONSTRAINT IF EXISTS market_proposals_visibility_check");
+    await db.query(`
+      ALTER TABLE market_proposals ADD CONSTRAINT market_proposals_visibility_check
+      CHECK (visibility IN ('PRIVATE', 'PUBLIC'))
+    `);
+
     const existing = await db.query(
       "SELECT id, onchain_market_id, onchain_tx_hash FROM market_proposals WHERE onchain_chain_id=$1 AND lower(onchain_manager_address)=lower($2) AND onchain_market_id=$3 FOR UPDATE",
       [CHAIN_ID, MANAGER, MARKET_ID.toString()]
