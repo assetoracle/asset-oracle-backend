@@ -104,7 +104,7 @@ export async function saveMarketCandidate(
     `INSERT INTO market_generation_candidates
       (id, template_id, category, proposal, proposal_hash)
      VALUES ($1, $2, $3, $4::jsonb, $5)
-     ON CONFLICT (proposal_hash) DO NOTHING
+     ON CONFLICT (proposal_hash) WHERE status <> 'EXPIRED' DO NOTHING
      RETURNING id, template_id, category, proposal, status, created_at`,
     [id, input.templateId, input.proposal.category, JSON.stringify(input.proposal), hash],
   );
