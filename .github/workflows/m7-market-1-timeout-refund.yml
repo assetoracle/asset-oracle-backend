@@ -1,0 +1,37 @@
+name: M7 Market 1 timeout refund (one-time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type CLOSE_AND_REFUND_M7_MARKET_1 to authorize this exact testnet action
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m7-market-1-timeout-refund
+  cancel-in-progress: false
+
+jobs:
+  close-and-refund-market-1:
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'CLOSE_AND_REFUND_M7_MARKET_1'
+    runs-on: ubuntu-latest
+    environment: asset-oracle-testnet
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed main branch
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install backend dependencies
+        run: npm install --include=dev
+      - name: Close and timeout-refund only Market 1
+        env:
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.AUTOMATION_PRIVATE_KEY }}
+          AUTOMATION_WALLET_ADDRESS: ${{ vars.AUTOMATION_WALLET_ADDRESS }}
+        run: node scripts/m7-market-1-timeout-refund.mjs
