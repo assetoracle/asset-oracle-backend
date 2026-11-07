@@ -1,0 +1,63 @@
+name: One-time M7 BTC test market publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_publish:
+        description: 'Type PUBLISH_ONE_M7_BTC_MARKET to authorize this single publication'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asset-oracle-m7-one-time-publication
+  cancel-in-progress: false
+
+jobs:
+  publish-one-market:
+    if: github.ref == 'refs/heads/main' && inputs.confirm_publish == 'PUBLISH_ONE_M7_BTC_MARKET'
+    runs-on: ubuntu-latest
+    environment: asset-oracle-testnet
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed default-branch code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install backend dependencies
+        run: npm install --include=dev
+
+      - name: Verify automation signer, database and Enugu configuration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.AUTOMATION_PRIVATE_KEY }}
+          ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
+          ASSET_CHAIN_ID: "42421"
+          ASSET_ORACLE_MARKET_MANAGER_ADDRESS: ${{ vars.ASSET_ORACLE_MARKET_MANAGER_ADDRESS }}
+          ASSET_ORACLE_NEW_CONTRACT_VERIFIED: ${{ vars.ASSET_ORACLE_NEW_CONTRACT_VERIFIED }}
+          AUTOMATION_WALLET_ADDRESS: ${{ vars.AUTOMATION_WALLET_ADDRESS }}
+        run: npm run preflight:testnet-automation
+
+      - name: Install contract dependencies
+        working-directory: contracts
+        run: npm install --include=dev
+
+      - name: Compile contract artifacts
+        working-directory: contracts
+        env:
+          ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
+        run: npx hardhat compile
+
+      - name: Publish exactly one approved M7 BTC market
+        working-directory: contracts
+        env:
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.AUTOMATION_PRIVATE_KEY }}
+          ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
+          ASSET_ORACLE_MARKET_MANAGER_ADDRESS: ${{ vars.ASSET_ORACLE_MARKET_MANAGER_ADDRESS }}
+        run: npx hardhat run scripts/publish-m7-btc-test-market.ts --network enugu
