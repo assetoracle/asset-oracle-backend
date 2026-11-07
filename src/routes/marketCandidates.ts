@@ -83,6 +83,9 @@ router.post("/admin/:candidateId/decision/session", async (req, res, next) => {
     if (result.result === "CONFLICT") {
       return res.status(409).json({ error: "This candidate has already been reviewed. Refresh the candidate queue." });
     }
+    if (result.result === "INVALID") {
+      return res.status(422).json({ error: result.reason ?? "This candidate is no longer eligible for promotion." });
+    }
     return res.status(200).json({
       message: parsed.data.decision === "PROMOTED"
         ? "Candidate promoted into the private automated market queue for market-maker approval."
