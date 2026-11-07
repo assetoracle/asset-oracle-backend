@@ -1,0 +1,35 @@
+name: Read-only testnet lifecycle simulation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asset-oracle-testnet-lifecycle-simulation
+  cancel-in-progress: false
+
+jobs:
+  simulate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: asset-oracle-testnet
+    timeout-minutes: 8
+    steps:
+      - name: Check out reviewed main branch
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --include=dev
+      - name: Run read-only lifecycle simulation
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ASSET_CHAIN_RPC_URL: https://enugu-rpc.assetchain.org
+          ASSET_CHAIN_ID: "42421"
+          ASSET_ORACLE_MARKET_MANAGER_ADDRESS: ${{ vars.ASSET_ORACLE_MARKET_MANAGER_ADDRESS }}
+          ASSET_ORACLE_NEW_CONTRACT_VERIFIED: ${{ vars.ASSET_ORACLE_NEW_CONTRACT_VERIFIED }}
+        run: npm run simulate:testnet-lifecycle
