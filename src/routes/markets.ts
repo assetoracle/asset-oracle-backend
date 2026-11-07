@@ -564,10 +564,41 @@ marketsRouter.get("/public", async (_req, res, next) => {
   try {
     // The store applies a hard 100-row cap to keep this public query bounded.
     const markets = await listPublishedMarkets();
+    const rpcUrl = process.env.ASSET_CHAIN_RPC_URL?.trim() || "https://enugu-rpc.assetchain.org";
+    const client = createPublicClient({ transport: http(rpcUrl) });
+    const chainId = await client.getChainId();
+    if (chainId !== 42421) {
+      return res.status(503).json({ error: "Configured RPC does not report Asset Chain Enugu testnet." });
+    }
+
+    const lifecycleNames = ["OPEN", "CLOSED", "DISPUTED", "SETTLED", "REFUNDABLE", "CANCELLED", "ARBITRATION"] as const;
+    const marketsWithLifecycle = await Promise.all(markets.map(async (market) => {
+      // Keep publication approval separate from the live contract lifecycle.
+      // If an individual read fails, return null rather than guessing a status.
+      if (!market.onchainMarketId || !market.onchainManagerAddress ||
+          !isAddress(market.onchainManagerAddress) ||
+          getAddress(market.onchainManagerAddress) !== getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)) {
+        return { ...market, onchainLifecycleStatus: null };
+      }
+      try {
+        const onchain = await client.readContract({
+          address: getAddress(market.onchainManagerAddress),
+          abi: marketTypeAbi,
+          functionName: "getMarket",
+          args: [BigInt(market.onchainMarketId)],
+        });
+        return {
+          ...market,
+          onchainLifecycleStatus: lifecycleNames[Number(onchain.status)] ?? "UNKNOWN",
+        };
+      } catch {
+        return { ...market, onchainLifecycleStatus: null };
+      }
+    }));
 
     return res.status(200).json({
-      markets,
-      count: markets.length,
+      markets: marketsWithLifecycle,
+      count: marketsWithLifecycle.length,
     });
   } catch (error) {
     return next(error);
