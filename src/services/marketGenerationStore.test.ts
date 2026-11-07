@@ -123,6 +123,7 @@ test("category cursor advances only after the candidate batch succeeds", async (
   assert.equal(first.category, "Digital Assets");
   assert.equal(first.result, "saved");
   assert.equal(stateIndex, 1);
+  assert.ok(statements.some((sql) => sql.includes("SET status='EXPIRED'")));
   assert.ok(statements.includes("COMMIT"));
 });
 
