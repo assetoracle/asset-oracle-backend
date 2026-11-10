@@ -50,7 +50,7 @@ async function main(): Promise<void> {
         // Only the response collected by this run may be used. Never fall back
         // to an older evidence row when a provider call did not produce a record.
         const { evidence } = await collectMarketEvidence(market.id);
-        const evidenceAge = now - Date.parse(evidence.retrievedAt);
+        const evidenceAge = Date.now() - Date.parse(evidence.retrievedAt);
         if (!Number.isFinite(evidenceAge) || evidenceAge < 0 || evidenceAge > MAX_EVIDENCE_AGE_MS) {
           throw new Error("Provider evidence is stale or has an invalid retrieval timestamp; no recommendation was prepared.");
         }
