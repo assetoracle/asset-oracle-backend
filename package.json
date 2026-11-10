@@ -13,6 +13,7 @@
     "verify:enugu-preflight": "tsx scripts/verify-enugu-paid-submission-preflight.ts",
     "automate:market-lifecycle": "node dist/workers/automateMarketLifecycle.js",
     "automate:market-evidence": "node dist/workers/marketEvidenceWorker.js",
+    "automate:market-resolution-verification": "node dist/workers/marketResolutionVerificationWorker.js",
     "preflight:testnet-automation": "tsx scripts/testnet-automation-preflight.ts",
     "automate:market-proposals": "node dist/workers/marketProposalGeneratorWorker.js",
     "simulate:testnet-lifecycle": "tsx scripts/simulate-testnet-market-lifecycle.ts"

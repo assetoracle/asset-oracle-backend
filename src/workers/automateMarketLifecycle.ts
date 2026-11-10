@@ -167,6 +167,8 @@ async function main(): Promise<void> {
 
   try {
     await initializeMarketStore();
+    await database.query("CREATE TABLE IF NOT EXISTS market_lifecycle_transactions (id BIGSERIAL PRIMARY KEY, chain_id INTEGER NOT NULL CHECK (chain_id = 42421), manager_address TEXT NOT NULL, market_id TEXT NOT NULL, transaction_type TEXT NOT NULL, transaction_hash TEXT NOT NULL UNIQUE, recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+
     await database.query(`
       CREATE TABLE IF NOT EXISTS market_lifecycle_payout_progress (
         market_id TEXT PRIMARY KEY,
@@ -289,7 +291,7 @@ async function main(): Promise<void> {
       } else if (isMarketFinalizable(market.status, market.resolvedAt, market.challengePeriod, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "finalizeMarket", args: [BigInt(id)] });
         const receipt = await waitForReceipt(hash);
-        if (receipt.status === "success") console.log(`Finalized validator-resolved market ${id}: ${EXPLORER}/tx/${hash}`);
+        if (receipt.status === "success") { await database.query("INSERT INTO market_lifecycle_transactions (chain_id, manager_address, market_id, transaction_type, transaction_hash) VALUES (42421, lower($1), $2, $3, lower($4)) ON CONFLICT (transaction_hash) DO NOTHING", [manager, String(id), "FINALIZATION", hash]); console.log(`Finalized validator-resolved market ${id}: ${EXPLORER}/tx/${hash}`); }
         else console.error(`finalizeMarket failed for market ${id}: ${hash}`);
       } else if (isDisputeRefundDue(market.status, market.resolvedAt, DISPUTE_RESOLUTION_TIMEOUT_SECONDS, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "refundDisputedTimeout", args: [BigInt(id)] });
@@ -328,6 +330,7 @@ async function main(): Promise<void> {
         });
         const receipt = await waitForReceipt(hash);
         if (receipt.status !== "success") throw new Error(`distributePayouts failed for market ${id}: ${hash}`);
+        await database.query("INSERT INTO market_lifecycle_transactions (chain_id, manager_address, market_id, transaction_type, transaction_hash) VALUES (42421, lower($1), $2, $3, lower($4)) ON CONFLICT (transaction_hash) DO NOTHING", [manager, String(id), "PAYOUT", hash]);
         await database.query(
           "UPDATE market_lifecycle_payout_progress SET next_index = $2, updated_at = NOW() WHERE market_id = $1",
           [String(id), startIndex + Number(batchSize)],
