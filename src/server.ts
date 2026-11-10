@@ -12,10 +12,12 @@ import validatorEvidenceRouter from "./routes/validatorEvidence.js";
 import referralsRouter from "./routes/referrals.js";
 import statsRouter from "./routes/stats.js";
 import dataSourcesRouter from "./routes/dataSources.js";
+import { database } from "./config/database.js";
 import { initializeReferralStore } from "./services/referralStore.js";
 import { initializeMarketStore } from "./services/marketStore.js";
 import { initializeValidatorEvidenceStore } from "./services/validatorEvidenceStore.js";
 import { initializeMarketEvidenceStore } from "./services/marketEvidenceStore.js";
+import { initializeMarketResolutionVerificationStore } from "./services/marketResolutionVerification.js";
 import { initializeMarketGenerationStore } from "./services/marketGenerationStore.js";
 import marketEvidenceRouter from "./routes/marketEvidence.js";
 import marketCandidatesRouter from "./routes/marketCandidates.js";
@@ -94,6 +96,18 @@ async function startServer(): Promise<void> {
     await initializeMarketStore();
     await initializeValidatorEvidenceStore();
     await initializeMarketEvidenceStore();
+    await initializeMarketResolutionVerificationStore();
+    await database.query(`
+      CREATE TABLE IF NOT EXISTS market_lifecycle_transactions (
+        id BIGSERIAL PRIMARY KEY,
+        chain_id INTEGER NOT NULL CHECK (chain_id = 42421),
+        manager_address TEXT NOT NULL,
+        market_id TEXT NOT NULL,
+        transaction_type TEXT NOT NULL,
+        transaction_hash TEXT NOT NULL UNIQUE,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
     await initializeMarketGenerationStore();
     await initializeWalletAuth();
     await initializeReferralStore();
