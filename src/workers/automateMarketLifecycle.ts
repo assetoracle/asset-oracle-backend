@@ -291,7 +291,7 @@ async function main(): Promise<void> {
       } else if (isMarketFinalizable(market.status, market.resolvedAt, market.challengePeriod, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "finalizeMarket", args: [BigInt(id)] });
         const receipt = await waitForReceipt(hash);
-        if (receipt.status === "success") console.log(`Finalized validator-resolved market ${id}: ${EXPLORER}/tx/${hash}`);
+        if (receipt.status === "success") { await database.query("INSERT INTO market_lifecycle_transactions (chain_id, manager_address, market_id, transaction_type, transaction_hash) VALUES (42421, lower($1), $2, $3, lower($4)) ON CONFLICT (transaction_hash) DO NOTHING", [manager, String(id), "FINALIZATION", hash]); console.log(`Finalized validator-resolved market ${id}: ${EXPLORER}/tx/${hash}`); }
         else console.error(`finalizeMarket failed for market ${id}: ${hash}`);
       } else if (isDisputeRefundDue(market.status, market.resolvedAt, DISPUTE_RESOLUTION_TIMEOUT_SECONDS, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "refundDisputedTimeout", args: [BigInt(id)] });
@@ -330,6 +330,7 @@ async function main(): Promise<void> {
         });
         const receipt = await waitForReceipt(hash);
         if (receipt.status !== "success") throw new Error(`distributePayouts failed for market ${id}: ${hash}`);
+        await database.query("INSERT INTO market_lifecycle_transactions (chain_id, manager_address, market_id, transaction_type, transaction_hash) VALUES (42421, lower($1), $2, $3, lower($4)) ON CONFLICT (transaction_hash) DO NOTHING", [manager, String(id), "PAYOUT", hash]);
         await database.query(
           "UPDATE market_lifecycle_payout_progress SET next_index = $2, updated_at = NOW() WHERE market_id = $1",
           [String(id), startIndex + Number(batchSize)],
