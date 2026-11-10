@@ -1,0 +1,50 @@
+name: Market Evidence Worker
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asset-oracle-market-evidence-worker
+  cancel-in-progress: false
+
+jobs:
+  collect-approved-market-evidence:
+    if: github.ref == 'refs/heads/main' && vars.MARKET_EVIDENCE_WORKER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: asset-oracle-testnet
+    timeout-minutes: 8
+    steps:
+      - name: Check out reviewed default-branch code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Collect evidence for approved, unresolved proposals
+        run: npm run automate:market-evidence
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_SSL_REJECT_UNAUTHORIZED: "true"
+          MARKET_EVIDENCE_WORKER_ENABLED: "true"
+          MARKET_EVIDENCE_MAX_PER_RUN: "10"
+          MARKET_EVIDENCE_INTERVAL_MINUTES: "15"
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          SPORTMONKS_API_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
+          API_FOOTBALL_API_KEY: ${{ secrets.API_FOOTBALL_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
