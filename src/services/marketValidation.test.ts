@@ -48,7 +48,7 @@ test("market proposal schema requires resolution after closing", () => {
 
 test("sports markets require a supported sport", () => {
   const base = validProposal();
-  const proposal = { ...base, category: "Sports", resolutionRule: { ...base.resolutionRule, sourceId: "sportmonks", query: { date: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10) } } };
+  const proposal = { ...base, category: "Sports", resolutionRule: { ...base.resolutionRule, sourceId: "sportmonks", metric: "data.length", query: { date: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10) } } };
   assert.equal(marketProposalSchema.safeParse(proposal).success, false);
   for (const sport of ["football", "basketball", "tennis"] as const) {
     assert.equal(marketProposalSchema.safeParse({ ...proposal, sport }).success, true);
@@ -67,5 +67,12 @@ test("market proposals reject a provider that is not allowlisted for the categor
 test("market proposals require provider-specific query parameters", () => {
   const proposal = validProposal();
   proposal.resolutionRule.query.coinId = "";
+  assert.equal(marketProposalSchema.safeParse(proposal).success, false);
+});
+
+
+test("market proposals reject metrics not supported by their selected provider", () => {
+  const proposal = validProposal();
+  proposal.resolutionRule.metric = "response.length";
   assert.equal(marketProposalSchema.safeParse(proposal).success, false);
 });

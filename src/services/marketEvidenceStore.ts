@@ -82,11 +82,15 @@ export async function saveMarketEvidence(input: MarketEvidenceInput): Promise<{ 
     JSON.stringify(input.rawData), input.metric, input.normalizedValue === null ? null : JSON.stringify(input.normalizedValue)]);
   if (result.rows[0]) return { evidence: mapRow(result.rows[0]), inserted: true };
 
+  // The provider was queried again and returned identical content. Refresh the
+  // observation timestamp without changing the original payload hash or review.
   const existing = await database.query(`
-    SELECT id, proposal_id, provider, source_url, retrieved_at, content_hash, raw_data,
+    UPDATE market_data_evidence
+    SET retrieved_at=$4, source_url=$5
+    WHERE proposal_id=$1 AND provider=$2 AND content_hash=$3
+    RETURNING id, proposal_id, provider, source_url, retrieved_at, content_hash, raw_data,
       metric, normalized_value, verification_status, created_at
-    FROM market_data_evidence WHERE proposal_id=$1 AND provider=$2 AND content_hash=$3
-  `, [input.proposalId, input.provider, input.contentHash]);
+  `, [input.proposalId, input.provider, input.contentHash, input.retrievedAt, input.sourceUrl]);
   if (!existing.rows[0]) throw new Error("Evidence insert conflict could not be reconciled.");
   return { evidence: mapRow(existing.rows[0]), inserted: false };
 }

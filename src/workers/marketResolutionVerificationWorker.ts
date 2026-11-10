@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { database } from "../config/database.js";
 import { initializeMarketStore, listPublishedMarkets } from "../services/marketStore.js";
-import { initializeMarketEvidenceStore, listMarketEvidence } from "../services/marketEvidenceStore.js";
+import { initializeMarketEvidenceStore } from "../services/marketEvidenceStore.js";
 import { collectMarketEvidence } from "../services/marketEvidenceCollector.js";
 import {
   getResolutionRecommendation,
@@ -11,6 +11,7 @@ import {
 
 const LOCK_ID = 4242183;
 const MAX_MARKETS_PER_RUN = Math.max(1, Math.min(50, Number(process.env.MARKET_RESOLUTION_MAX_PER_RUN) || 10));
+const MAX_EVIDENCE_AGE_MS = Math.max(60_000, Number(process.env.MARKET_RESOLUTION_MAX_EVIDENCE_AGE_MS) || 15 * 60_000);
 
 async function main(): Promise<void> {
   if (process.env.MARKET_RESOLUTION_VERIFICATION_WORKER_ENABLED !== "true") {
@@ -46,11 +47,16 @@ async function main(): Promise<void> {
           skipped++;
           continue;
         }
-        // Fetch a fresh provider response at resolution time. The collector only
-        // accepts approved proposals, which includes published manual and automated markets.
-        const collection = await collectMarketEvidence(market.id);
-        const evidence = collection.evidence ?? (await listMarketEvidence(market.id))[0];
-        if (!evidence) throw new Error("Provider call completed without a stored evidence record.");
+        // Only the response collected by this run may be used. Never fall back
+        // to an older evidence row when a provider call did not produce a record.
+        const { evidence } = await collectMarketEvidence(market.id);
+        const evidenceAge = Date.now() - Date.parse(evidence.retrievedAt);
+        if (!Number.isFinite(evidenceAge) || evidenceAge < 0 || evidenceAge > MAX_EVIDENCE_AGE_MS) {
+          throw new Error("Provider evidence is stale or has an invalid retrieval timestamp; no recommendation was prepared.");
+        }
+        if (evidence.metric !== market.resolutionRule.metric) {
+          throw new Error("Stored evidence metric does not match the market's configured resolution metric.");
+        }
         const recommendation = await saveResolutionRecommendation({
           proposalId: market.id,
           evidence,
