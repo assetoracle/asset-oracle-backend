@@ -167,6 +167,8 @@ async function main(): Promise<void> {
 
   try {
     await initializeMarketStore();
+    await database.query("CREATE TABLE IF NOT EXISTS market_lifecycle_transactions (id BIGSERIAL PRIMARY KEY, chain_id INTEGER NOT NULL CHECK (chain_id = 42421), manager_address TEXT NOT NULL, market_id TEXT NOT NULL, transaction_type TEXT NOT NULL, transaction_hash TEXT NOT NULL UNIQUE, recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+
     await database.query(`
       CREATE TABLE IF NOT EXISTS market_lifecycle_payout_progress (
         market_id TEXT PRIMARY KEY,
