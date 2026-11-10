@@ -73,7 +73,6 @@ export async function saveResolutionRecommendation(input: {
 }): Promise<ResolutionRecommendation> {
   const observedValue = numericValue(input.evidence.normalizedValue);
   const proposedOutcome = evaluateResolutionRule(observedValue, input.comparison, input.targetValue);
-  const fetchedAt = new Date().toISOString();
   const evidenceHash = keccak256(toBytes(input.evidence.sourceUrl.trim()));
   const result = await database.query(`
     INSERT INTO market_resolution_recommendations
@@ -83,7 +82,7 @@ export async function saveResolutionRecommendation(input: {
     ON CONFLICT (proposal_id) DO NOTHING
     RETURNING *
   `, [input.proposalId, input.evidence.id, input.evidence.provider, input.evidence.sourceUrl,
-    fetchedAt, input.evidence.metric, observedValue, input.comparison, input.targetValue,
+    input.evidence.retrievedAt, input.evidence.metric, observedValue, input.comparison, input.targetValue,
     proposedOutcome, evidenceHash, input.evidence.contentHash]);
   if (!result.rows[0]) {
     const existing = await database.query(
