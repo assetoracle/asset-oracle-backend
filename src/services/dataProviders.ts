@@ -45,7 +45,7 @@ async function getJson<T>(provider: string, url: URL, headers: Record<string, st
       lastError = error;
       if (!isRetryableNetworkError(error) || attempt >= PROVIDER_REQUEST_RETRIES) {
         if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
-          throw new Error(`${provider} request timed out after ${PROVIDER_REQUEST_TIMEOUT_MS / 1000} seconds (including ${attempt} retries).`);
+          throw new Error(`${provider} request timed out after ${PROVIDER_REQUEST_TIMEOUT_MS / 1000} seconds per attempt; ${attempt} retry attempt(s) exhausted.`);
         }
         throw error;
       }
