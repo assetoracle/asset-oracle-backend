@@ -1,5 +1,4 @@
 import { database } from "../config/database.js";
-import { keccak256, toBytes } from "viem";
 import type { StoredMarketEvidence } from "./marketEvidenceStore.js";
 
 export type ResolutionRecommendation = {
@@ -74,12 +73,12 @@ export async function saveResolutionRecommendation(input: {
     INSERT INTO market_resolution_recommendations
       (proposal_id, evidence_id, provider, source_url, retrieved_at, metric, observed_value,
        comparison, target_value, proposed_outcome, evidence_hash)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    VALUES ($1,$2,$3,$4,$12,$6,$7,$8,$9,$10,$11)
     ON CONFLICT (proposal_id) DO NOTHING
     RETURNING *
   `, [input.proposalId, input.evidence.id, input.evidence.provider, input.evidence.sourceUrl,
     input.evidence.retrievedAt, input.evidence.metric, observedValue, input.comparison,
-    input.targetValue, proposedOutcome, keccak256(toBytes(input.evidence.sourceUrl.trim()))]);
+    input.targetValue, proposedOutcome, `0x${input.evidence.contentHash}`, new Date().toISOString()]);
   if (!result.rows[0]) {
     const existing = await database.query(
       "SELECT * FROM market_resolution_recommendations WHERE proposal_id=$1",
