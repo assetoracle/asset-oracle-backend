@@ -10,6 +10,20 @@ export type DataSourceResult<T = unknown> = {
 
 const PROVIDER_REQUEST_TIMEOUT_MS = 20_000;
 const PROVIDER_REQUEST_RETRIES = 1;
+const GDELT_RATE_LIMIT_RETRIES = 2;
+const MAX_RATE_LIMIT_RETRY_DELAY_MS = 10_000;
+
+function retryDelayMs(response: Response, attempt: number): number {
+  const retryAfter = response.headers.get("retry-after")?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const retryAt = Number.isFinite(seconds) ? Date.now() + Math.max(0, seconds) * 1000 : Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(MAX_RATE_LIMIT_RETRY_DELAY_MS, Math.max(0, retryAt - Date.now()));
+    }
+  }
+  return Math.min(MAX_RATE_LIMIT_RETRY_DELAY_MS, 1_000 * 2 ** attempt);
+}
 
 function isRetryableNetworkError(error: unknown): boolean {
   return error instanceof TypeError ||
@@ -18,7 +32,8 @@ function isRetryableNetworkError(error: unknown): boolean {
 
 async function getJson<T>(provider: string, url: URL, headers: Record<string, string> = {}): Promise<DataSourceResult<T>> {
   let lastError: unknown;
-  for (let attempt = 0; attempt <= PROVIDER_REQUEST_RETRIES; attempt++) {
+  const maxRetries = provider === "gdelt" ? GDELT_RATE_LIMIT_RETRIES : PROVIDER_REQUEST_RETRIES;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROVIDER_REQUEST_TIMEOUT_MS);
     try {
@@ -26,8 +41,12 @@ async function getJson<T>(provider: string, url: URL, headers: Record<string, st
       const contentLength = Number(response.headers.get("content-length") || 0);
       if (contentLength > 5000000) throw new Error(`${provider} response exceeded the 5 MB limit.`);
       if (!response.ok) {
-        if ((response.status === 429 || response.status >= 500) && attempt < PROVIDER_REQUEST_RETRIES) {
-          await new Promise((resolve) => setTimeout(resolve, 750));
+        const retryLimit = response.status === 429 && provider === "gdelt" ? GDELT_RATE_LIMIT_RETRIES : PROVIDER_REQUEST_RETRIES;
+        if ((response.status === 429 || response.status >= 500) && attempt < retryLimit) {
+          const delay = response.status === 429
+            ? retryDelayMs(response, attempt)
+            : Math.min(MAX_RATE_LIMIT_RETRY_DELAY_MS, 750 * 2 ** attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
         throw new Error(`${provider} returned HTTP ${response.status}.`);
