@@ -1,4 +1,5 @@
 import { database } from "../config/database.js";
+import { keccak256, toBytes } from "viem";
 import type { StoredMarketEvidence } from "./marketEvidenceStore.js";
 
 export type ResolutionRecommendation = {
@@ -13,6 +14,7 @@ export type ResolutionRecommendation = {
   targetValue: number;
   proposedOutcome: "YES" | "NO";
   evidenceHash: string;
+  contentHash: string;
   status: "PENDING_VALIDATORS" | "CONFIRMED" | "REJECTED" | "SUPERSEDED";
   createdAt: string;
 };
@@ -31,11 +33,13 @@ export async function initializeMarketResolutionVerificationStore(): Promise<voi
       target_value DOUBLE PRECISION NOT NULL,
       proposed_outcome TEXT NOT NULL CHECK (proposed_outcome IN ('YES', 'NO')),
       evidence_hash TEXT NOT NULL CHECK (evidence_hash ~ '^0x[a-f0-9]{64}$'),
+      content_hash TEXT NOT NULL CHECK (content_hash ~ '^[a-f0-9]{64}$'),
       status TEXT NOT NULL DEFAULT 'PENDING_VALIDATORS'
         CHECK (status IN ('PENDING_VALIDATORS', 'CONFIRMED', 'REJECTED', 'SUPERSEDED')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await database.query("ALTER TABLE market_resolution_recommendations ADD COLUMN IF NOT EXISTS content_hash TEXT");
 }
 
 function numericValue(value: unknown): number {
@@ -70,16 +74,17 @@ export async function saveResolutionRecommendation(input: {
   const observedValue = numericValue(input.evidence.normalizedValue);
   const proposedOutcome = evaluateResolutionRule(observedValue, input.comparison, input.targetValue);
   const fetchedAt = new Date().toISOString();
+  const evidenceHash = keccak256(toBytes(input.evidence.sourceUrl.trim()));
   const result = await database.query(`
     INSERT INTO market_resolution_recommendations
       (proposal_id, evidence_id, provider, source_url, retrieved_at, metric, observed_value,
-       comparison, target_value, proposed_outcome, evidence_hash)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       comparison, target_value, proposed_outcome, evidence_hash, content_hash)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
     ON CONFLICT (proposal_id) DO NOTHING
     RETURNING *
   `, [input.proposalId, input.evidence.id, input.evidence.provider, input.evidence.sourceUrl,
     fetchedAt, input.evidence.metric, observedValue, input.comparison, input.targetValue,
-    proposedOutcome, `0x${input.evidence.contentHash}`]);
+    proposedOutcome, evidenceHash, input.evidence.contentHash]);
   if (!result.rows[0]) {
     const existing = await database.query(
       "SELECT * FROM market_resolution_recommendations WHERE proposal_id=$1",
@@ -104,6 +109,7 @@ function mapRecommendation(row: any): ResolutionRecommendation {
     targetValue: Number(row.target_value),
     proposedOutcome: row.proposed_outcome,
     evidenceHash: row.evidence_hash,
+    contentHash: row.content_hash ?? "",
     status: row.status,
     createdAt: new Date(row.created_at).toISOString(),
   };
