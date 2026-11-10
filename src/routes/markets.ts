@@ -10,6 +10,7 @@ import {
   getMarketProposal,
   listPublishedMarkets,
   listMarketProposals,
+  listApprovedMarketProposalsForEvidence,
   listMarketProposalsByWallet,
   recordOnchainPublication,
   createAutomatedMarketProposal,
@@ -155,6 +156,22 @@ marketsRouter.post("/admin/proposals/list/session", async (req, res, next) => {
     if (!await verifyWalletSession(sessionToken(req), address)) return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
     if (!isAdminWallet(address) && !isMarketCreatorWallet(address)) return res.status(403).json({ error: "Only the configured owner or market creator wallets can review proposals." });
     const proposals = await listMarketProposals();
+    return res.status(200).json({ proposals, count: proposals.length });
+  } catch (error) { return next(error); }
+});
+
+marketsRouter.post("/admin/evidence/proposals/session", async (req, res, next) => {
+  try {
+    const parsed = z.object({ address: z.string().refine(isAddress, "Invalid wallet address") }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "A valid owner wallet address is required." });
+    const { address } = parsed.data;
+    if (!await verifyWalletSession(sessionToken(req), address)) {
+      return res.status(401).json({ error: "Wallet session expired. Verify your wallet again." });
+    }
+    if (!isAdminWallet(address)) {
+      return res.status(403).json({ error: "Only the configured owner wallet can load proposals for provider evidence collection." });
+    }
+    const proposals = await listApprovedMarketProposalsForEvidence();
     return res.status(200).json({ proposals, count: proposals.length });
   } catch (error) { return next(error); }
 });

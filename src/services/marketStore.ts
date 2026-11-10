@@ -250,6 +250,17 @@ export async function listMarketProposals(): Promise<StoredMarketProposal[]> {
   return result.rows.map(mapProposal);
 }
 
+/** Approved proposals of either origin, exposed only to the owner for evidence collection. */
+export async function listApprovedMarketProposalsForEvidence(): Promise<StoredMarketProposal[]> {
+  const result = await database.query<MarketProposalRow>(
+    `SELECT * FROM market_proposals
+      WHERE status = 'APPROVED'
+      ORDER BY "submittedAt" DESC`,
+  );
+
+  return result.rows.map(mapProposal);
+}
+
 export async function getMarketProposal(
   id: string,
 ): Promise<StoredMarketProposal | undefined> {
