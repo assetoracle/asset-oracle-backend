@@ -8,26 +8,53 @@ export type DataSourceResult<T = unknown> = {
   data: T;
 };
 
+const PROVIDER_REQUEST_TIMEOUT_MS = 20_000;
+const PROVIDER_REQUEST_RETRIES = 1;
+
+function isRetryableNetworkError(error: unknown): boolean {
+  return error instanceof TypeError ||
+    (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"));
+}
+
 async function getJson<T>(provider: string, url: URL, headers: Record<string, string> = {}): Promise<DataSourceResult<T>> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const response = await fetch(url, { headers: { accept: "application/json", ...headers }, signal: controller.signal });
-    const contentLength = Number(response.headers.get("content-length") || 0);
-    if (contentLength > 5000000) throw new Error(`${provider} response exceeded the 5 MB limit.`);
-    if (!response.ok) throw new Error(`${provider} returned HTTP ${response.status}.`);
-    const body = await response.text();
-    if (Buffer.byteLength(body, "utf8") > 5000000) throw new Error(`${provider} response exceeded the 5 MB limit.`);
-    let data: T;
-    try { data = JSON.parse(body) as T; } catch { throw new Error(`${provider} returned an invalid JSON response.`); }
-    const safeUrl = new URL(url);
-    for (const key of [...safeUrl.searchParams.keys()]) {
-      if (["api_key", "x_cg_demo_api_key", "x_cg_pro_api_key", "api_token", "token", "key"].includes(key.toLowerCase())) safeUrl.searchParams.set(key, "[REDACTED]");
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= PROVIDER_REQUEST_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROVIDER_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { headers: { accept: "application/json", ...headers }, signal: controller.signal });
+      const contentLength = Number(response.headers.get("content-length") || 0);
+      if (contentLength > 5000000) throw new Error(`${provider} response exceeded the 5 MB limit.`);
+      if (!response.ok) {
+        if ((response.status === 429 || response.status >= 500) && attempt < PROVIDER_REQUEST_RETRIES) {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+          continue;
+        }
+        throw new Error(`${provider} returned HTTP ${response.status}.`);
+      }
+      const body = await response.text();
+      if (Buffer.byteLength(body, "utf8") > 5000000) throw new Error(`${provider} response exceeded the 5 MB limit.`);
+      let data: T;
+      try { data = JSON.parse(body) as T; } catch { throw new Error(`${provider} returned an invalid JSON response.`); }
+      const safeUrl = new URL(url);
+      for (const key of [...safeUrl.searchParams.keys()]) {
+        if (["api_key", "x_cg_demo_api_key", "x_cg_pro_api_key", "api_token", "token", "key"].includes(key.toLowerCase())) safeUrl.searchParams.set(key, "[REDACTED]");
+      }
+      return { provider, sourceUrl: safeUrl.toString(), retrievedAt: new Date().toISOString(), contentHash: createHash("sha256").update(body).digest("hex"), data };
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableNetworkError(error) || attempt >= PROVIDER_REQUEST_RETRIES) {
+        if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+          throw new Error(`${provider} request timed out after ${PROVIDER_REQUEST_TIMEOUT_MS / 1000} seconds (including ${attempt} retries).`);
+        }
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    } finally {
+      clearTimeout(timer);
     }
-    return { provider, sourceUrl: safeUrl.toString(), retrievedAt: new Date().toISOString(), contentHash: createHash("sha256").update(body).digest("hex"), data };
-  } finally {
-    clearTimeout(timer);
   }
+  throw lastError instanceof Error ? lastError : new Error(`${provider} request failed.`);
 }
 
 function requiredEnv(name: string): string {
