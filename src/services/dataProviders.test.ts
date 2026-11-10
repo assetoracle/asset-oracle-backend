@@ -111,3 +111,39 @@ test("validates GDELT query size and record limits", () => {
   assert.throws(() => gdeltArticles("regional event", 251), /Invalid GDELT query or timespan/);
   assert.throws(() => gdeltArticles("regional event", 25, "whenever"), /Invalid GDELT query or timespan/);
 });
+
+
+test("provider requests retry once after a transient network failure", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = (async () => {
+    attempts++;
+    if (attempts === 1) throw new TypeError("temporary network failure");
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const result = await dexscreenerSearch("asset chain");
+    assert.deepEqual(result.data, { ok: true });
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider requests retry one transient HTTP 503 response", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = (async () => {
+    attempts++;
+    return attempts === 1
+      ? new Response("temporarily unavailable", { status: 503 })
+      : new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const result = await dexscreenerSearch("asset chain");
+    assert.deepEqual(result.data, { ok: true });
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
