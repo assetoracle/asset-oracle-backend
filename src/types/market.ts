@@ -17,6 +17,7 @@ export type MarketCategory =
 
 export type ComparisonOperator =
   | "ABOVE"
+  | "AT_LEAST"
   | "BELOW"
   | "EQUALS";
 
