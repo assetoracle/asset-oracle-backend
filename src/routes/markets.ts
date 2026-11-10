@@ -1032,4 +1032,25 @@ marketsRouter.post("/admin/proposals/:id/publish/session", async (req, res, next
   }
 });
 
+marketsRouter.get("/public/:marketId/verification", async (req, res, next) => {
+  try {
+    const id = req.params.marketId;
+    if (!/^[1-9][0-9]*$/.test(id) || id.length > 78) return res.status(400).json({ error: "Invalid market ID." });
+    const p = await database.query("SELECT id, onchain_manager_address FROM market_proposals WHERE onchain_market_id=$1 AND onchain_chain_id=42421 AND status='APPROVED' AND visibility='PUBLIC' LIMIT 1", [id]);
+    if (!p.rows[0]) return res.status(404).json({ error: "Published market not found." });
+    const proposal = p.rows[0];
+    const results = await Promise.all([
+      database.query("SELECT provider, source_url, retrieved_at, metric, observed_value, comparison, target_value, proposed_outcome, evidence_hash, status, created_at FROM market_resolution_recommendations WHERE proposal_id=$1", [proposal.id]),
+      database.query("SELECT validator_address, outcome, source_url, transaction_hash, recorded_at FROM validator_source_links WHERE chain_id=42421 AND manager_address=lower($1) AND market_id=$2 ORDER BY recorded_at ASC", [proposal.onchain_manager_address, id]),
+      database.query("SELECT transaction_type, transaction_hash, recorded_at FROM market_lifecycle_transactions WHERE chain_id=42421 AND manager_address=lower($1) AND market_id=$2 ORDER BY recorded_at ASC", [proposal.onchain_manager_address, id])
+    ]);
+    const rec = results[0].rows[0];
+    if (!rec) return res.status(200).json({ verification: null });
+    const votes = results[1].rows;
+    const txs = results[2].rows;
+    const finalTx = txs.find((x: any) => x.transaction_type === "FINALIZATION") || null;
+    const payouts = txs.filter((x: any) => x.transaction_type === "PAYOUT");
+    return res.status(200).json({ verification: { provider: rec.provider, sourceUrl: rec.source_url, retrievedAt: new Date(rec.retrieved_at).toISOString(), metric: rec.metric, observedValue: Number(rec.observed_value), comparison: rec.comparison, targetValue: Number(rec.target_value), proposedOutcome: rec.proposed_outcome, evidenceHash: rec.evidence_hash, recommendationStatus: rec.status, preparedAt: new Date(rec.created_at).toISOString(), validatorCount: votes.length, validatorThreshold: 2, validatorConsensus: { yes: votes.filter((x: any) => Number(x.outcome) === 1).length, no: votes.filter((x: any) => Number(x.outcome) === 2).length, invalid: votes.filter((x: any) => Number(x.outcome) === 3).length }, validators: votes.map((x: any) => ({ validatorAddress: x.validator_address, outcome: Number(x.outcome), sourceUrl: x.source_url, transactionHash: x.transaction_hash, recordedAt: new Date(x.recorded_at).toISOString() })), finalizationTransaction: finalTx ? { hash: finalTx.transaction_hash, recordedAt: new Date(finalTx.recorded_at).toISOString() } : null, payoutTransactions: payouts.map((x: any) => ({ hash: x.transaction_hash, recordedAt: new Date(x.recorded_at).toISOString() })), settlementStatus: finalTx ? (payouts.length ? "PAYOUTS_PROCESSING" : "FINALIZED") : "AWAITING_FINALIZATION", explorerBaseUrl: process.env.ASSET_CHAIN_EXPLORER_URL || "https://scan-testnet.assetchain.org" } });
+  } catch (error) { return next(error); }
+});
 export default marketsRouter;
