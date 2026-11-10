@@ -4,6 +4,7 @@ import { isAddress, getAddress } from "viem";
 import { isAdminWallet, isHumanValidator } from "../services/adminAuth.js";
 import { verifyWalletSession } from "../services/walletAuth.js";
 import { collectMarketEvidence } from "../services/marketEvidenceCollector.js";
+import { getResolutionRecommendation } from "../services/marketResolutionVerification.js";
 import { listMarketEvidence } from "../services/marketEvidenceStore.js";
 import { listEvidenceReviews, listEvidenceReviewQueue, submitEvidenceReview } from "../services/marketEvidenceReviewStore.js";
 import { createRateLimiter } from "../middleware/rateLimit.js";
@@ -42,6 +43,17 @@ async function authorizeEvidenceReviewer(req: import("express").Request, res: im
   }
   return true;
 }
+
+router.post("/:proposalId/resolution", async (req, res, next) => {
+  const parsed = z.object({ proposalId: proposalIdSchema, address: addressSchema }).safeParse({ proposalId: req.params.proposalId, address: req.body?.address });
+  if (!parsed.success) return res.status(400).json({ error: "A valid proposal ID and validator wallet address are required." });
+  if (!await authorizeEvidenceReviewer(req, res, parsed.data.address)) return;
+  try {
+    const recommendation = await getResolutionRecommendation(parsed.data.proposalId);
+    if (!recommendation) return res.status(404).json({ error: "No resolution-time provider recommendation has been prepared for this market." });
+    return res.status(200).json({ recommendation });
+  } catch (error) { return next(error); }
+});
 
 router.post("/:proposalId/collect", async (req, res, next) => {
   const parsed = z.object({ proposalId: proposalIdSchema, address: addressSchema }).safeParse({
