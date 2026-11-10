@@ -147,3 +147,52 @@ test("provider requests retry one transient HTTP 503 response", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("GDELT rate limits respect Retry-After and retry within a bounded budget", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const delays: number[] = [];
+  let attempts = 0;
+  globalThis.setTimeout = ((handler: (...args: unknown[]) => void, timeout?: number) => {
+    delays.push(Number(timeout ?? 0));
+    return originalSetTimeout(handler, 0);
+  }) as typeof setTimeout;
+  globalThis.fetch = (async () => {
+    attempts++;
+    if (attempts === 1) return new Response("rate limited", { status: 429, headers: { "retry-after": "3" } });
+    return new Response(JSON.stringify({ articles: [] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const result = await gdeltArticles('"Nigeria" flood', 25, "24h");
+    assert.deepEqual(result.data, { articles: [] });
+    assert.equal(attempts, 2);
+    assert.ok(delays.includes(3_000));
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("GDELT rate-limit retries are bounded when Retry-After is excessive", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const delays: number[] = [];
+  let attempts = 0;
+  globalThis.setTimeout = ((handler: (...args: unknown[]) => void, timeout?: number) => {
+    delays.push(Number(timeout ?? 0));
+    return originalSetTimeout(handler, 0);
+  }) as typeof setTimeout;
+  globalThis.fetch = (async () => {
+    attempts++;
+    return new Response("rate limited", { status: 429, headers: { "retry-after": "120" } });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(() => gdeltArticles('"Nigeria" flood', 25, "24h"), /gdelt returned HTTP 429/);
+    assert.equal(attempts, 3);
+    assert.ok(delays.includes(10_000));
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
