@@ -108,6 +108,18 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
         version: "historical-observation-v2",
         provider: selected,
         sourceUrl: result.sourceUrl,
+        observationTime: new Date(observationTime).toISOString(),
+        observationWindowStart: selected === "gdelt" ? new Date(
+          observationTime - (() => {
+            const match = /^(\\d+)(min|h|hours|d|days|w|weeks|m|months)$/.exec(query.timespan ?? "");
+            if (!match) return 15 * 60_000;
+            const units: Record<string, number> = {
+              min: 60_000, h: 3_600_000, hours: 3_600_000, d: 86_400_000, days: 86_400_000,
+              w: 604_800_000, weeks: 604_800_000, m: 2_592_000_000, months: 2_592_000_000,
+            };
+            return Number(match[1]) * units[match[2]];
+          })(),
+        ).toISOString() : null,
         responseHash: result.contentHash,
       })).digest("hex")
     : result.contentHash;
