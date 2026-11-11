@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      market_ids:
+        description: "Comma-separated proposal UUIDs to revalidate (1-10). Manual runs are restricted to these IDs."
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,7 +19,7 @@ concurrency:
 
 jobs:
   prepare-resolution-recommendations:
-    if: github.ref == 'refs/heads/main' && vars.MARKET_RESOLUTION_VERIFICATION_WORKER_ENABLED == 'true'
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.market_ids != '') || (github.event_name == 'schedule' && vars.MARKET_RESOLUTION_VERIFICATION_WORKER_ENABLED == 'true'))
     runs-on: ubuntu-latest
     environment: asset-oracle-testnet
     timeout-minutes: 8
@@ -42,6 +47,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_SSL_REJECT_UNAUTHORIZED: "true"
           MARKET_RESOLUTION_VERIFICATION_WORKER_ENABLED: "true"
+          MARKET_RESOLUTION_REQUIRE_TARGET_IDS: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+          MARKET_RESOLUTION_MARKET_IDS: ${{ inputs.market_ids }}
           MARKET_RESOLUTION_MAX_PER_RUN: "10"
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
           SPORTMONKS_API_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
