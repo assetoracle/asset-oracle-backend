@@ -4,7 +4,7 @@ import { selectProvidersForMarket } from "./marketProviderRouter.js";
 import { saveMarketEvidence, type StoredMarketEvidence } from "./marketEvidenceStore.js";
 import {
   apiFootballFixtures, coingeckoHistoricalPrice, dexscreenerSearch, dexscreenerTokenPairs,
-  defiLlamaProtocolTvl, fredObservations, gdeltArticles, openMeteoHistorical,
+  defiLlamaProtocolTvl, fredObservations, openMeteoHistorical,
   sportmonksFixturesByDate, worldBankIndicator, gdeltArticlesInWindow,
 } from "./dataProviders.js";
 
@@ -67,7 +67,7 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
     case "gdelt":
       if (!query.search || !query.timespan) throw new Error("GDELT evidence requires query.search and query.timespan.");
       const duration = query.timespan === "15min" ? 15 * 60_000 : (() => {
-        const match = /^(\\d+)(min|h|hours|d|days|w|weeks|m|months)$/.exec(query.timespan!);
+        const match = /^(\d+)(min|h|hours|d|days|w|weeks|m|months)$/.exec(query.timespan!);
         if (!match) throw new Error("GDELT timespan cannot be converted to an observation window.");
         const amount = Number(match[1]);
         const unitMs: Record<string, number> = {
