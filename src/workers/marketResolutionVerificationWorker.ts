@@ -6,6 +6,7 @@ import { ProviderRateLimitError } from "../services/dataProviders.js";
 import { collectMarketEvidence } from "../services/marketEvidenceCollector.js";
 import {
   getResolutionRecommendation,
+  isRecommendationAlignedWithObservationTime,
   initializeMarketResolutionVerificationStore,
   saveResolutionRecommendation,
 } from "../services/marketResolutionVerification.js";
@@ -44,11 +45,20 @@ async function main(): Promise<void> {
     let failed = 0;
     for (const market of dueMarkets) {
       try {
-        if (await getResolutionRecommendation(market.id)) {
+        const provider = market.resolutionRule.sourceId.trim().toLowerCase();
+        const existingRecommendation = await getResolutionRecommendation(market.id);
+        if (existingRecommendation && await isRecommendationAlignedWithObservationTime(
+          market.id, provider, market.resolutionRule.observationTime,
+        )) {
           skipped++;
           continue;
         }
-        const provider = market.resolutionRule.sourceId.trim().toLowerCase();
+        if (existingRecommendation) {
+          console.log(
+            `Revalidating historical recommendation for market ${market.onchainMarketId}; ` +
+            `stored evidence does not prove alignment with observation time ${market.resolutionRule.observationTime}.`,
+          );
+        }
         const cooldownUntil = await getMarketDataProviderCooldown(provider);
         if (cooldownUntil) {
           skipped++;

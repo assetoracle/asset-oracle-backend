@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getMarketProposal } from "./marketStore.js";
 import { extractMetricValue } from "./marketEvidenceMetrics.js";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
@@ -78,7 +79,16 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       })();
       const windowEnd = new Date(observationTime).toISOString();
       const windowStart = new Date(observationTime - duration).toISOString();
-      result = await gdeltArticlesInWindow(query.search, query.maxRecords ?? 25, windowStart, windowEnd);
+      const gdeltResult = await gdeltArticlesInWindow(query.search, query.maxRecords ?? 25, windowStart, windowEnd);
+      result = {
+        ...gdeltResult,
+        data: {
+          ...gdeltResult.data,
+          requested_observation_time: new Date(observationTime).toISOString(),
+          observation_window_start: windowStart,
+          observation_window_end: windowEnd,
+        },
+      };
       break;
     case "open-meteo":
       if (query.latitude === undefined || query.longitude === undefined || !query.startDate || !query.endDate) {
@@ -91,12 +101,26 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
   }
 
   const normalizedValue = extractMetricValue(selected, result.data, rule.metric);
+  // Version the historical observation identity so a corrected time-window
+  // query never collides with a legacy evidence row containing the wrong window.
+  const historicalData = result.data as Record<string, unknown>;
+  const contentHash = selected === "coingecko" || selected === "gdelt"
+    ? createHash("sha256").update(JSON.stringify({
+        version: "historical-observation-v2",
+        provider: selected,
+        sourceUrl: result.sourceUrl,
+        observationTime: new Date(observationTime).toISOString(),
+        observationWindowStart: historicalData.observation_window_start ?? null,
+        observationWindowEnd: historicalData.observation_window_end ?? null,
+        responseHash: result.contentHash,
+      })).digest("hex")
+    : result.contentHash;
   const saved = await saveMarketEvidence({
     proposalId: proposal.id,
     provider: selected,
     sourceUrl: result.sourceUrl,
     retrievedAt: result.retrievedAt,
-    contentHash: result.contentHash,
+    contentHash,
     rawData: result.data,
     metric: rule.metric,
     normalizedValue,
