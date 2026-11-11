@@ -3,9 +3,9 @@ import { extractMetricValue } from "./marketEvidenceMetrics.js";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
 import { saveMarketEvidence, type StoredMarketEvidence } from "./marketEvidenceStore.js";
 import {
-  apiFootballFixtures, coingeckoCoinMarketData, dexscreenerSearch, dexscreenerTokenPairs,
-  defiLlamaProtocolTvl, fredObservations, gdeltArticles, openMeteoHistorical,
-  sportmonksFixturesByDate, worldBankIndicator,
+  apiFootballFixtures, coingeckoHistoricalPrice, dexscreenerSearch, dexscreenerTokenPairs,
+  defiLlamaProtocolTvl, fredObservations, openMeteoHistorical,
+  sportmonksFixturesByDate, worldBankIndicator, gdeltArticlesInWindow,
 } from "./dataProviders.js";
 
 type QueryParams = {
@@ -28,12 +28,16 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
   const provider = rule.sourceId.trim().toLowerCase();
   const [selected] = selectProvidersForMarket({ category: proposal.category, sourceId: provider });
   const query = rule.query ?? {};
+  const observationTime = Date.parse(rule.observationTime);
+  if (!Number.isFinite(observationTime) || observationTime > Date.now()) {
+    throw new Error("The configured market observation time is invalid or in the future; no recommendation can be prepared.");
+  }
   let result;
 
   switch (selected) {
     case "coingecko":
       if (!query.coinId) throw new Error("CoinGecko evidence requires query.coinId.");
-      result = await coingeckoCoinMarketData(query.coinId, query.vsCurrency);
+      result = await coingeckoHistoricalPrice(query.coinId, query.vsCurrency ?? "usd", rule.observationTime);
       break;
     case "dexscreener":
       if (query.tokenAddress && query.chain) result = await dexscreenerTokenPairs(query.chain, query.tokenAddress);
@@ -62,7 +66,19 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       break;
     case "gdelt":
       if (!query.search || !query.timespan) throw new Error("GDELT evidence requires query.search and query.timespan.");
-      result = await gdeltArticles(query.search, query.maxRecords ?? 25, query.timespan);
+      const duration = query.timespan === "15min" ? 15 * 60_000 : (() => {
+        const match = /^(\d+)(min|h|hours|d|days|w|weeks|m|months)$/.exec(query.timespan!);
+        if (!match) throw new Error("GDELT timespan cannot be converted to an observation window.");
+        const amount = Number(match[1]);
+        const unitMs: Record<string, number> = {
+          min: 60_000, h: 3_600_000, hours: 3_600_000, d: 86_400_000, days: 86_400_000,
+          w: 604_800_000, weeks: 604_800_000, m: 2_592_000_000, months: 2_592_000_000,
+        };
+        return amount * unitMs[match[2]];
+      })();
+      const windowEnd = new Date(observationTime).toISOString();
+      const windowStart = new Date(observationTime - duration).toISOString();
+      result = await gdeltArticlesInWindow(query.search, query.maxRecords ?? 25, windowStart, windowEnd);
       break;
     case "open-meteo":
       if (query.latitude === undefined || query.longitude === undefined || !query.startDate || !query.endDate) {
