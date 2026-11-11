@@ -71,7 +71,7 @@ async function getJson<T>(provider: string, url: URL, headers: Record<string, st
       return { provider, sourceUrl: safeUrl.toString(), retrievedAt: new Date().toISOString(), contentHash: createHash("sha256").update(body).digest("hex"), data };
     } catch (error) {
       lastError = error;
-      if (!isRetryableNetworkError(error) || attempt >= PROVIDER_REQUEST_RETRIES) {
+      if (!isRetryableNetworkError(error) || attempt >= maxRetries) {
         if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
           throw new Error(`${provider} request timed out after ${PROVIDER_REQUEST_TIMEOUT_MS / 1000} seconds per attempt; ${attempt} retry attempt(s) exhausted.`);
         }
