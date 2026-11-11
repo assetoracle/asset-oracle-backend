@@ -48,6 +48,13 @@ async function main(): Promise<void> {
           skipped++;
           continue;
         }
+        const provider = market.resolutionRule.sourceId.trim().toLowerCase();
+        const cooldownUntil = await getMarketDataProviderCooldown(provider);
+        if (cooldownUntil) {
+          skipped++;
+          console.log(`Skipping market ${market.onchainMarketId}: ${provider} is rate-limited until ${cooldownUntil}.`);
+          continue;
+        }
         // Only the response collected by this run may be used. Never fall back
         // to an older evidence row when a provider call did not produce a record.
         const { evidence } = await collectMarketEvidence(market.id);
@@ -71,6 +78,12 @@ async function main(): Promise<void> {
           "Human validators must independently vote; this worker never submits votes or finalizes markets.",
         );
       } catch (error) {
+        if (error instanceof ProviderRateLimitError) {
+          await setMarketDataProviderCooldown("gdelt", 30, error.message);
+          skipped++;
+          console.warn("GDELT rate limit reached. Provider-wide cooldown set for 30 minutes; remaining GDELT markets will be skipped.");
+          continue;
+        }
         failed++;
         console.error(`Resolution evidence failed for market ${market.onchainMarketId}:`, error instanceof Error ? error.message : "Unknown error");
       }
