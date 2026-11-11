@@ -52,6 +52,15 @@ export async function initializeMarketEvidenceStore(): Promise<void> {
     CREATE INDEX IF NOT EXISTS market_data_collection_state_attempted_idx
     ON market_data_collection_state (last_attempted_at DESC)
   `);
+
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS market_data_provider_cooldowns (
+      provider TEXT PRIMARY KEY,
+      cooldown_until TIMESTAMPTZ NOT NULL,
+      reason TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
   await database.query(`
     CREATE TABLE IF NOT EXISTS market_data_evidence_reviews (
       id UUID PRIMARY KEY,
@@ -150,5 +159,30 @@ export async function recordMarketEvidenceAttempt(proposalId: string, provider: 
      ON CONFLICT (proposal_id, provider)
      DO UPDATE SET last_attempted_at = EXCLUDED.last_attempted_at`,
     [proposalId, provider],
+  );
+}
+
+
+/** Read a provider-wide cooldown shared by all scheduled worker executions. */
+export async function getMarketDataProviderCooldown(provider: string): Promise<string | null> {
+  const result = await database.query<{ cooldown_until: string | Date }>(
+    `SELECT cooldown_until FROM market_data_provider_cooldowns
+     WHERE provider=$1 AND cooldown_until > NOW()`, [provider],
+  );
+  const value = result.rows[0]?.cooldown_until;
+  return value ? new Date(value).toISOString() : null;
+}
+
+/** Persist rate-limit cooldown so separate scheduled runs do not immediately retry a throttled provider. */
+export async function setMarketDataProviderCooldown(provider: string, minutes: number, reason: string): Promise<void> {
+  const boundedMinutes = Math.max(1, Math.min(120, Math.floor(minutes)));
+  await database.query(
+    `INSERT INTO market_data_provider_cooldowns (provider, cooldown_until, reason, updated_at)
+     VALUES ($1, NOW() + ($2 * INTERVAL '1 minute'), $3, NOW())
+     ON CONFLICT (provider) DO UPDATE SET
+       cooldown_until = GREATEST(market_data_provider_cooldowns.cooldown_until, EXCLUDED.cooldown_until),
+       reason = EXCLUDED.reason,
+       updated_at = NOW()`,
+    [provider, boundedMinutes, reason.slice(0, 240)],
   );
 }
