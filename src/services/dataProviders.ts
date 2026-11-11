@@ -127,6 +127,37 @@ export function defiLlamaDexOverview() {
   return getJson("defillama", new URL("https://api.llama.fi/overview/dexs"));
 }
 
+export async function coingeckoHistoricalPrice(coinId: string, vsCurrency: string, observationTime: string) {
+  if (!/^[a-z0-9-]{1,100}$/i.test(coinId) || !/^[a-z0-9-]{2,12}$/i.test(vsCurrency)) {
+    throw new Error("Invalid CoinGecko coin ID or quote currency.");
+  }
+  const observedAt = Date.parse(observationTime);
+  if (!Number.isFinite(observedAt) || observedAt > Date.now()) throw new Error("Invalid or future CoinGecko observation time.");
+  const plan = (process.env.COINGECKO_API_PLAN || "demo").trim().toLowerCase();
+  if (plan !== "demo" && plan !== "pro") throw new Error("COINGECKO_API_PLAN must be demo or pro.");
+  const base = plan === "pro" ? "https://pro-api.coingecko.com/api/v3/coins/" : "https://api.coingecko.com/api/v3/coins/";
+  const url = new URL(`${encodeURIComponent(coinId)}/market_chart/range`, base);
+  url.searchParams.set("vs_currency", vsCurrency.toLowerCase());
+  url.searchParams.set("from", String(Math.floor((observedAt - 60 * 60_000) / 1000)));
+  url.searchParams.set("to", String(Math.ceil((observedAt + 60_000) / 1000)));
+  const result = await getJson<{ prices?: [number, number][] }>("coingecko", url,
+    { [plan === "pro" ? "x-cg-pro-api-key" : "x-cg-demo-api-key"]: requiredEnv("COINGECKO_API_KEY") });
+  const point = (result.data.prices ?? [])
+    .filter((item) => Array.isArray(item) && Number.isFinite(item[0]) && Number.isFinite(item[1]) && item[0] <= observedAt)
+    .sort((a, b) => b[0] - a[0])[0];
+  if (!point || observedAt - point[0] > 65 * 60_000) {
+    throw new Error("CoinGecko did not return a sufficiently close historical price at or before the configured observation time.");
+  }
+  return {
+    ...result,
+    data: {
+      market_data: { current_price: { [vsCurrency.toLowerCase()]: point[1] } },
+      historical_observation_time: new Date(point[0]).toISOString(),
+      requested_observation_time: new Date(observedAt).toISOString(),
+    },
+  };
+}
+
 export function coingeckoCoinMarketData(coinId: string, vsCurrency = "usd") {
   if (!/^[a-z0-9-]{1,100}$/i.test(coinId) || !/^[a-z0-9-]{2,12}$/i.test(vsCurrency)) {
     throw new Error("Invalid CoinGecko coin ID or quote currency.");
@@ -218,6 +249,32 @@ export function fredObservations(seriesId: string, start?: string, end?: string,
   if (start) url.searchParams.set("observation_start", start);
   if (end) url.searchParams.set("observation_end", end);
   return getJson("fred", url);
+}
+
+export function gdeltArticlesInWindow(query: string, maxRecords: number, startTime: string, endTime: string) {
+  const start = Date.parse(startTime), end = Date.parse(endTime);
+  if (!query.trim() || query.length > 250 || !Number.isInteger(maxRecords) || maxRecords < 1 || maxRecords > 250 ||
+      !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end > Date.now()) {
+    throw new Error("Invalid GDELT observation window.");
+  }
+  const format = (value: number) => new Date(value).toISOString().replace(/[-:]/g, "").replace(/\\.\\d{3}Z$/, "Z");
+  const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
+  url.searchParams.set("query", query.trim());
+  url.searchParams.set("mode", "ArtList");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("maxrecords", String(maxRecords));
+  url.searchParams.set("sort", "DateDesc");
+  url.searchParams.set("startdatetime", format(start));
+  url.searchParams.set("enddatetime", format(end));
+  return getJson<{ articles?: { seendate?: string }[] }>("gdelt", url).then((result) => {
+    const articles = (result.data.articles ?? []).filter((article) => {
+      const stamp = article.seendate;
+      if (typeof stamp !== "string" || !/^\\d{8}T\\d{6}Z$/.test(stamp)) return false;
+      const parsed = Date.parse(`${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(9, 11)}:${stamp.slice(11, 13)}:${stamp.slice(13, 15)}Z`);
+      return Number.isFinite(parsed) && parsed >= start && parsed <= end;
+    });
+    return { ...result, data: { ...result.data, articles } };
+  });
 }
 
 export function gdeltArticles(query: string, maxRecords = 25, timespan = "24h") {
