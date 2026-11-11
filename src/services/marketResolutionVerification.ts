@@ -80,6 +80,32 @@ export function evaluateResolutionRule(
   return matches ? "YES" : "NO";
 }
 
+/** Pure historical-alignment check, exported so legacy and malformed records can be tested. */
+export function isHistoricalObservationAligned(provider: string, observationTime: string, rawData: unknown): boolean {
+  if (!rawData || typeof rawData !== "object") return false;
+  const data = rawData as Record<string, unknown>;
+  const expected = Date.parse(observationTime);
+  if (!Number.isFinite(expected)) return false;
+  const normalizedProvider = provider.trim().toLowerCase();
+
+  if (normalizedProvider === "coingecko") {
+    const requested = Date.parse(String(data.requested_observation_time ?? ""));
+    const observed = Date.parse(String(data.historical_observation_time ?? ""));
+    return Number.isFinite(requested) && requested === expected &&
+      Number.isFinite(observed) && observed <= expected && expected - observed <= 65 * 60_000;
+  }
+  if (normalizedProvider === "gdelt") {
+    const requested = Date.parse(String(data.requested_observation_time ?? ""));
+    const start = Date.parse(String(data.observation_window_start ?? ""));
+    const end = Date.parse(String(data.observation_window_end ?? ""));
+    return Number.isFinite(requested) && requested === expected &&
+      Number.isFinite(start) && Number.isFinite(end) && start < end && end === expected;
+  }
+  // This targeted historical revalidation is intentionally limited to the two
+  // providers identified in the audit. Other provider policies are unchanged.
+  return true;
+}
+
 /** True only when stored CoinGecko/GDELT evidence proves it used the configured observation time. */
 export async function isRecommendationAlignedWithObservationTime(
   proposalId: string,
@@ -91,28 +117,7 @@ export async function isRecommendationAlignedWithObservationTime(
     INNER JOIN market_data_evidence e ON e.id = r.evidence_id
     WHERE r.proposal_id = $1 AND lower(r.provider) = $2
   `, [proposalId, provider.trim().toLowerCase()]);
-  const raw = result.rows[0]?.raw_data;
-  if (!raw || typeof raw !== "object") return false;
-  const data = raw as Record<string, unknown>;
-  const expected = Date.parse(observationTime);
-  if (!Number.isFinite(expected)) return false;
-
-  if (provider.trim().toLowerCase() === "coingecko") {
-    const requested = Date.parse(String(data.requested_observation_time ?? ""));
-    const observed = Date.parse(String(data.historical_observation_time ?? ""));
-    return Number.isFinite(requested) && requested === expected &&
-      Number.isFinite(observed) && observed <= expected && expected - observed <= 65 * 60_000;
-  }
-  if (provider.trim().toLowerCase() === "gdelt") {
-    const requested = Date.parse(String(data.requested_observation_time ?? ""));
-    const start = Date.parse(String(data.observation_window_start ?? ""));
-    const end = Date.parse(String(data.observation_window_end ?? ""));
-    return Number.isFinite(requested) && requested === expected &&
-      Number.isFinite(start) && Number.isFinite(end) && start < end && end === expected;
-  }
-  // This targeted historical revalidation is intentionally limited to the two
-  // providers identified in the audit. Other provider policies are unchanged.
-  return true;
+  return isHistoricalObservationAligned(provider, observationTime, result.rows[0]?.raw_data);
 }
 
 export async function saveResolutionRecommendation(input: {
