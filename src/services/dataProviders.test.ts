@@ -146,8 +146,8 @@ test("GDELT uses explicit observation-window bounds and filters out-of-window ar
   try {
     const result = await gdeltArticlesInWindow("Nigeria flood", 100, start, end);
     const url = new URL(requestedUrl);
-    assert.equal(url.searchParams.get("startdatetime"), "20261106120000Z");
-    assert.equal(url.searchParams.get("enddatetime"), "20261107120000Z");
+    assert.equal(url.searchParams.get("startdatetime"), "20261106120000");
+    assert.equal(url.searchParams.get("enddatetime"), "20261107120000");
     assert.deepEqual(result.data.articles.map((article) => article.title), ["start inclusive", "inside"]);
   } finally {
     globalThis.fetch = originalFetch;
