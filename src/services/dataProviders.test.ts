@@ -9,6 +9,7 @@ import {
   fredObservations,
   gdeltArticles,
   openMeteoHistorical,
+  ProviderRateLimitError,
   sportmonksFixturesByDate,
   worldBankIndicator,
 } from "./dataProviders.js";
@@ -188,7 +189,7 @@ test("GDELT rate-limit retries are bounded when Retry-After is excessive", async
     return new Response("rate limited", { status: 429, headers: { "retry-after": "120" } });
   }) as typeof fetch;
   try {
-    await assert.rejects(() => gdeltArticles('"Nigeria" flood', 25, "24h"), /gdelt returned HTTP 429/);
+    await assert.rejects(() => gdeltArticles('"Nigeria" flood', 25, "24h"), (error: unknown) => error instanceof ProviderRateLimitError && error.status === 429);
     assert.equal(attempts, 3);
     assert.ok(delays.includes(10_000));
   } finally {
