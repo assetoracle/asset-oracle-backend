@@ -266,7 +266,7 @@ export function gdeltArticlesInWindow(query: string, maxRecords: number, startTi
   url.searchParams.set("sort", "DateDesc");
   url.searchParams.set("startdatetime", format(start));
   url.searchParams.set("enddatetime", format(end));
-  return getJson<{ articles?: { seendate?: string }[] }>("gdelt", url).then((result) => {
+  return getJson<{ articles?: { seendate?: string; title?: string }[] }>("gdelt", url).then((result) => {
     const articles = (result.data.articles ?? []).filter((article) => {
       const stamp = article.seendate;
       if (typeof stamp !== "string" || !/^\d{8}T\d{6}Z$/.test(stamp)) return false;
