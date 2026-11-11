@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getMarketProposal } from "./marketStore.js";
 import { extractMetricValue } from "./marketEvidenceMetrics.js";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
@@ -100,12 +101,22 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
   }
 
   const normalizedValue = extractMetricValue(selected, result.data, rule.metric);
+  // Version the historical observation identity so a corrected time-window
+  // query never collides with a legacy evidence row containing the wrong window.
+  const contentHash = selected === "coingecko" || selected === "gdelt"
+    ? createHash("sha256").update(JSON.stringify({
+        version: "historical-observation-v2",
+        provider: selected,
+        sourceUrl: result.sourceUrl,
+        responseHash: result.contentHash,
+      })).digest("hex")
+    : result.contentHash;
   const saved = await saveMarketEvidence({
     proposalId: proposal.id,
     provider: selected,
     sourceUrl: result.sourceUrl,
     retrievedAt: result.retrievedAt,
-    contentHash: result.contentHash,
+    contentHash,
     rawData: result.data,
     metric: rule.metric,
     normalizedValue,
