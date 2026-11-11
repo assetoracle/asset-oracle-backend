@@ -78,7 +78,16 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       })();
       const windowEnd = new Date(observationTime).toISOString();
       const windowStart = new Date(observationTime - duration).toISOString();
-      result = await gdeltArticlesInWindow(query.search, query.maxRecords ?? 25, windowStart, windowEnd);
+      const gdeltResult = await gdeltArticlesInWindow(query.search, query.maxRecords ?? 25, windowStart, windowEnd);
+      result = {
+        ...gdeltResult,
+        data: {
+          ...gdeltResult.data,
+          requested_observation_time: new Date(observationTime).toISOString(),
+          observation_window_start: windowStart,
+          observation_window_end: windowEnd,
+        },
+      };
       break;
     case "open-meteo":
       if (query.latitude === undefined || query.longitude === undefined || !query.startDate || !query.endDate) {
