@@ -2,12 +2,14 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 import {
   apiFootballFixtures,
+  coingeckoHistoricalPrice,
   coingeckoMarkets,
   dexscreenerSearch,
   dexscreenerTokenPairs,
   defiLlamaProtocolTvl,
   fredObservations,
   gdeltArticles,
+  gdeltArticlesInWindow,
   openMeteoHistorical,
   ProviderRateLimitError,
   sportmonksFixturesByDate,
@@ -84,6 +86,73 @@ test("FRED requests the newest observation only and supports year-over-year perc
   }
 });
 
+
+test("CoinGecko historical price uses the observation timestamp and selects the latest point not after it", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.COINGECKO_API_KEY;
+  const observedAt = Date.parse("2026-11-07T05:01:01.000Z");
+  let requestedUrl = "";
+  process.env.COINGECKO_API_KEY = "test-key";
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ prices: [[observedAt - 120_000, 73100], [observedAt + 30_000, 74000]] }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    const result = await coingeckoHistoricalPrice("bitcoin", "usd", "2026-11-07T05:01:01.000Z");
+    const url = new URL(requestedUrl);
+    assert.equal(url.pathname, "/api/v3/coins/bitcoin/market_chart/range");
+    assert.equal(Number(url.searchParams.get("from")), Math.floor((observedAt - 60 * 60_000) / 1000));
+    assert.equal(result.data.market_data.current_price.usd, 73100);
+    assert.equal(result.data.historical_observation_time, new Date(observedAt - 120_000).toISOString());
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.COINGECKO_API_KEY;
+    else process.env.COINGECKO_API_KEY = originalKey;
+  }
+});
+
+test("CoinGecko historical price fails closed when no point exists at or before observation time", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.COINGECKO_API_KEY;
+  process.env.COINGECKO_API_KEY = "test-key";
+  globalThis.fetch = (async () => new Response(JSON.stringify({ prices: [[Date.now() + 60_000, 90000]] }), {
+    status: 200, headers: { "content-type": "application/json" },
+  })) as typeof fetch;
+  try {
+    await assert.rejects(() => coingeckoHistoricalPrice("bitcoin", "usd", new Date(Date.now() - 10_000).toISOString()), /sufficiently close historical price/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.COINGECKO_API_KEY;
+    else process.env.COINGECKO_API_KEY = originalKey;
+  }
+});
+
+test("GDELT uses explicit observation-window bounds and filters out-of-window articles", async () => {
+  const originalFetch = globalThis.fetch;
+  const start = "2026-11-06T12:00:00.000Z";
+  const end = "2026-11-07T12:00:00.000Z";
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ articles: [
+      { seendate: "20261106T120000Z", title: "start inclusive" },
+      { seendate: "20261107T115900Z", title: "inside" },
+      { seendate: "20261107T120100Z", title: "after window" },
+      { title: "missing timestamp" },
+    ] }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    const result = await gdeltArticlesInWindow("Nigeria flood", 100, start, end);
+    const url = new URL(requestedUrl);
+    assert.equal(url.searchParams.get("startdatetime"), "20261106120000Z");
+    assert.equal(url.searchParams.get("enddatetime"), "20261107120000Z");
+    assert.deepEqual(result.data.articles.map((article) => article.title), ["start inclusive", "inside"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("GDELT requests include the configured rolling timespan and result limit", async () => {
   const originalFetch = globalThis.fetch;
