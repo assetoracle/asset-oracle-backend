@@ -257,7 +257,7 @@ export function gdeltArticlesInWindow(query: string, maxRecords: number, startTi
       !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end > Date.now()) {
     throw new Error("Invalid GDELT observation window.");
   }
-  const format = (value: number) => new Date(value).toISOString().replace(/[-:]/g, "").replace(/\\.\\d{3}Z$/, "Z");
+  const format = (value: number) => new Date(value).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
   url.searchParams.set("query", query.trim());
   url.searchParams.set("mode", "ArtList");
@@ -269,7 +269,7 @@ export function gdeltArticlesInWindow(query: string, maxRecords: number, startTi
   return getJson<{ articles?: { seendate?: string }[] }>("gdelt", url).then((result) => {
     const articles = (result.data.articles ?? []).filter((article) => {
       const stamp = article.seendate;
-      if (typeof stamp !== "string" || !/^\\d{8}T\\d{6}Z$/.test(stamp)) return false;
+      if (typeof stamp !== "string" || !/^\d{8}T\d{6}Z$/.test(stamp)) return false;
       const parsed = Date.parse(`${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(9, 11)}:${stamp.slice(11, 13)}:${stamp.slice(13, 15)}Z`);
       return Number.isFinite(parsed) && parsed >= start && parsed <= end;
     });
