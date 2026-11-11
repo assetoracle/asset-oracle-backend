@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { database } from "../config/database.js";
 import { keccak256, toBytes } from "viem";
 import type { StoredMarketEvidence } from "./marketEvidenceStore.js";
+import { evaluateResolutionRule, isHistoricalObservationAligned, type ResolutionComparison } from "./marketResolutionValidation.js";
+export { evaluateResolutionRule, isHistoricalObservationAligned } from "./marketResolutionValidation.js";
 
 export type ResolutionRecommendation = {
   proposalId: string;
@@ -11,7 +13,7 @@ export type ResolutionRecommendation = {
   retrievedAt: string;
   metric: string;
   observedValue: number;
-  comparison: "ABOVE" | "AT_LEAST" | "BELOW" | "EQUALS";
+  comparison: ResolutionComparison;
   targetValue: number;
   proposedOutcome: "YES" | "NO";
   evidenceHash: string;
@@ -66,44 +68,6 @@ function numericValue(value: unknown): number {
     throw new Error("Provider response did not contain a finite numeric value for the configured resolution metric.");
   }
   return candidate;
-}
-
-export function evaluateResolutionRule(
-  value: number,
-  comparison: ResolutionRecommendation["comparison"],
-  target: number,
-): "YES" | "NO" {
-  const matches = comparison === "ABOVE" ? value > target
-    : comparison === "AT_LEAST" ? value >= target
-    : comparison === "BELOW" ? value < target
-    : value === target;
-  return matches ? "YES" : "NO";
-}
-
-/** Pure historical-alignment check, exported so legacy and malformed records can be tested. */
-export function isHistoricalObservationAligned(provider: string, observationTime: string, rawData: unknown): boolean {
-  if (!rawData || typeof rawData !== "object") return false;
-  const data = rawData as Record<string, unknown>;
-  const expected = Date.parse(observationTime);
-  if (!Number.isFinite(expected)) return false;
-  const normalizedProvider = provider.trim().toLowerCase();
-
-  if (normalizedProvider === "coingecko") {
-    const requested = Date.parse(String(data.requested_observation_time ?? ""));
-    const observed = Date.parse(String(data.historical_observation_time ?? ""));
-    return Number.isFinite(requested) && requested === expected &&
-      Number.isFinite(observed) && observed <= expected && expected - observed <= 65 * 60_000;
-  }
-  if (normalizedProvider === "gdelt") {
-    const requested = Date.parse(String(data.requested_observation_time ?? ""));
-    const start = Date.parse(String(data.observation_window_start ?? ""));
-    const end = Date.parse(String(data.observation_window_end ?? ""));
-    return Number.isFinite(requested) && requested === expected &&
-      Number.isFinite(start) && Number.isFinite(end) && start < end && end === expected;
-  }
-  // This targeted historical revalidation is intentionally limited to the two
-  // providers identified in the audit. Other provider policies are unchanged.
-  return true;
 }
 
 /** True only when stored CoinGecko/GDELT evidence proves it used the configured observation time. */
