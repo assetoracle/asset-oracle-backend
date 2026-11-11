@@ -183,6 +183,31 @@ test("validates GDELT query size and record limits", () => {
 });
 
 
+test("GDELT retries transient network failures within its configured retry budget", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = (async () => {
+    attempts++;
+    if (attempts < 3) throw new TypeError("temporary network failure");
+    return new Response(JSON.stringify({ articles: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    const result = await gdeltArticlesInWindow(
+      "Nigeria flood",
+      25,
+      "2026-11-06T12:00:00.000Z",
+      "2026-11-07T12:00:00.000Z",
+    );
+    assert.deepEqual(result.data.articles, []);
+    assert.equal(attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("provider requests retry once after a transient network failure", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;
