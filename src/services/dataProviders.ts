@@ -13,6 +13,14 @@ const PROVIDER_REQUEST_RETRIES = 1;
 const GDELT_RATE_LIMIT_RETRIES = 2;
 const MAX_RATE_LIMIT_RETRY_DELAY_MS = 10_000;
 
+export class ProviderRateLimitError extends Error {
+  readonly status = 429;
+  constructor(provider: string) {
+    super(`${provider} returned HTTP 429.`);
+    this.name = "ProviderRateLimitError";
+  }
+}
+
 function retryDelayMs(response: Response, attempt: number): number {
   const retryAfter = response.headers.get("retry-after")?.trim();
   if (retryAfter) {
@@ -49,6 +57,7 @@ async function getJson<T>(provider: string, url: URL, headers: Record<string, st
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
+        if (response.status === 429) throw new ProviderRateLimitError(provider);
         throw new Error(`${provider} returned HTTP ${response.status}.`);
       }
       const body = await response.text();
