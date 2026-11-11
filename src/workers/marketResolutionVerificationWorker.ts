@@ -14,12 +14,31 @@ import {
 const LOCK_ID = 4242183;
 const MAX_MARKETS_PER_RUN = Math.max(1, Math.min(50, Number(process.env.MARKET_RESOLUTION_MAX_PER_RUN) || 10));
 const MAX_EVIDENCE_AGE_MS = Math.max(60_000, Number(process.env.MARKET_RESOLUTION_MAX_EVIDENCE_AGE_MS) || 15 * 60_000);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function requestedMarketIds(): Set<string> | null {
+  const raw = process.env.MARKET_RESOLUTION_MARKET_IDS?.trim();
+  if (!raw) {
+    if (process.env.MARKET_RESOLUTION_REQUIRE_TARGET_IDS === "true") {
+      throw new Error("Target market IDs are required for this manual verification run.");
+    }
+    return null;
+  }
+  const values = raw.split(",").map((value) => value.trim());
+  if (values.length < 1 || values.length > 10 || values.some((value) => !UUID_PATTERN.test(value))) {
+    throw new Error("MARKET_RESOLUTION_MARKET_IDS must contain 1 to 10 comma-separated UUIDs.");
+  }
+  const ids = new Set(values.map((value) => value.toLowerCase()));
+  if (ids.size !== values.length) throw new Error("MARKET_RESOLUTION_MARKET_IDS contains duplicate IDs.");
+  return ids;
+}
 
 async function main(): Promise<void> {
   if (process.env.MARKET_RESOLUTION_VERIFICATION_WORKER_ENABLED !== "true") {
     console.log("Market resolution verification worker is disabled. No provider calls or transactions were made.");
     return;
   }
+  const targetIds = requestedMarketIds();
   await initializeMarketStore();
   await initializeMarketEvidenceStore();
   await initializeMarketResolutionVerificationStore();
@@ -35,10 +54,22 @@ async function main(): Promise<void> {
 
   try {
     const now = Date.now();
-    const dueMarkets = (await listPublishedMarkets())
+    const allDueMarkets = (await listPublishedMarkets())
       .filter((market) => Date.parse(market.resolvesAt) <= now && market.onchainMarketId && market.onchainTxHash)
-      .sort((a, b) => Date.parse(a.resolvesAt) - Date.parse(b.resolvesAt))
-      .slice(0, MAX_MARKETS_PER_RUN);
+      .sort((a, b) => Date.parse(a.resolvesAt) - Date.parse(b.resolvesAt));
+    let dueMarkets = allDueMarkets;
+    if (targetIds) {
+      const dueById = new Map(allDueMarkets.map((market) => [market.id.toLowerCase(), market]));
+      const missingIds = [...targetIds].filter((id) => !dueById.has(id));
+      if (missingIds.length) {
+        throw new Error(`Target market IDs are not published, not due, or missing on-chain metadata: ${missingIds.join(", ")}. No recommendations were changed.`);
+      }
+      dueMarkets = [...targetIds].map((id) => dueById.get(id)!);
+    }
+    dueMarkets = dueMarkets.slice(0, targetIds ? targetIds.size : MAX_MARKETS_PER_RUN);
+    console.log(targetIds
+      ? `Targeted verification run restricted to ${dueMarkets.length} explicitly requested market(s).`
+      : `Scheduled verification run selected up to ${MAX_MARKETS_PER_RUN} due market(s).`);
 
     let proposed = 0;
     let skipped = 0;
