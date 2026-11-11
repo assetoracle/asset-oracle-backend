@@ -257,7 +257,7 @@ export function gdeltArticlesInWindow(query: string, maxRecords: number, startTi
       !Number.isFinite(start) || !Number.isFinite(end) || start >= end || end > Date.now()) {
     throw new Error("Invalid GDELT observation window.");
   }
-  const format = (value: number) => new Date(value).toISOString().replace(/[-:T.Z]/g, "");
+  const format = (value: number) => new Date(value).toISOString().slice(0, 19).replace(/[-:T]/g, "");
   const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
   url.searchParams.set("query", query.trim());
   url.searchParams.set("mode", "ArtList");
