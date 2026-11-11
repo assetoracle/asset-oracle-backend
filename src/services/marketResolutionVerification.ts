@@ -151,6 +151,18 @@ export async function saveResolutionRecommendation(input: {
       if (reviews.rows.length) {
         throw new Error("Existing recommendation cannot be revalidated after validator review has begun.");
       }
+      const onchainVotes = await client.query(`
+        SELECT 1
+        FROM validator_source_links v
+        INNER JOIN market_proposals p ON p.id = $1
+        WHERE v.chain_id = 42421
+          AND lower(v.manager_address) = lower(p.onchain_manager_address)
+          AND v.market_id = p.onchain_market_id
+        LIMIT 1
+      `, [input.proposalId]);
+      if (onchainVotes.rows.length) {
+        throw new Error("Existing recommendation cannot be revalidated after on-chain validator voting has begun.");
+      }
 
       await client.query(`
         INSERT INTO market_resolution_recommendation_history
