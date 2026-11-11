@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   evaluateResolutionRule,
   isHistoricalObservationAligned,
-} from "./marketResolutionVerification.js";
+} from "./marketResolutionValidation.js";
 
 const observationTime = "2026-11-11T18:00:00.000Z";
 
