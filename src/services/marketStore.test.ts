@@ -6,7 +6,7 @@ const { database } = await import("../config/database.js");
 const { recordOnchainPublication, decideAutomatedMarketProposal, getLatestMarketPublicationAttempt, createMarketPublicationAttempt, updateMarketPublicationAttempt } = await import("./marketStore.js");
 
 type Row = Record<string, unknown>;
-type Query = (sql: string, values?: unknown[]) => Promise<{ rows: Row[] }>;
+type Query = (sql: string, values?: unknown[]) => Promise<{ rows: Row[]; rowCount?: number | null }>;
 const db = database as unknown as { query: Query };
 const originalQuery = db.query;
 
