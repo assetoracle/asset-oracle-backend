@@ -4,10 +4,26 @@ import { database } from "../src/config/database.js";
 import { ASSET_CHAIN_TESTNET_ID } from "../src/config/assetOracle.js";
 import { seedLegacyMarketPublicationAttempts } from "../src/services/marketStore.js";
 
+// Pin this one-time utility to the known Neon staging compute. This prevents a
+// staging label alone from being used to run it against production.
+const STAGING_DATABASE_HOST = "ep-ancient-resonance-zaescoxy.c-2.eu-west-2.aws.neon.tech";
+
 async function main(): Promise<void> {
   const target = process.env.ASSET_ORACLE_MIGRATION_TARGET?.trim().toLowerCase();
   if (target !== "staging") {
-    throw new Error("Set ASSET_ORACLE_MIGRATION_TARGET=staging. This utility is intentionally restricted to an explicitly labelled staging run.");
+    throw new Error("Set ASSET_ORACLE_MIGRATION_TARGET=staging. This utility is intentionally restricted to the staging branch.");
+  }
+
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) throw new Error("DATABASE_URL is required.");
+  let databaseHost: string;
+  try {
+    databaseHost = new URL(databaseUrl).hostname.toLowerCase();
+  } catch {
+    throw new Error("DATABASE_URL is not a valid URL.");
+  }
+  if (databaseHost !== STAGING_DATABASE_HOST) {
+    throw new Error("DATABASE_URL does not point to the pinned Neon staging compute. No seed was written.");
   }
 
   const rawManager = process.env.ASSET_ORACLE_MARKET_MANAGER_ADDRESS?.trim();
@@ -49,6 +65,7 @@ async function main(): Promise<void> {
 
   console.log("Asset Oracle legacy publication reconciliation seed");
   console.log(`Target label: ${target}`);
+  console.log(`Database host: ${databaseHost}`);
   console.log(`Database: ${databaseInfo.rows[0]?.database_name ?? "unknown"}`);
   console.log(`Database role: ${databaseInfo.rows[0]?.role_name ?? "unknown"}`);
   console.log(`Chain: ${ASSET_CHAIN_TESTNET_ID}`);
