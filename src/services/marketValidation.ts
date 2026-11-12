@@ -20,6 +20,7 @@ const resolutionRuleSchema = z.object({
     search: z.string().trim().min(1).max(250).optional(),
     timespan: z.string().regex(/^(15min|[1-9]\d*(min|h|hours|d|days|w|weeks|m|months))$/).max(12).optional(),
     maxRecords: z.number().int().min(1).max(250).optional(),
+    requiredTerms: z.array(z.string().trim().min(2).max(60)).min(2).max(10).optional(),
     chain: z.string().trim().min(1).max(40).optional(),
     tokenAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
     protocol: z.string().trim().min(1).max(100).optional(),
@@ -78,6 +79,9 @@ export const marketProposalSchema = z.object({
   const missing = (requiredQueryFields[sourceId] ?? []).filter((field) => !query || query[field as keyof typeof query] === undefined);
   if (sourceId === "dexscreener" && !query?.search?.trim() && !(query?.chain?.trim() && query?.tokenAddress)) {
     missing.push("search or both chain and tokenAddress");
+  }
+  if (sourceId === "gdelt" && (!query?.requiredTerms || query.requiredTerms.length < 2)) {
+    context.addIssue({ code: "custom", path: ["resolutionRule", "query", "requiredTerms"], message: "GDELT markets require at least two market-specific requiredTerms so raw search hits cannot be counted as relevant evidence." });
   }
   if (missing.length) context.addIssue({ code: "custom", path: ["resolutionRule", "query"], message: `Provider query requires: ${missing.join(", ")}.` });
   if (query?.start && query?.end && query.start > query.end) {
