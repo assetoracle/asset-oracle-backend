@@ -16,7 +16,8 @@
     "automate:market-resolution-verification": "node dist/workers/marketResolutionVerificationWorker.js",
     "preflight:testnet-automation": "tsx scripts/testnet-automation-preflight.ts",
     "automate:market-proposals": "node dist/workers/marketProposalGeneratorWorker.js",
-    "simulate:testnet-lifecycle": "tsx scripts/simulate-testnet-market-lifecycle.ts"
+    "simulate:testnet-lifecycle": "tsx scripts/simulate-testnet-market-lifecycle.ts",
+    "seed:legacy-publication-attempts": "tsx scripts/seed-legacy-market-publication-attempts.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
