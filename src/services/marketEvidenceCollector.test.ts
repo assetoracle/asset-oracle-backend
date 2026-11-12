@@ -26,8 +26,18 @@ test("CoinGecko explicit price metric and configured quote-currency paths are su
   assert.equal(isSupportedMetric("coingecko", "market_data.current_price.ngn"), true);
 });
 
-test("GDELT article count returns zero for an empty result list", () => {
-  assert.equal(extractMetricValue("gdelt", { articles: [] }, "articles.length"), 0);
+test("GDELT metric counts only market-screened relevant articles", () => {
+  assert.equal(extractMetricValue("gdelt", {
+    articles: [{ title: "Nigeria leadership" }, { title: "Nigeria flood update" }],
+    relevant_articles: [{ title: "Nigeria flood update" }],
+  }, "articles.length"), 1);
+  assert.equal(extractMetricValue("gdelt", {
+    articles: [{ title: "Nigeria leadership" }],
+  }, "articles.length"), null);
+});
+
+test("GDELT metric returns zero when relevance screening found no qualifying articles", () => {
+  assert.equal(extractMetricValue("gdelt", { articles: [{ title: "Nigeria leadership" }], relevant_articles: [] }, "articles.length"), 0);
 });
 
 test("GDELT article count returns the number of indexed articles", () => {
