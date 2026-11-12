@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { getMarketProposal } from "./marketStore.js";
-import { extractMetricValue } from "./marketEvidenceMetrics.js";
+import { extractMetricValue, filterGdeltArticlesByRequiredTerms } from "./marketEvidenceMetrics.js";
 import { selectProvidersForMarket } from "./marketProviderRouter.js";
 import { saveMarketEvidence, type StoredMarketEvidence } from "./marketEvidenceStore.js";
 import {
@@ -93,10 +93,7 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       // GDELT search results are candidates, not proof. Count an article only
       // when every configured market term appears in its title. Source-country
       // metadata is deliberately not treated as article geography or relevance.
-      const relevantArticles = articles.filter((article) => {
-        const title = typeof article.title === "string" ? article.title.toLocaleLowerCase("en") : "";
-        return title.length > 0 && requiredTerms.every((term) => title.includes(term));
-      });
+      const relevantArticles = filterGdeltArticlesByRequiredTerms(articles, requiredTerms);
       result = {
         ...gdeltResult,
         data: {
