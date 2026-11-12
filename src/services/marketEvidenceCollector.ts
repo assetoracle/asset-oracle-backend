@@ -14,7 +14,7 @@ type QueryParams = {
   chain?: string; tokenAddress?: string; protocol?: string;
   date?: string; league?: number; season?: number;
   seriesId?: string; start?: string; end?: string; units?: string;
-  country?: string; indicator?: string; dateRange?: string;
+  country?: string; indicator?: string; dateRange?: string; requiredTerms?: string[];
   latitude?: number; longitude?: number; startDate?: string; endDate?: string;
 };
 
@@ -67,6 +67,15 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       break;
     case "gdelt":
       if (!query.search || !query.timespan) throw new Error("GDELT evidence requires query.search and query.timespan.");
+      if (!Array.isArray(query.requiredTerms) || query.requiredTerms.length < 2) {
+        throw new Error("GDELT evidence requires at least two market-specific query.requiredTerms; refusing to count unverified search results.");
+      }
+      const requiredTerms = query.requiredTerms.map((term) => term.trim().toLocaleLowerCase("en"))
+        .filter(Boolean);
+      if (requiredTerms.length !== query.requiredTerms.length || new Set(requiredTerms).size !== requiredTerms.length ||
+          requiredTerms.some((term) => term.length < 2 || term.length > 60)) {
+        throw new Error("GDELT query.requiredTerms must contain 2 to 10 unique terms of 2 to 60 characters.");
+      }
       const duration = query.timespan === "15min" ? 15 * 60_000 : (() => {
         const match = /^(\d+)(min|h|hours|d|days|w|weeks|m|months)$/.exec(query.timespan!);
         if (!match) throw new Error("GDELT timespan cannot be converted to an observation window.");
@@ -80,10 +89,20 @@ export async function collectMarketEvidence(proposalId: string): Promise<{
       const windowEnd = new Date(observationTime).toISOString();
       const windowStart = new Date(observationTime - duration).toISOString();
       const gdeltResult = await gdeltArticlesInWindow(query.search, query.maxRecords ?? 25, windowStart, windowEnd);
+      const articles = gdeltResult.data.articles ?? [];
+      // GDELT search results are candidates, not proof. Count an article only
+      // when every configured market term appears in its title. Source-country
+      // metadata is deliberately not treated as article geography or relevance.
+      const relevantArticles = articles.filter((article) => {
+        const title = typeof article.title === "string" ? article.title.toLocaleLowerCase("en") : "";
+        return title.length > 0 && requiredTerms.every((term) => title.includes(term));
+      });
       result = {
         ...gdeltResult,
         data: {
           ...gdeltResult.data,
+          relevant_articles: relevantArticles,
+          relevance_filter: { method: "title_contains_all_required_terms", required_terms: requiredTerms },
           requested_observation_time: new Date(observationTime).toISOString(),
           observation_window_start: windowStart,
           observation_window_end: windowEnd,
