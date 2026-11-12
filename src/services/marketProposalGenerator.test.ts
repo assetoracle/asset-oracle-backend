@@ -111,7 +111,7 @@ test("template parser accepts DexScreener token-pair query without search", () =
 
 test("GDELT templates require a bounded search window", () => {
   const templates = completeTemplateSet() as Array<Record<string, unknown>>;
-  templates[2] = { ...templates[2], query: { search: '"Nigeria" flood' } };
+  templates[2] = { ...templates[2], query: { search: '"Nigeria" flood', requiredTerms: ["Nigeria", "flood"] } };
   assert.throws(() => parseGenerationTemplates(JSON.stringify(templates)), /timespan/i);
 });
 
