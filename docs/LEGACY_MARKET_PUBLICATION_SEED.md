@@ -6,6 +6,7 @@ This utility seeds the one-time reconciliation records for approved proposals th
 
 - Run against the **staging** Neon branch only.
 - The utility requires `ASSET_ORACLE_MIGRATION_TARGET=staging`.
+- It hard-pins `DATABASE_URL` to the current staging compute host: `ep-ancient-resonance-zaescoxy.c-2.eu-west-2.aws.neon.tech`. A production or other database host is rejected before any query or write.
 - It requires `ASSET_CHAIN_ID=42421` and the verified `ASSET_ORACLE_MARKET_MANAGER_ADDRESS`.
 - It does not require or read an automation private key.
 - It does not create a public or wallet client, contact the chain RPC, or submit transactions.
@@ -30,7 +31,7 @@ $env:ASSET_ORACLE_MARKET_MANAGER_ADDRESS = "0x..."
 npm run seed:legacy-publication-attempts
 ```
 
-Review the displayed database name, manager address, and candidate count before applying.
+Review the displayed database host, database name, manager address, and candidate count before applying.
 
 ## Apply
 
