@@ -75,8 +75,8 @@ async function main(): Promise<void> {
     let skipped = 0;
     let failed = 0;
     for (const market of dueMarkets) {
+      const provider = market.resolutionRule.sourceId.trim().toLowerCase();
       try {
-        const provider = market.resolutionRule.sourceId.trim().toLowerCase();
         const existingRecommendation = await getResolutionRecommendation(market.id);
         if (existingRecommendation && await isRecommendationAlignedWithObservationTime(
           market.id, provider, market.resolutionRule.observationTime,
@@ -120,9 +120,9 @@ async function main(): Promise<void> {
         );
       } catch (error) {
         if (error instanceof ProviderRateLimitError) {
-          await setMarketDataProviderCooldown("gdelt", 30, error.message);
+          await setMarketDataProviderCooldown(provider, 30, error.message);
           skipped++;
-          console.warn("GDELT rate limit reached. Provider-wide cooldown set for 30 minutes; remaining GDELT markets will be skipped.");
+          console.warn(`${provider} rate limit reached. Provider-wide cooldown set for 30 minutes; remaining ${provider} markets will be skipped.`);
           continue;
         }
         failed++;
