@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isSupportedMetric } from "./marketEvidenceMetrics.js";
+import { selectProvidersForMarket } from "./marketProviderRouter.js";
 
 const resolutionRuleSchema = z.object({
   sourceId: z.string().trim().min(1, "A data source is required"),
@@ -56,16 +57,15 @@ export const marketProposalSchema = z.object({
   if (market.category !== "Sports" && market.sport) {
     context.addIssue({ code: "custom", path: ["sport"], message: "Sport can only be set for Sports markets." });
   }
-  const providerAllowlist: Record<string, string[]> = {
-    "Digital Assets": ["coingecko", "dexscreener"],
-    Sports: ["sportmonks", "api-football"],
-    Economics: ["fred", "world-bank"],
-    RWA: ["defillama", "dexscreener"],
-    Regional: ["gdelt", "open-meteo"],
-  };
   const sourceId = market.resolutionRule.sourceId.trim().toLowerCase();
-  if (!providerAllowlist[market.category]?.includes(sourceId)) {
-    context.addIssue({ code: "custom", path: ["resolutionRule", "sourceId"], message: "Choose a provider approved for this market category." });
+  try {
+    selectProvidersForMarket({ category: market.category, sourceId });
+  } catch {
+    context.addIssue({
+      code: "custom",
+      path: ["resolutionRule", "sourceId"],
+      message: `Provider "${sourceId}" is not currently enabled for the ${market.category} market category.`,
+    });
   }
   if (!isSupportedMetric(sourceId, market.resolutionRule.metric.trim())) {
     context.addIssue({ code: "custom", path: ["resolutionRule", "metric"], message: "Choose a metric supported by the configured provider." });
