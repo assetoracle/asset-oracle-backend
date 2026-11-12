@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { database } from "../config/database.js";
-import { initializeMarketStore, listMarketProposals } from "../services/marketStore.js";
+import { initializeMarketStore, listApprovedMarketProposalsForEvidence } from "../services/marketStore.js";
+import { selectEvidenceEligibleProposals } from "./marketEvidencePolicy.js";
 import {
   initializeMarketEvidenceStore,
   getLatestMarketEvidenceAttemptAt,
@@ -43,10 +44,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    const now = Date.now();
-    const proposals = (await listMarketProposals())
-      .filter((proposal) => proposal.status === "APPROVED" && Date.parse(proposal.resolvesAt) > now)
-      .sort((a, b) => Date.parse(a.resolvesAt) - Date.parse(b.resolvesAt));
+    const proposals = selectEvidenceEligibleProposals(await listApprovedMarketProposalsForEvidence());
 
     let collected = 0;
     let skippedFresh = 0;
@@ -72,7 +70,7 @@ async function main(): Promise<void> {
         console.error(`Evidence collection failed for proposal ${proposal.id} (${provider}):`, error instanceof Error ? error.message : "Unknown error");
       }
     }
-    console.log(`Market evidence run complete: ${collected} new, ${skippedFresh} fresh/skipped, ${failed} failed, ${considered} attempted; expired proposals excluded.`);
+    console.log(`Market evidence run complete: ${collected} new, ${skippedFresh} fresh/skipped, ${failed} failed, ${considered} attempted; approved manual and automated proposals with future resolution times considered.`);
     if (failed > 0) process.exitCode = 1;
   } finally {
     await lockClient.query("SELECT pg_advisory_unlock($1)", [LOCK_ID]).catch(() => undefined);
