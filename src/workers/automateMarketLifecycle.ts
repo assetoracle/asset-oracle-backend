@@ -277,7 +277,8 @@ async function main(): Promise<void> {
     const scanIds = buildMarketScanIds(currentCount, Number(workerState.rows[0]?.next_market_id ?? 1), MAX_MARKETS_PER_RUN);
     const orderedMarketIds = orderMarketIdsFromCursor(scanIds, nextPayoutMarketId, currentCount);
     for (const id of orderedMarketIds) {
-      const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
+      try {
+        const market = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
       if (isMarketClosable(market.status, market.closeTime, now)) {
         const hash = await walletClient.writeContract({ address: manager, abi: managerAbi, functionName: "closeMarket", args: [BigInt(id)] });
         const receipt = await waitForReceipt(hash);
@@ -342,6 +343,9 @@ async function main(): Promise<void> {
           [nextPayoutMarketId],
         );
         console.log(`Processed payout batch for market ${id} (participants ${startIndex}-${startIndex + Number(batchSize) - 1}): ${EXPLORER}/tx/${hash}`);
+        }
+      } catch (error) {
+        console.error(`Lifecycle processing failed for market ${id}; continuing with the next market:`, error instanceof Error ? error.message : "Unknown error");
       }
     }
     if (scanIds.length > 0) {
