@@ -176,7 +176,7 @@ test("admin decision updates proposal and paid submission in one transaction", a
     query: async (sql: string, values?: unknown[]) => {
       statements.push(sql.trim().split(/\\s+/).slice(0, 3).join(" "));
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [], rowCount: 0 };
-      if (sql.includes("SELECT id, status FROM market_proposals")) {
+      if (sql.includes('SELECT id, status, "closesAt" FROM market_proposals')) {
         return { rows: [{ id: "proposal-1", status: proposalStatus, closesAt: "2027-01-01T00:00:00.000Z" }], rowCount: 1 };
       }
       if (sql.includes("SELECT id, status FROM paid_market_submissions")) {
@@ -215,7 +215,7 @@ test("admin decision rolls back proposal status when paid state cannot be update
     query: async (sql: string) => {
       statements.push(sql.trim());
       if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [], rowCount: 0 };
-      if (sql.includes("SELECT id, status FROM market_proposals")) {
+      if (sql.includes('SELECT id, status, "closesAt" FROM market_proposals')) {
         return { rows: [{ id: "proposal-2", status: "PENDING_APPROVAL", closesAt: "2027-01-01T00:00:00.000Z" }], rowCount: 1 };
       }
       if (sql.includes("SELECT id, status FROM paid_market_submissions")) {
@@ -252,7 +252,7 @@ test("admin approval refuses a manual proposal whose closing time has passed", a
     query: async (sql: string) => {
       statements.push(sql.trim());
       if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [], rowCount: 0 };
-      if (sql.includes("SELECT id, status FROM market_proposals")) {
+      if (sql.includes('SELECT id, status, "closesAt" FROM market_proposals')) {
         return { rows: [{ id: "expired-proposal", status: "PENDING_APPROVAL", closesAt: "2026-11-11T00:00:00.000Z" }], rowCount: 1 };
       }
       throw new Error("Unexpected client query: " + sql);
