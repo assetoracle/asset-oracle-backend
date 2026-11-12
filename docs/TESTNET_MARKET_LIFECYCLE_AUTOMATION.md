@@ -64,6 +64,18 @@ Settlement automation never chooses an outcome. The 2-of-3 human validator conse
 
 The proposal UUID is included in the on-chain resolution-rules JSON to support recovery after an on-chain creation succeeds but the database update is interrupted. If recovery cannot be verified, the worker stops rather than blindly creating a duplicate.
 
+## Publication-attempt reconciliation
+
+The lifecycle worker applies an additive PostgreSQL migration through `initializeMarketStore()`:
+
+- `market_publish_attempts` stores the proposal, chain, manager, attempt number, status, transaction hash, market ID, and failure reason.
+- A `PREPARED` row is committed before the wallet client submits a publication transaction. The row is updated to `SUBMITTED` once the transaction hash is known, and to `PUBLISHED` only after the on-chain publication is verified and proposal metadata is persisted.
+- Only proposals with a recorded attempt are scanned across existing on-chain markets. New proposals with no prior attempt skip that historical scan.
+- A confirmed reverted transaction is marked `FAILED` and may be retried with a new attempt number. A pending, successful-but-unmatched, or hashless ambiguous attempt remains blocked for manual reconciliation; the worker will not risk a duplicate transaction.
+- A one-time migration seeds reconciliation records for already-approved, unpublished proposals on the configured manager. This protects proposals that may have been broadcast by the pre-migration worker. Any such legacy attempt with no matching market is deliberately fail-closed and requires manual review rather than automatic resubmission.
+
+The migration marker is scoped to chain ID and manager address, so it runs once for each manager configuration. Do not delete attempt or migration records to force a retry; resolve the transaction state first.
+
 This is unaudited testnet automation. Do not configure a mainnet private key or use real funds.
 
 ## Read-only preflight before activation
