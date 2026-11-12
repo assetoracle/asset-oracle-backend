@@ -10,6 +10,21 @@ export function objectValue(value: unknown, path: string): unknown | null {
   return current === undefined ? null : current;
 }
 
+/** Conservative GDELT relevance check: every market term must appear in the article title. */
+export function filterGdeltArticlesByRequiredTerms<T extends { title?: string }>(
+  articles: T[],
+  requiredTerms: string[],
+): T[] {
+  const terms = requiredTerms.map((term) => term.trim().toLocaleLowerCase("en"));
+  if (terms.length < 2 || terms.some((term) => term.length < 2) || new Set(terms).size !== terms.length) {
+    throw new Error("GDELT relevance screening requires at least two unique, non-empty market terms.");
+  }
+  return articles.filter((article) => {
+    const title = typeof article.title === "string" ? article.title.toLocaleLowerCase("en") : "";
+    return title.length > 0 && terms.every((term) => title.includes(term));
+  });
+}
+
 /** Provider metric contract shared by proposal validation and evidence extraction. */
 export function isSupportedMetric(provider: string, metric: string): boolean {
   const fixed: Record<string, string[]> = {
