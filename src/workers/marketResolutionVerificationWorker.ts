@@ -75,8 +75,8 @@ async function main(): Promise<void> {
     let skipped = 0;
     let failed = 0;
     for (const market of dueMarkets) {
+      const provider = market.resolutionRule.sourceId.trim().toLowerCase();
       try {
-        const provider = market.resolutionRule.sourceId.trim().toLowerCase();
         const existingRecommendation = await getResolutionRecommendation(market.id);
         if (existingRecommendation && await isRecommendationAlignedWithObservationTime(
           market.id, provider, market.resolutionRule.observationTime,
