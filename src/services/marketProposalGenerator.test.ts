@@ -86,14 +86,25 @@ function completeTemplateSet() {
   ];
 }
 
-test("template parser accepts a structurally valid template set covering all five categories", () => {
-  const parsed = parseGenerationTemplates(JSON.stringify(completeTemplateSet()));
-  assert.equal(parsed.length, 5);
-  assert.deepEqual(new Set(parsed.map((item) => item.category)), new Set(["Digital Assets", "Economics", "Regional", "RWA", "Sports"]));
+test("template parser accepts only currently enabled CoinGecko and World Bank categories", () => {
+  const templates = [
+    validTemplate,
+    { ...validTemplate, id: "nigeria-inflation", category: "Economics", question: "Will Nigeria inflation exceed 20 percent?", description: "Resolve using the latest published World Bank inflation indicator for Nigeria.", sourceId: "world-bank", metric: "value", comparison: "ABOVE", targetValue: 20, currency: "PERCENT", query: { country: "NGA", indicator: "FP.CPI.TOTL.ZG" } },
+  ];
+  const parsed = parseGenerationTemplates(JSON.stringify(templates));
+  assert.equal(parsed.length, 2);
+  assert.deepEqual(new Set(parsed.map((item) => item.category)), new Set(["Digital Assets", "Economics"]));
 });
 
-test("template parser rejects missing category coverage", () => {
-  assert.throws(() => parseGenerationTemplates(JSON.stringify([validTemplate])), /missing category coverage/i);
+test("template parser accepts a single enabled category without requiring disabled categories", () => {
+  assert.deepEqual(parseGenerationTemplates(JSON.stringify([validTemplate])).map((item) => item.category), ["Digital Assets"]);
+});
+
+test("template parser rejects disabled providers and categories", () => {
+  const disabled = { ...validTemplate, sourceId: "dexscreener", metric: "priceUsd", query: { search: "bitcoin" } };
+  assert.throws(() => parseGenerationTemplates(JSON.stringify([disabled])), /not approved/);
+  const regional = { ...validTemplate, category: "Regional", sourceId: "gdelt", metric: "articles.length", query: { search: "Nigeria flood", timespan: "24h", requiredTerms: ["Nigeria", "flood"] } };
+  assert.throws(() => parseGenerationTemplates(JSON.stringify([regional])), /not approved/);
 });
 
 test("template parser rejects more than ten templates in one category", () => {
