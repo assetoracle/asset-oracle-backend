@@ -272,6 +272,8 @@ async function main(): Promise<void> {
               failureReason: "Recorded publication transaction reverted on-chain.",
             });
             attempt = undefined;
+          } else if (receipt?.status === "success") {
+            throw new Error(`Publication transaction ${attempt.transactionHash} succeeded but no matching market was found for proposal ${proposal.id}. Manual reconciliation is required; refusing to submit a duplicate.`);
           } else {
             throw new Error(`Publication attempt ${attempt.id} for proposal ${proposal.id} has no matching market yet. Transaction state is pending or ambiguous; refusing to submit a duplicate.`);
           }
