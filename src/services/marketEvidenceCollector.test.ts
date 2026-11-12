@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractMetricValue, isSupportedMetric, objectValue } from "./marketEvidenceMetrics.js";
+import { extractMetricValue, filterGdeltArticlesByRequiredTerms, isSupportedMetric, objectValue } from "./marketEvidenceMetrics.js";
 
 test("evidence metric path reads nested object properties", () => {
   assert.equal(objectValue({ market_data: { current_price: { usd: 123.45 } } }, "market_data.current_price.usd"), 123.45);
@@ -40,8 +40,20 @@ test("GDELT metric returns zero when relevance screening found no qualifying art
   assert.equal(extractMetricValue("gdelt", { articles: [{ title: "Nigeria leadership" }], relevant_articles: [] }, "articles.length"), 0);
 });
 
-test("GDELT article count returns the number of indexed articles", () => {
-  assert.equal(extractMetricValue("gdelt", { articles: [{ title: "A" }, { title: "B" }] }, "articles.length"), 2);
+test("GDELT screening requires every market term in the title, not merely a Nigeria source-country tag", () => {
+  const screened = filterGdeltArticlesByRequiredTerms([
+    { title: "Sultan New Dynamic Leadership Paradigm At 20", sourcecountry: "Nigeria" },
+    { title: "Nigeria flood emergency declared", sourcecountry: "Nigeria" },
+    { title: "China reports severe flooding", sourcecountry: "China" },
+    { title: "Nigeria economy update", sourcecountry: "Nigeria" },
+  ], ["Nigeria", "flood"]);
+  assert.deepEqual(screened.map((article) => article.title), ["Nigeria flood emergency declared"]);
+});
+
+test("GDELT screening rejects missing titles and invalid term sets", () => {
+  assert.deepEqual(filterGdeltArticlesByRequiredTerms([{ title: undefined }], ["Nigeria", "flood"]), []);
+  assert.throws(() => filterGdeltArticlesByRequiredTerms([], ["Nigeria"]), /at least two unique/);
+  assert.throws(() => filterGdeltArticlesByRequiredTerms([], ["Nigeria", "nigeria"]), /at least two unique/);
 });
 
 test("GDELT article count remains unavailable when the response omits articles", () => {
