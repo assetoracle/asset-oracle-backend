@@ -120,9 +120,9 @@ async function main(): Promise<void> {
         );
       } catch (error) {
         if (error instanceof ProviderRateLimitError) {
-          await setMarketDataProviderCooldown("gdelt", 30, error.message);
+          await setMarketDataProviderCooldown(provider, 30, error.message);
           skipped++;
-          console.warn("GDELT rate limit reached. Provider-wide cooldown set for 30 minutes; remaining GDELT markets will be skipped.");
+          console.warn(`${provider} rate limit reached. Provider-wide cooldown set for 30 minutes; remaining ${provider} markets will be skipped.`);
           continue;
         }
         failed++;
