@@ -58,3 +58,10 @@ export function getPayoutBatchSize(
   if (participantCount <= 0 || startIndex < 0 || startIndex >= participantCount || maxBatchSize <= 0) return 0;
   return Math.min(Math.floor(maxBatchSize), participantCount - Math.floor(startIndex));
 }
+
+
+/** Expiry blocks a new publication, but must not block reconciliation of an existing attempt. */
+export function isProposalExpiredForNewPublication(closesAt: string | Date, now = Date.now()): boolean {
+  const closeTime = Date.parse(String(closesAt));
+  return !Number.isFinite(closeTime) || closeTime <= now;
+}
