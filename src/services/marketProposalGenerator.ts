@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { marketProposalSchema, type MarketProposalInput } from "./marketValidation.js";
 import { generateWithinNextCategory, saveMarketCandidate } from "./marketGenerationStore.js";
+import { selectProvidersForMarket } from "./marketProviderRouter.js";
 
 const generationTemplateSchema = z.object({
   id: z.string().trim().min(1).max(100),
@@ -81,6 +82,7 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
   const now = Date.now();
   const templates = result.data.map((template) => resolveTemplate(template, now));
   for (const template of templates) {
+    selectProvidersForMarket({ category: template.category, sourceId: template.sourceId });
     const count = (categoryCounts.get(template.category) ?? 0) + 1;
     categoryCounts.set(template.category, count);
     if (count > 10) throw new Error(`A maximum of 10 templates is allowed for ${template.category} per rotation.`);
@@ -109,10 +111,8 @@ export function parseGenerationTemplates(raw: string): GenerationTemplate[] {
       throw new Error(`Invalid template "${template.id}" at ${issue.path.join(".")}: ${issue.message}`);
     }
   }
-  const requiredCategories = ["Digital Assets", "Economics", "Regional", "RWA", "Sports"];
-  const missingCategories = requiredCategories.filter((category) => !categoryCounts.has(category));
-  if (missingCategories.length) {
-    throw new Error(`MARKET_GENERATION_TEMPLATES_JSON is missing category coverage: ${missingCategories.join(", ")}.`);
+  if (templates.length === 0) {
+    throw new Error("MARKET_GENERATION_TEMPLATES_JSON must contain at least one template for an enabled provider.");
   }
   return templates;
 }
@@ -131,6 +131,7 @@ export async function generateNextMarketCandidate(): Promise<{
   invalid: number;
 }> {
   const templates = readTemplates();
+  const enabledCategories = [...new Set(templates.map((template) => template.category))];
   const { category, result } = await generateWithinNextCategory(async (category, client) => {
     const selected = templates.filter((template) => template.category === category);
     if (selected.length === 0) {
@@ -172,7 +173,7 @@ export async function generateNextMarketCandidate(): Promise<{
     }
 
     return { considered: selected.length, inserted, duplicates, invalid };
-  });
+  }, enabledCategories);
 
   return { category, ...result };
 }

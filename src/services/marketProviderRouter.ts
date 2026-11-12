@@ -1,11 +1,11 @@
 export type MarketDataCategory = "Digital Assets" | "Sports" | "Economics" | "RWA" | "Regional";
 
 export const CATEGORY_PROVIDER_ALLOWLIST: Record<MarketDataCategory, readonly string[]> = {
-  "Digital Assets": ["coingecko", "dexscreener"],
-  Sports: ["sportmonks", "api-football"],
-  Economics: ["fred", "world-bank"],
-  RWA: ["defillama", "dexscreener"],
-  Regional: ["gdelt", "open-meteo"],
+  "Digital Assets": ["coingecko"],
+  Sports: [],
+  Economics: ["world-bank"],
+  RWA: [],
+  Regional: [],
 };
 
 export type ProviderSelection = {
