@@ -58,8 +58,29 @@ const CATEGORIES = ["Digital Assets", "Economics", "Regional", "RWA", "Sports"] 
  * Holds the rotation row lock while candidate writes run. The cursor update and
  * candidate inserts commit together, so a failed batch cannot skip a category.
  */
+export function selectNextEnabledCategory(
+  startIndex: number,
+  enabledCategories: readonly MarketProposalInput["category"][],
+): { category: MarketProposalInput["category"]; index: number } {
+  if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= CATEGORIES.length) {
+    throw new Error("Market generation category cursor is outside the supported range.");
+  }
+  const enabled = new Set(enabledCategories);
+  if (enabled.size === 0 || enabled.size !== enabledCategories.length ||
+      [...enabled].some((category) => !CATEGORIES.includes(category as typeof CATEGORIES[number]))) {
+    throw new Error("Market generation requires a non-empty list of unique supported categories.");
+  }
+  for (let offset = 0; offset < CATEGORIES.length; offset++) {
+    const index = (startIndex + offset) % CATEGORIES.length;
+    const category = CATEGORIES[index];
+    if (enabled.has(category)) return { category, index };
+  }
+  throw new Error("No enabled market generation category is available.");
+}
+
 export async function generateWithinNextCategory<T>(
   work: (category: MarketProposalInput["category"], client: CandidateQueryExecutor) => Promise<T>,
+  enabledCategories: readonly MarketProposalInput["category"][] = CATEGORIES,
 ): Promise<{ category: MarketProposalInput["category"]; result: T }> {
   const client = await database.connect();
   try {
@@ -68,15 +89,13 @@ export async function generateWithinNextCategory<T>(
       "SELECT next_category_index FROM market_generation_state WHERE id=1 FOR UPDATE",
     );
     const index = Number((state.rows[0] as { next_category_index?: number } | undefined)?.next_category_index ?? 0);
-    if (!Number.isInteger(index) || index < 0 || index >= CATEGORIES.length) {
-      throw new Error("Market generation category cursor is outside the supported range.");
-    }
+    const selected = selectNextEnabledCategory(index, enabledCategories);
     await client.query(`UPDATE market_generation_candidates SET status='EXPIRED' WHERE status='PENDING_REVIEW' AND proposal->>'closesAt' IS NOT NULL AND (proposal->>'closesAt')::timestamptz <= NOW()`);
-    const category = CATEGORIES[index];
+    const category = selected.category;
     const result = await work(category, client);
     await client.query(
       "UPDATE market_generation_state SET next_category_index=$1, updated_at=NOW() WHERE id=1",
-      [(index + 1) % CATEGORIES.length],
+      [(selected.index + 1) % CATEGORIES.length],
     );
     await client.query("COMMIT");
     return { category, result };
