@@ -49,8 +49,8 @@ export function extractMetricValue(provider: string, data: unknown, metric: stri
     return typeof data === "number" && Number.isFinite(data) ? data : null;
   }
   if (provider === "gdelt" && metric === "articles.length") {
-    const articles = objectValue(data, "articles");
-    return Array.isArray(articles) ? articles.length : null;
+    const relevantArticles = objectValue(data, "relevant_articles");
+    return Array.isArray(relevantArticles) ? relevantArticles.length : null;
   }
   if (provider === "api-football" && metric === "response.length") {
     const response = objectValue(data, "response");
