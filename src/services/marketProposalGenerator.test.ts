@@ -58,7 +58,7 @@ test("generated candidate proposal requires future close and later resolution", 
 
 test("template parser rejects a provider outside its category", () => {
   const invalid = { ...validTemplate, sourceId: "fred", query: { seriesId: "CPIAUCSL" } };
-  assert.throws(() => parseGenerationTemplates(JSON.stringify([invalid])), /provider approved for this market category/i);
+  assert.throws(() => parseGenerationTemplates(JSON.stringify([invalid])), /not approved for the .* market category/i);
 });
 
 test("template parser rejects missing provider query parameters", () => {
