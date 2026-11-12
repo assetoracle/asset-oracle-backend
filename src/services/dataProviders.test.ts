@@ -262,7 +262,32 @@ test("GDELT rate limits respect Retry-After and retry within a bounded budget", 
     const result = await gdeltArticles('"Nigeria" flood', 25, "24h");
     assert.deepEqual(result.data, { articles: [] });
     assert.equal(attempts, 2);
-    assert.ok(delays.includes(3_000));
+    assert.ok(delays.includes(5_000), "GDELT must wait at least five seconds even when Retry-After is shorter");
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("GDELT rate-limit retries wait at least five seconds when Retry-After is absent", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const delays: number[] = [];
+  let attempts = 0;
+  globalThis.setTimeout = ((handler: (...args: unknown[]) => void, timeout?: number) => {
+    delays.push(Number(timeout ?? 0));
+    return originalSetTimeout(handler, 0);
+  }) as typeof setTimeout;
+  globalThis.fetch = (async () => {
+    attempts++;
+    return attempts === 1
+      ? new Response("rate limited", { status: 429 })
+      : new Response(JSON.stringify({ articles: [] }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await gdeltArticles('"Nigeria" flood', 25, "24h");
+    assert.equal(attempts, 2);
+    assert.ok(delays.includes(5_000));
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.setTimeout = originalSetTimeout;
