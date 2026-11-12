@@ -3,7 +3,7 @@ import { afterEach, test } from "node:test";
 
 process.env.DATABASE_URL ??= "postgresql://test:test@127.0.0.1:5432/test";
 const { database } = await import("../config/database.js");
-const { recordOnchainPublication, decideAutomatedMarketProposal } = await import("./marketStore.js");
+const { recordOnchainPublication, decideAutomatedMarketProposal, getLatestMarketPublicationAttempt, createMarketPublicationAttempt, updateMarketPublicationAttempt } = await import("./marketStore.js");
 
 type Row = Record<string, unknown>;
 type Query = (sql: string, values?: unknown[]) => Promise<{ rows: Row[] }>;
@@ -143,4 +143,74 @@ test("converts database unique-index collisions into a publication conflict", as
     recordOnchainPublication(publication),
     /already recorded for another proposal/i,
   );
+});
+
+
+test("loads the latest publication attempt and maps database fields", async () => {
+  let capturedSql = "";
+  db.query = async (sql) => {
+    capturedSql = sql;
+    return { rows: [{
+      id: 4,
+      proposal_id: proposalRow.id,
+      chain_id: 42421,
+      manager_address: publication.managerAddress.toLowerCase(),
+      attempt_number: 2,
+      status: "SUBMITTED",
+      transaction_hash: publication.txHash,
+      market_id: null,
+      failure_reason: null,
+    }] };
+  };
+  const result = await getLatestMarketPublicationAttempt({
+    proposalId: proposalRow.id as string,
+    chainId: 42421,
+    managerAddress: publication.managerAddress,
+  });
+  assert.match(capturedSql, /ORDER BY attempt_number DESC LIMIT 1/);
+  assert.equal(result?.attemptNumber, 2);
+  assert.equal(result?.status, "SUBMITTED");
+  assert.equal(result?.transactionHash, publication.txHash);
+});
+
+test("creates a PREPARED attempt before transaction broadcast", async () => {
+  let capturedSql = "";
+  db.query = async (sql) => {
+    capturedSql = sql;
+    return { rows: [{
+      id: 5,
+      proposal_id: proposalRow.id,
+      chain_id: 42421,
+      manager_address: publication.managerAddress.toLowerCase(),
+      attempt_number: 3,
+      status: "PREPARED",
+      transaction_hash: null,
+      market_id: null,
+      failure_reason: null,
+    }] };
+  };
+  const result = await createMarketPublicationAttempt({
+    proposalId: proposalRow.id as string,
+    chainId: 42421,
+    managerAddress: publication.managerAddress,
+  });
+  assert.match(capturedSql, /COALESCE\(MAX\(attempt_number\), 0\) \+ 1/);
+  assert.match(capturedSql, /'PREPARED'/);
+  assert.equal(result.attemptNumber, 3);
+  assert.equal(result.status, "PREPARED");
+});
+
+test("updates attempt state and retains the recorded transaction hash", async () => {
+  let capturedValues: unknown[] = [];
+  db.query = async (_sql, values) => {
+    capturedValues = values ?? [];
+    return { rows: [], rowCount: 1 };
+  };
+  await updateMarketPublicationAttempt({
+    id: 5,
+    status: "PUBLISHED",
+    transactionHash: publication.txHash,
+    marketId: "12",
+  });
+  assert.deepEqual(capturedValues, [5, "PUBLISHED", publication.txHash, "12", null]);
 });
