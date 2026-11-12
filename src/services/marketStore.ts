@@ -134,6 +134,34 @@ export async function initializeMarketStore(): Promise<void> {
     ON market_proposals (onchain_chain_id, lower(onchain_manager_address), onchain_market_id)
     WHERE onchain_market_id IS NOT NULL AND onchain_manager_address IS NOT NULL
   `);
+  // Additive lifecycle migration: record each publication attempt before broadcasting.
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS market_publish_attempts (
+      id BIGSERIAL PRIMARY KEY,
+      proposal_id UUID NOT NULL REFERENCES market_proposals(id) ON DELETE CASCADE,
+      chain_id INTEGER NOT NULL CHECK (chain_id = 42421),
+      manager_address TEXT NOT NULL,
+      attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
+      status TEXT NOT NULL CHECK (status IN ('PREPARED', 'SUBMITTED', 'RECONCILIATION_REQUIRED', 'PUBLISHED', 'FAILED')),
+      transaction_hash TEXT,
+      market_id TEXT,
+      failure_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (proposal_id, chain_id, manager_address, attempt_number)
+    )
+  `);
+  await database.query(`
+    CREATE INDEX IF NOT EXISTS market_publish_attempts_recovery_idx
+    ON market_publish_attempts (chain_id, manager_address, status, proposal_id)
+    WHERE status IN ('PREPARED', 'SUBMITTED', 'RECONCILIATION_REQUIRED', 'PUBLISHED')
+  `);
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS market_store_migrations (
+      migration_key TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 export async function createMarketProposal(
@@ -374,4 +402,147 @@ export async function updateMarketProposalStatus(
   );
 
   return result.rows[0] ? mapProposal(result.rows[0]) : undefined;
+}
+
+
+export type MarketPublicationAttemptStatus =
+  | "PREPARED"
+  | "SUBMITTED"
+  | "RECONCILIATION_REQUIRED"
+  | "PUBLISHED"
+  | "FAILED";
+
+export type MarketPublicationAttempt = {
+  id: number;
+  proposalId: string;
+  chainId: number;
+  managerAddress: string;
+  attemptNumber: number;
+  status: MarketPublicationAttemptStatus;
+  transactionHash: string | null;
+  marketId: string | null;
+  failureReason: string | null;
+};
+
+type MarketPublicationAttemptRow = {
+  id: number;
+  proposal_id: string;
+  chain_id: number;
+  manager_address: string;
+  attempt_number: number;
+  status: MarketPublicationAttemptStatus;
+  transaction_hash: string | null;
+  market_id: string | null;
+  failure_reason: string | null;
+};
+
+function mapPublicationAttempt(row: MarketPublicationAttemptRow): MarketPublicationAttempt {
+  return {
+    id: Number(row.id),
+    proposalId: row.proposal_id,
+    chainId: Number(row.chain_id),
+    managerAddress: row.manager_address,
+    attemptNumber: Number(row.attempt_number),
+    status: row.status,
+    transactionHash: row.transaction_hash,
+    marketId: row.market_id,
+    failureReason: row.failure_reason,
+  };
+}
+
+/** One-time compatibility migration: legacy approved proposals may have been broadcast before attempts were tracked. */
+export async function seedLegacyMarketPublicationAttempts(input: {
+  chainId: number;
+  managerAddress: string;
+}): Promise<number> {
+  if (input.chainId !== 42421) throw new Error("Legacy publication reconciliation is restricted to Enugu testnet (42421).");
+  const client = await database.connect();
+  const migrationKey = `legacy_market_publication_attempts_${input.chainId}_${input.managerAddress.toLowerCase()}`;
+  try {
+    await client.query("BEGIN");
+    const migration = await client.query(
+      "INSERT INTO market_store_migrations (migration_key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING migration_key",
+      [migrationKey],
+    );
+    if (migration.rows.length === 0) {
+      await client.query("COMMIT");
+      return 0;
+    }
+    const seeded = await client.query(
+      `INSERT INTO market_publish_attempts
+        (proposal_id, chain_id, manager_address, attempt_number, status, failure_reason)
+       SELECT id, $1, lower($2), 1, 'RECONCILIATION_REQUIRED',
+              'Legacy proposal: verify prior on-chain publication before retrying.'
+         FROM market_proposals
+        WHERE status = 'APPROVED'
+          AND onchain_tx_hash IS NULL
+          AND onchain_market_id IS NULL
+       ON CONFLICT (proposal_id, chain_id, manager_address, attempt_number) DO NOTHING
+       RETURNING id`,
+      [input.chainId, input.managerAddress],
+    );
+    await client.query("COMMIT");
+    return seeded.rows.length;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getLatestMarketPublicationAttempt(input: {
+  proposalId: string;
+  chainId: number;
+  managerAddress: string;
+}): Promise<MarketPublicationAttempt | undefined> {
+  const result = await database.query<MarketPublicationAttemptRow>(
+    `SELECT id, proposal_id, chain_id, manager_address, attempt_number, status,
+            transaction_hash, market_id, failure_reason
+       FROM market_publish_attempts
+      WHERE proposal_id = $1 AND chain_id = $2 AND manager_address = lower($3)
+      ORDER BY attempt_number DESC LIMIT 1`,
+    [input.proposalId, input.chainId, input.managerAddress],
+  );
+  return result.rows[0] ? mapPublicationAttempt(result.rows[0]) : undefined;
+}
+
+/** Create a durable PREPARED record before the wallet client can broadcast a transaction. */
+export async function createMarketPublicationAttempt(input: {
+  proposalId: string;
+  chainId: number;
+  managerAddress: string;
+}): Promise<MarketPublicationAttempt> {
+  const result = await database.query<MarketPublicationAttemptRow>(
+    `INSERT INTO market_publish_attempts
+       (proposal_id, chain_id, manager_address, attempt_number, status)
+     SELECT $1, $2, lower($3), COALESCE(MAX(attempt_number), 0) + 1, 'PREPARED'
+       FROM market_publish_attempts
+      WHERE proposal_id = $1 AND chain_id = $2 AND manager_address = lower($3)
+     RETURNING id, proposal_id, chain_id, manager_address, attempt_number, status,
+               transaction_hash, market_id, failure_reason`,
+    [input.proposalId, input.chainId, input.managerAddress],
+  );
+  if (!result.rows[0]) throw new Error(`Unable to create publication attempt for proposal ${input.proposalId}.`);
+  return mapPublicationAttempt(result.rows[0]);
+}
+
+export async function updateMarketPublicationAttempt(input: {
+  id: number;
+  status: MarketPublicationAttemptStatus;
+  transactionHash?: string | null;
+  marketId?: string | null;
+  failureReason?: string | null;
+}): Promise<void> {
+  const result = await database.query(
+    `UPDATE market_publish_attempts
+        SET status = $2,
+            transaction_hash = COALESCE($3, transaction_hash),
+            market_id = COALESCE($4, market_id),
+            failure_reason = $5,
+            updated_at = NOW()
+      WHERE id = $1`,
+    [input.id, input.status, input.transactionHash ?? null, input.marketId ?? null, input.failureReason ?? null],
+  );
+  if (result.rowCount === 0) throw new Error(`Publication attempt ${input.id} was not found while updating its state.`);
 }

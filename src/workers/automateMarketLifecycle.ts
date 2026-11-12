@@ -19,7 +19,7 @@ import {
   ASSET_CHAIN_TESTNET_RPC_URL,
   HUMAN_VALIDATOR_ADDRESSES,
 } from "../config/assetOracle.js";
-import { initializeMarketStore, listMarketProposals, listAutomatedMarketProposals, recordOnchainPublication } from "../services/marketStore.js";
+import { createMarketPublicationAttempt, getLatestMarketPublicationAttempt, initializeMarketStore, listMarketProposals, listAutomatedMarketProposals, recordOnchainPublication, seedLegacyMarketPublicationAttempts, updateMarketPublicationAttempt } from "../services/marketStore.js";
 
 const USDC = "0xc33741fddEBeA854d265db6F9707900Efb0211a2" as Address;
 const EXPLORER = process.env.ASSET_CHAIN_EXPLORER_URL || "https://scan-testnet.assetchain.org";
@@ -167,6 +167,8 @@ async function main(): Promise<void> {
 
   try {
     await initializeMarketStore();
+    const legacyAttemptsSeeded = await seedLegacyMarketPublicationAttempts({ chainId: actualChainId, managerAddress: manager });
+    if (legacyAttemptsSeeded > 0) console.warn(`Seeded ${legacyAttemptsSeeded} legacy publication attempts for one-time on-chain reconciliation.`);
     await database.query("CREATE TABLE IF NOT EXISTS market_lifecycle_transactions (id BIGSERIAL PRIMARY KEY, chain_id INTEGER NOT NULL CHECK (chain_id = 42421), manager_address TEXT NOT NULL, market_id TEXT NOT NULL, transaction_type TEXT NOT NULL, transaction_hash TEXT NOT NULL UNIQUE, recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
 
     await database.query(`
@@ -212,46 +214,114 @@ async function main(): Promise<void> {
         proposalId: proposal.id,
       });
 
-      // Reconcile a previous successful createMarket transaction if the worker stopped
-      // before writing its DB record.
-      let recovered = false;
-      marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
-      const count = Number(marketCount);
-      for (let id = 1; id <= count; id++) {
-        const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
-        if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id) && Number(existing.marketType) === (proposal.origin === "AUTOMATED" ? 1 : 0)) {
-          if (existing.challengePeriod !== CHALLENGE_PERIOD_SECONDS) {
-            throw new Error(`Recovered market ${id} has challenge period ${existing.challengePeriod}; expected exactly ${CHALLENGE_PERIOD_SECONDS}. Manual reconciliation required.`);
+      // Only proposals with a durable attempt record are scanned on-chain.
+      // New proposals skip the historical market scan and go straight to a recorded attempt.
+      let attempt = await getLatestMarketPublicationAttempt({
+        proposalId: proposal.id,
+        chainId: actualChainId,
+        managerAddress: manager,
+      });
+      if (attempt && attempt.status !== "FAILED") {
+        let recoveredMarketId: bigint | undefined;
+        marketCount = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "marketCount" });
+        const count = Number(marketCount);
+        for (let id = 1; id <= count; id++) {
+          const existing = await publicClient.readContract({ address: manager, abi: managerAbi, functionName: "getMarket", args: [BigInt(id)] });
+          if (existing.question === proposal.question && existing.resolutionRules.includes(proposal.id) && Number(existing.marketType) === (proposal.origin === "AUTOMATED" ? 1 : 0)) {
+            if (existing.challengePeriod !== CHALLENGE_PERIOD_SECONDS) {
+              throw new Error(`Recovered market ${id} has challenge period ${existing.challengePeriod}; expected exactly ${CHALLENGE_PERIOD_SECONDS}. Manual reconciliation required.`);
+            }
+            recoveredMarketId = BigInt(id);
+            break;
           }
+        }
+        if (recoveredMarketId !== undefined) {
           const latestBlock = await publicClient.getBlockNumber();
           const created = await findLogInBlockRanges(
             latestBlock,
             (fromBlock, toBlock) => publicClient.getLogs({ address: manager, event: managerAbi[16], fromBlock, toBlock }),
-            (log) => log.args.marketId === BigInt(id),
+            (log) => log.args.marketId === recoveredMarketId,
           );
-          if (created?.transactionHash) {
-            const stored = await recordOnchainPublication({ id: proposal.id, marketId: String(id), txHash: created.transactionHash, managerAddress: manager, chainId: actualChainId });
-            console.log(`Recovered publication for proposal ${proposal.id}: market ${id}`);
-            recovered = Boolean(stored);
+          if (!created?.transactionHash) {
+            throw new Error(`Market ${recoveredMarketId} exists for proposal ${proposal.id}, but its creation log could not be recovered. Manual reconciliation required.`);
           }
-          if (recovered) break;
-          throw new Error(`Market for proposal ${proposal.id} exists on-chain but its creation log could not be recovered. Manual reconciliation required; refusing to create a duplicate.`);
+          const stored = await recordOnchainPublication({
+            id: proposal.id,
+            marketId: String(recoveredMarketId),
+            txHash: created.transactionHash,
+            managerAddress: manager,
+            chainId: actualChainId,
+          });
+          if (!stored) throw new Error(`Recovered market ${recoveredMarketId} could not be saved to the database.`);
+          await updateMarketPublicationAttempt({
+            id: attempt.id,
+            status: "PUBLISHED",
+            transactionHash: created.transactionHash,
+            marketId: String(recoveredMarketId),
+          });
+          console.log(`Recovered publication for proposal ${proposal.id}: market ${recoveredMarketId}`);
+          continue;
+        }
+
+        if (attempt.transactionHash) {
+          const receipt = await publicClient.getTransactionReceipt({ hash: attempt.transactionHash as Hex }).catch(() => undefined);
+          if (receipt?.status === "reverted") {
+            await updateMarketPublicationAttempt({
+              id: attempt.id,
+              status: "FAILED",
+              failureReason: "Recorded publication transaction reverted on-chain.",
+            });
+            attempt = undefined;
+          } else if (receipt?.status === "success") {
+            throw new Error(`Publication transaction ${attempt.transactionHash} succeeded but no matching market was found for proposal ${proposal.id}. Manual reconciliation is required; refusing to submit a duplicate.`);
+          } else {
+            throw new Error(`Publication attempt ${attempt.id} for proposal ${proposal.id} has no matching market yet. Transaction state is pending or ambiguous; refusing to submit a duplicate.`);
+          }
+        } else {
+          throw new Error(`Publication attempt ${attempt.id} for proposal ${proposal.id} has no transaction hash and no matching market. Manual reconciliation is required; refusing to submit a duplicate.`);
         }
       }
-      if (recovered) continue;
 
-      const hash = proposal.origin === "AUTOMATED"
-        ? await walletClient.writeContract({
-            address: manager, abi: managerAbi, functionName: "createAutomatedMarket",
-            args: [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS],
-          })
-        : await walletClient.writeContract({
-            address: manager, abi: managerAbi, functionName: "createMarket",
-            args: [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS],
-          });
+      const publicationAttempt = attempt ?? await createMarketPublicationAttempt({
+        proposalId: proposal.id,
+        chainId: actualChainId,
+        managerAddress: manager,
+      });
+      const publicationArgs = [0, proposal.question, rules, proposal.resolutionRule.sourceId, closeTime, CHALLENGE_PERIOD_SECONDS] as const;
+      let hash: Hex;
+      try {
+        hash = proposal.origin === "AUTOMATED"
+          ? await walletClient.writeContract({
+              address: manager, abi: managerAbi, functionName: "createAutomatedMarket",
+              args: publicationArgs,
+            })
+          : await walletClient.writeContract({
+              address: manager, abi: managerAbi, functionName: "createMarket",
+              args: publicationArgs,
+            });
+      } catch (error) {
+        await updateMarketPublicationAttempt({
+          id: publicationAttempt.id,
+          status: "RECONCILIATION_REQUIRED",
+          failureReason: error instanceof Error ? error.message : "Wallet submission returned an unknown error; broadcast status is uncertain.",
+        });
+        throw error;
+      }
+      await updateMarketPublicationAttempt({
+        id: publicationAttempt.id,
+        status: "SUBMITTED",
+        transactionHash: hash,
+      });
       console.log(`Submitted ${proposal.origin === "AUTOMATED" ? "createAutomatedMarket" : "createMarket"} for proposal ${proposal.id}: ${hash}`);
       const receipt = await waitForReceipt(hash);
-      if (receipt.status !== "success") throw new Error(`createMarket transaction failed: ${hash}`);
+      if (receipt.status !== "success") {
+        await updateMarketPublicationAttempt({
+          id: publicationAttempt.id,
+          status: "FAILED",
+          failureReason: "Publication transaction reverted.",
+        });
+        throw new Error(`createMarket transaction failed: ${hash}`);
+      }
       const events = parseEventLogs({ abi: managerAbi, logs: receipt.logs.filter((log) => getAddress(log.address) === manager), eventName: "MarketCreated", strict: false });
       const created = events.find((event) => event.args.question === proposal.question && event.args.creator && getAddress(event.args.creator) === getAddress(account.address) && event.args.closeTime === closeTime);
       if (!created || created.args.marketId === undefined) throw new Error(`Confirmed transaction did not emit the expected MarketCreated event: ${hash}`);
@@ -265,6 +335,12 @@ async function main(): Promise<void> {
       }
       const stored = await recordOnchainPublication({ id: proposal.id, marketId: created.args.marketId.toString(), txHash: hash, managerAddress: manager, chainId: actualChainId });
       if (!stored) throw new Error(`On-chain market ${created.args.marketId} exists but could not be saved to the database. Reconciliation is required.`);
+      await updateMarketPublicationAttempt({
+        id: publicationAttempt.id,
+        status: "PUBLISHED",
+        transactionHash: hash,
+        marketId: created.args.marketId.toString(),
+      });
       console.log(`Published approved proposal ${proposal.id} as market ${created.args.marketId}: ${EXPLORER}/tx/${hash}`);
     }
 
