@@ -11,6 +11,7 @@ export type DataSourceResult<T = unknown> = {
 const PROVIDER_REQUEST_TIMEOUT_MS = 20_000;
 const PROVIDER_REQUEST_RETRIES = 1;
 const GDELT_RATE_LIMIT_RETRIES = 2;
+const GDELT_MIN_REQUEST_INTERVAL_MS = 5_000;
 const MAX_RATE_LIMIT_RETRY_DELAY_MS = 10_000;
 
 export class ProviderRateLimitError extends Error {
@@ -27,10 +28,10 @@ function retryDelayMs(response: Response, attempt: number): number {
     const seconds = Number(retryAfter);
     const retryAt = Number.isFinite(seconds) ? Date.now() + Math.max(0, seconds) * 1000 : Date.parse(retryAfter);
     if (Number.isFinite(retryAt)) {
-      return Math.min(MAX_RATE_LIMIT_RETRY_DELAY_MS, Math.max(0, retryAt - Date.now()));
+      return Math.min(MAX_RATE_LIMIT_RETRY_DELAY_MS, Math.max(GDELT_MIN_REQUEST_INTERVAL_MS, retryAt - Date.now()));
     }
   }
-  return Math.min(MAX_RATE_LIMIT_RETRY_DELAY_MS, 1_000 * 2 ** attempt);
+  return Math.min(MAX_RATE_LIMIT_RETRY_DELAY_MS, Math.max(GDELT_MIN_REQUEST_INTERVAL_MS, 1_000 * 2 ** attempt));
 }
 
 function isRetryableNetworkError(error: unknown): boolean {
