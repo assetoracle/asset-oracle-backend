@@ -1,9 +1,9 @@
 [
   {
-    "id": "btc-usd-above-100k",
+    "id": "btc-usd-above-100000",
     "category": "Digital Assets",
     "question": "Will Bitcoin trade above 100000 USD at resolution?",
-    "description": "Resolve using CoinGecko Bitcoin market data. Use the USD current price observation collected for this market.",
+    "description": "Resolve using CoinGecko Bitcoin market data. Use the USD historical price observation collected for this market. This threshold is an illustrative example and should be reviewed before use.",
     "sourceId": "coingecko",
     "metric": "market_data.current_price.usd",
     "comparison": "ABOVE",
@@ -11,6 +11,74 @@
     "currency": "USD",
     "query": {
       "coinId": "bitcoin",
+      "vsCurrency": "usd"
+    },
+    "closeAfterMinutes": 60,
+    "resolveAfterMinutes": 120
+  },
+  {
+    "id": "eth-usd-above-5000",
+    "category": "Digital Assets",
+    "question": "Will Ethereum trade above 5000 USD at resolution?",
+    "description": "Resolve using CoinGecko Ethereum market data. Use the USD historical price observation collected for this market. This threshold is an illustrative example and should be reviewed before use.",
+    "sourceId": "coingecko",
+    "metric": "market_data.current_price.usd",
+    "comparison": "ABOVE",
+    "targetValue": 5000,
+    "currency": "USD",
+    "query": {
+      "coinId": "ethereum",
+      "vsCurrency": "usd"
+    },
+    "closeAfterMinutes": 60,
+    "resolveAfterMinutes": 120
+  },
+  {
+    "id": "bnb-usd-above-1000",
+    "category": "Digital Assets",
+    "question": "Will BNB trade above 1000 USD at resolution?",
+    "description": "Resolve using CoinGecko BNB market data. Use the USD historical price observation collected for this market. This threshold is an illustrative example and should be reviewed before use.",
+    "sourceId": "coingecko",
+    "metric": "market_data.current_price.usd",
+    "comparison": "ABOVE",
+    "targetValue": 1000,
+    "currency": "USD",
+    "query": {
+      "coinId": "binancecoin",
+      "vsCurrency": "usd"
+    },
+    "closeAfterMinutes": 60,
+    "resolveAfterMinutes": 120
+  },
+  {
+    "id": "sol-usd-above-300",
+    "category": "Digital Assets",
+    "question": "Will Solana trade above 300 USD at resolution?",
+    "description": "Resolve using CoinGecko Solana market data. Use the USD historical price observation collected for this market. This threshold is an illustrative example and should be reviewed before use.",
+    "sourceId": "coingecko",
+    "metric": "market_data.current_price.usd",
+    "comparison": "ABOVE",
+    "targetValue": 300,
+    "currency": "USD",
+    "query": {
+      "coinId": "solana",
+      "vsCurrency": "usd"
+    },
+    "closeAfterMinutes": 60,
+    "resolveAfterMinutes": 120
+  },
+  {
+    "id": "xrp-usd-above-5",
+    "category": "Digital Assets",
+    "question": "Will XRP trade above 5 USD at resolution?",
+    "description": "Resolve using CoinGecko XRP market data. Use the USD historical price observation collected for this market. This threshold is an illustrative example and should be reviewed before use.",
+    "sourceId": "coingecko",
+    "metric": "market_data.current_price.usd",
+    "comparison": "ABOVE",
+    "targetValue": 5,
+    "currency": "USD",
+    "query": {
+      "coinId": "ripple",
       "vsCurrency": "usd"
     },
     "closeAfterMinutes": 60,
