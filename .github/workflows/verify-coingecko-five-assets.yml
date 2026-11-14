@@ -1,0 +1,37 @@
+name: Read-only CoinGecko five-asset verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-only-coingecko-five-asset-verification
+  cancel-in-progress: false
+
+jobs:
+  verify-historical-prices:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed default-branch code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820021 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify five historical USD prices without database access
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          COINGECKO_API_PLAN: ${{ vars.COINGECKO_API_PLAN || 'demo' }}
+        run: npx tsx scripts/verify-coingecko-five-assets.ts
