@@ -219,7 +219,54 @@ export function openMeteoHistorical(latitude: number, longitude: number, startDa
 export function sportmonksFixturesByDate(date: string) {
   if (!validDate(date)) throw new Error("Invalid Sportmonks fixture date.");
   const url = new URL(`https://api.sportmonks.com/v3/football/fixtures/date/${date}`);
+  // Participant records include team names and their provider-hosted image_path logos.
+  // Keep the request read-only; the sports provider allowlist remains disabled.
+  url.searchParams.set("include", "participants");
   return getJson("sportmonks", url, { Authorization: requiredEnv("SPORTMONKS_API_TOKEN") });
+}
+
+/** Extract only HTTPS team-logo URLs from known football provider response shapes. */
+export function extractFootballTeamIdentity(data: unknown): Array<{
+  fixtureId: string;
+  home: { name: string; logoUrl: string | null };
+  away: { name: string; logoUrl: string | null };
+}> {
+  const root = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  const sportmonks = Array.isArray(root.data) ? root.data as Record<string, unknown>[] : [];
+  const apiFootballRoot = Array.isArray(root.response) ? root.response as Record<string, unknown>[] : [];
+  const fixtures = sportmonks.length ? sportmonks : apiFootballRoot;
+  const safeLogo = (value: unknown): string | null => {
+    if (typeof value !== "string") return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" ? url.toString() : null;
+    } catch { return null; }
+  };
+  const output: Array<{ fixtureId: string; home: { name: string; logoUrl: string | null }; away: { name: string; logoUrl: string | null } }> = [];
+  for (const fixture of fixtures) {
+    if (sportmonks.length) {
+      const participants = Array.isArray(fixture.participants) ? fixture.participants as Record<string, unknown>[] : [];
+      const home = participants.find((team) => team.meta && typeof team.meta === "object" && (team.meta as Record<string, unknown>).location === "home");
+      const away = participants.find((team) => team.meta && typeof team.meta === "object" && (team.meta as Record<string, unknown>).location === "away");
+      if (!home || !away || typeof home.name !== "string" || typeof away.name !== "string") continue;
+      output.push({
+        fixtureId: String(fixture.id ?? ""),
+        home: { name: home.name, logoUrl: safeLogo(home.image_path) },
+        away: { name: away.name, logoUrl: safeLogo(away.image_path) },
+      });
+    } else {
+      const teams = fixture.teams && typeof fixture.teams === "object" ? fixture.teams as Record<string, unknown> : {};
+      const home = teams.home && typeof teams.home === "object" ? teams.home as Record<string, unknown> : {};
+      const away = teams.away && typeof teams.away === "object" ? teams.away as Record<string, unknown> : {};
+      if (typeof home.name !== "string" || typeof away.name !== "string") continue;
+      output.push({
+        fixtureId: String((fixture.fixture as Record<string, unknown> | undefined)?.id ?? ""),
+        home: { name: home.name, logoUrl: safeLogo(home.logo) },
+        away: { name: away.name, logoUrl: safeLogo(away.logo) },
+      });
+    }
+  }
+  return output;
 }
 
 export function apiFootballFixtures(date: string, league?: number, season?: number) {
