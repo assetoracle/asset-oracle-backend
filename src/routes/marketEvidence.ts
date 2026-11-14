@@ -56,12 +56,21 @@ router.post("/:proposalId/resolution", async (req, res, next) => {
 });
 
 router.post("/:proposalId/collect", async (req, res, next) => {
-  const parsed = z.object({ proposalId: proposalIdSchema, address: addressSchema }).safeParse({
+  const parsed = z.object({
+    proposalId: proposalIdSchema,
+    address: addressSchema,
+    confirmRefresh: z.boolean().optional().default(false),
+  }).safeParse({
     proposalId: req.params.proposalId, address: req.body?.address,
+    confirmRefresh: req.body?.confirmRefresh,
   });
-  if (!parsed.success) return res.status(400).json({ error: "A valid proposal ID and owner wallet address are required." });
+  if (!parsed.success) return res.status(400).json({ error: "A valid proposal ID, owner wallet address, and collection confirmation are required." });
   if (!await authorizeOwner(req, res, parsed.data.address)) return;
   try {
+    const existingEvidence = await listMarketEvidence(parsed.data.proposalId);
+    if (existingEvidence.length > 0 && !parsed.data.confirmRefresh) {
+      return res.status(409).json({ error: "Evidence already exists for this proposal. Explicitly confirm a new collection to request another provider observation." });
+    }
     const result = await collectMarketEvidence(parsed.data.proposalId);
     return res.status(result.inserted ? 201 : 200).json({
       message: result.inserted ? "Market evidence collected and stored for validator review." : "This provider response was already stored.",
