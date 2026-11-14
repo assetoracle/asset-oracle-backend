@@ -622,7 +622,7 @@ marketsRouter.get("/public", async (_req, res, next) => {
           assetIdentity,
         };
       } catch {
-        return { ...market, onchainLifecycleStatus: null, teamIdentity: acceptedTeamIdentity.get(market.id) ?? null };
+        return { ...market, onchainLifecycleStatus: null, teamIdentity: acceptedTeamIdentity.get(market.id) ?? null, assetIdentity };
       }
     }));
 
