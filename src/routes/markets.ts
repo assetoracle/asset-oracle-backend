@@ -594,12 +594,12 @@ marketsRouter.get("/public", async (_req, res, next) => {
     const acceptedTeamIdentity = await listAcceptedFootballTeamIdentity(markets.map((market) => market.id));
     const marketsWithLifecycle = await Promise.all(markets.map(async (market) => {
       const rule = market.resolutionRule as typeof market.resolutionRule & {
-        query?: { coinId?: string; protocol?: string };
+        query?: { coinId?: string; protocol?: string; search?: string };
       };
       const assetIdentity = await getMarketAssetIdentity({
-        sourceId: rule.sourceId,
         coinId: rule.query?.coinId,
         protocol: rule.query?.protocol,
+        marketText: `${market.question} ${market.description ?? ""} ${rule.query?.search ?? ""}`,
       });
       // Keep publication approval separate from the live contract lifecycle.
       // If an individual read fails, return null rather than guessing a status.
