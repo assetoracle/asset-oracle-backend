@@ -186,3 +186,72 @@ export async function setMarketDataProviderCooldown(provider: string, minutes: n
     [provider, boundedMinutes, reason.slice(0, 240)],
   );
 }
+
+export type PublicMarketTeamIdentity = {
+  home: { name: string; logoUrl: string | null };
+  away: { name: string; logoUrl: string | null };
+};
+
+/** Return team identity only from validator-accepted football evidence. */
+export async function listAcceptedFootballTeamIdentity(proposalIds: string[]): Promise<Map<string, PublicMarketTeamIdentity>> {
+  if (proposalIds.length === 0) return new Map();
+  const result = await database.query(
+    `SELECT DISTINCT ON (proposal_id) proposal_id, raw_data
+       FROM market_data_evidence
+      WHERE proposal_id = ANY($1::uuid[])
+        AND provider IN ('sportmonks', 'api-football')
+        AND verification_status = 'ACCEPTED'
+      ORDER BY proposal_id, retrieved_at DESC`,
+    [proposalIds],
+  );
+  const identities = new Map<string, PublicMarketTeamIdentity>();
+  for (const row of result.rows) {
+    const raw = row.raw_data && typeof row.raw_data === "object" ? row.raw_data as Record<string, unknown> : {};
+    const fixtures = Array.isArray(raw.data) ? raw.data as Record<string, unknown>[] : Array.isArray(raw.response) ? raw.response as Record<string, unknown>[] : [];
+    const proposal = await database.query<{ question: string; description: string }>(
+      `SELECT question, description FROM market_proposals WHERE id=$1 AND status='APPROVED'`,
+      [row.proposal_id],
+    );
+    const context = `${proposal.rows[0]?.question ?? ""} ${proposal.rows[0]?.description ?? ""}`.toLowerCase();
+    for (const fixture of fixtures) {
+      let home: Record<string, unknown> | undefined;
+      let away: Record<string, unknown> | undefined;
+      if (Array.isArray(fixture.participants)) {
+        const participants = fixture.participants as Record<string, unknown>[];
+        home = participants.find((team) => (team.meta as Record<string, unknown> | undefined)?.location === "home");
+        away = participants.find((team) => (team.meta as Record<string, unknown> | undefined)?.location === "away");
+        if (!home || !away) continue;
+        const homeName = typeof home.name === "string" ? home.name : "";
+        const awayName = typeof away.name === "string" ? away.name : "";
+        if (!homeName || !awayName || !context.includes(homeName.toLowerCase()) || !context.includes(awayName.toLowerCase())) continue;
+        const safeUrl = (value: unknown) => {
+          if (typeof value !== "string") return null;
+          try { const url = new URL(value); return url.protocol === "https:" && ["cdn.sportmonks.com", "media.api-sports.io"].includes(url.hostname) ? url.toString() : null; } catch { return null; }
+        };
+        identities.set(String(row.proposal_id), {
+          home: { name: homeName, logoUrl: safeUrl(home.image_path) },
+          away: { name: awayName, logoUrl: safeUrl(away.image_path) },
+        });
+        break;
+      } else {
+        const teams = fixture.teams as Record<string, unknown> | undefined;
+        home = teams?.home as Record<string, unknown> | undefined;
+        away = teams?.away as Record<string, unknown> | undefined;
+        if (!home || !away) continue;
+        const homeName = typeof home.name === "string" ? home.name : "";
+        const awayName = typeof away.name === "string" ? away.name : "";
+        if (!homeName || !awayName || !context.includes(homeName.toLowerCase()) || !context.includes(awayName.toLowerCase())) continue;
+        const safeUrl = (value: unknown) => {
+          if (typeof value !== "string") return null;
+          try { const url = new URL(value); return url.protocol === "https:" && ["cdn.sportmonks.com", "media.api-sports.io"].includes(url.hostname) ? url.toString() : null; } catch { return null; }
+        };
+        identities.set(String(row.proposal_id), {
+          home: { name: homeName, logoUrl: safeUrl(home.logo) },
+          away: { name: awayName, logoUrl: safeUrl(away.logo) },
+        });
+        break;
+      }
+    }
+  }
+  return identities;
+}
