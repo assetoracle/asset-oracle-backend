@@ -1,0 +1,37 @@
+name: One-time close Asset Oracle Market 3
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asset-oracle-one-time-close-market-3
+  cancel-in-progress: false
+
+jobs:
+  close-market-3:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: asset-oracle-testnet
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed default-branch code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Execute the explicitly approved one-time Market 3 closure
+        env:
+          AUTOMATION_PRIVATE_KEY: ${{ secrets.AUTOMATION_PRIVATE_KEY }}
+          AUTOMATION_WALLET_ADDRESS: ${{ vars.AUTOMATION_WALLET_ADDRESS }}
+          ASSET_ORACLE_MARKET_MANAGER_ADDRESS: ${{ vars.ASSET_ORACLE_MARKET_MANAGER_ADDRESS }}
+          ASSET_ORACLE_NEW_CONTRACT_VERIFIED: ${{ vars.ASSET_ORACLE_NEW_CONTRACT_VERIFIED }}
+        run: node scripts/close-market-3-once.mjs
