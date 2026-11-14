@@ -226,7 +226,7 @@ export async function listAcceptedFootballTeamIdentity(proposalIds: string[]): P
         if (!homeName || !awayName || !context.includes(homeName.toLowerCase()) || !context.includes(awayName.toLowerCase())) continue;
         const safeUrl = (value: unknown) => {
           if (typeof value !== "string") return null;
-          try { const url = new URL(value); return url.protocol === "https:" ? url.toString() : null; } catch { return null; }
+          try { const url = new URL(value); return url.protocol === "https:" && ["cdn.sportmonks.com", "media.api-sports.io"].includes(url.hostname) ? url.toString() : null; } catch { return null; }
         };
         identities.set(String(row.proposal_id), {
           home: { name: homeName, logoUrl: safeUrl(home.image_path) },
@@ -243,7 +243,7 @@ export async function listAcceptedFootballTeamIdentity(proposalIds: string[]): P
         if (!homeName || !awayName || !context.includes(homeName.toLowerCase()) || !context.includes(awayName.toLowerCase())) continue;
         const safeUrl = (value: unknown) => {
           if (typeof value !== "string") return null;
-          try { const url = new URL(value); return url.protocol === "https:" ? url.toString() : null; } catch { return null; }
+          try { const url = new URL(value); return url.protocol === "https:" && ["cdn.sportmonks.com", "media.api-sports.io"].includes(url.hostname) ? url.toString() : null; } catch { return null; }
         };
         identities.set(String(row.proposal_id), {
           home: { name: homeName, logoUrl: safeUrl(home.logo) },
