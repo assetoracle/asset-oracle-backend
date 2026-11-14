@@ -56,6 +56,34 @@ test("generated candidate proposal requires future close and later resolution", 
   assert.equal(marketProposalSchema.safeParse(proposal).success, true);
 });
 
+
+test("template parser accepts the five approved CoinGecko digital assets", () => {
+  const assets = [
+    ["btc", "Bitcoin", "bitcoin"],
+    ["eth", "Ethereum", "ethereum"],
+    ["bnb", "BNB", "binancecoin"],
+    ["sol", "Solana", "solana"],
+    ["xrp", "XRP", "ripple"],
+  ] as const;
+  const templates = assets.map(([symbol, name, coinId], index) => ({
+    ...validTemplate,
+    id: `${symbol}-usd-threshold`,
+    question: `Will ${name} trade above 100000 USD at resolution?`,
+    description: `This candidate resolves using the configured CoinGecko ${name} market data at the observation time.`,
+    query: { coinId, vsCurrency: "usd" },
+    targetValue: 100000 + index,
+  }));
+  const parsed = parseGenerationTemplates(JSON.stringify(templates));
+  assert.deepEqual(parsed.map((template) => template.query.coinId), assets.map(([, , coinId]) => coinId));
+  assert.equal(parsed.length, 5);
+});
+
+test("DOGE and ADA remain outside the selected five-asset coverage set", () => {
+  const selectedIds = new Set(["bitcoin", "ethereum", "binancecoin", "solana", "ripple"]);
+  assert.equal(selectedIds.has("dogecoin"), false);
+  assert.equal(selectedIds.has("cardano"), false);
+});
+
 test("template parser rejects a provider outside its category", () => {
   const invalid = { ...validTemplate, sourceId: "fred", query: { seriesId: "CPIAUCSL" } };
   assert.throws(() => parseGenerationTemplates(JSON.stringify([invalid])), /not approved for the .* market category/i);
