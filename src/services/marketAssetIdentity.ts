@@ -6,6 +6,7 @@ type CacheEntry = { expiresAt: number; value: MarketAssetIdentity };
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const coinCache = new Map<string, CacheEntry>();
 let protocolCache: { expiresAt: number; bySlug: Map<string, MarketAssetIdentity>; rows: Array<{ slug: string; name: string; identity: MarketAssetIdentity }> } | null = null;
+let protocolIndexPromise: ReturnType<typeof buildProtocolIndex> | null = null;
 
 function safeHttpsImage(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -17,8 +18,7 @@ function safeHttpsImage(value: unknown): string | null {
   } catch { return null; }
 }
 
-async function getProtocolIndex() {
-  if (protocolCache && protocolCache.expiresAt > Date.now()) return protocolCache;
+async function buildProtocolIndex() {
   const result = await defiLlamaProtocols();
   const rows = Array.isArray(result.data) ? result.data as Record<string, unknown>[] : [];
   const bySlug = new Map<string, MarketAssetIdentity>();
@@ -31,8 +31,18 @@ async function getProtocolIndex() {
     bySlug.set(row.slug.toLowerCase(), identity);
     if (identity) indexed.push({ slug: row.slug.toLowerCase(), name, identity });
   }
-  protocolCache = { bySlug, rows: indexed, expiresAt: Date.now() + CACHE_TTL_MS };
-  return protocolCache;
+  return { bySlug, rows: indexed, expiresAt: Date.now() + CACHE_TTL_MS };
+}
+
+async function getProtocolIndex() {
+  if (protocolCache && protocolCache.expiresAt > Date.now()) return protocolCache;
+  if (!protocolIndexPromise) {
+    protocolIndexPromise = buildProtocolIndex().then((value) => {
+      protocolCache = value;
+      return value;
+    }).finally(() => { protocolIndexPromise = null; });
+  }
+  return protocolIndexPromise;
 }
 
 function appearsAsExactPhrase(haystack: string, phrase: string): boolean {
