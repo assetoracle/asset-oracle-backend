@@ -23,6 +23,7 @@ import marketEvidenceRouter from "./routes/marketEvidence.js";
 import marketCandidatesRouter from "./routes/marketCandidates.js";
 import { initializeWalletAuth } from "./services/walletAuth.js";
 import { initializeAssetChainIndexer } from "./services/assetChainIndexer.js";
+import { initializeOnchainStatsIndexer } from "./services/onchainStatsIndexer.js";
 import { initializePointsStore } from "./services/pointsStore.js";
 import { initializePaidSubmissionStore } from "./services/paidSubmissionStore.js";
 import { initializeSubmissionQuoteStore } from "./services/submissionQuoteStore.js";
@@ -52,13 +53,10 @@ const allowedFrontendOrigins = new Set([
 ]);
 
 app.disable("x-powered-by");
-// Render terminates TLS and forwards the client address through one trusted proxy.
 app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({
   origin(origin, callback) {
-    // Requests without an Origin header (e.g. server-to-server/health checks)
-    // are not browser cross-origin requests and remain permitted.
     if (!origin || allowedFrontendOrigins.has(origin.replace(/\/$/, ""))) {
       callback(null, true);
       return;
@@ -70,8 +68,6 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "100kb" }));
 
-// Process-local limits are a baseline safeguard. Use a shared store if the API
-// is scaled to multiple instances so limits are consistent across instances.
 app.use("/api/markets/public", createRateLimiter({ windowMs: 60_000, max: 60 }));
 app.use("/api/markets/public", createPublicMarketsCache({ ttlMs: 15_000 }));
 app.use("/api/stats/wallet", createRateLimiter({ windowMs: 60_000, max: 6 }));
@@ -121,6 +117,16 @@ async function startServer(): Promise<void> {
     });
     server.keepAliveTimeout = 65_000;
     server.headersTimeout = 66_000;
+
+    if (process.env.ONCHAIN_STATS_INDEXER_ENABLED === "true") {
+      try {
+        await initializeOnchainStatsIndexer();
+      } catch (error) {
+        console.error("On-chain dashboard statistics indexer could not start:", error instanceof Error ? error.message : "Unknown error");
+      }
+    } else {
+      console.log("On-chain dashboard statistics indexer is disabled; dashboard volume and event metrics remain unavailable.");
+    }
 
     if (process.env.ASSET_CHAIN_INDEXER_ENABLED === "true") {
       try {
