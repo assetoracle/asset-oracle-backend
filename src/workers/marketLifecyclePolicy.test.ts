@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   canProcessPayoutBatch,
@@ -8,6 +8,7 @@ import {
   isMarketFinalizable,
   isUnresolvedRefundDue,
   normalizePayoutStartIndex,
+  isProposalExpiredForNewPublication,
 } from "./marketLifecyclePolicy.js";
 
 const hour = 3600n;
@@ -56,4 +57,11 @@ describe("market lifecycle eligibility policy", () => {
     assert.equal(getPayoutBatchSize(120, 100, 50), 20);
     assert.equal(getPayoutBatchSize(120, 120, 50), 0);
   });
+});
+
+test("expired proposals are blocked from new publication after reconciliation", () => {
+  const now = Date.parse("2026-11-12T12:00:00.000Z");
+  assert.equal(isProposalExpiredForNewPublication("2026-11-11T12:00:00.000Z", now), true);
+  assert.equal(isProposalExpiredForNewPublication("2026-11-13T12:00:00.000Z", now), false);
+  assert.equal(isProposalExpiredForNewPublication("invalid", now), true);
 });

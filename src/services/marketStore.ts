@@ -219,6 +219,7 @@ export async function decideAutomatedMarketProposal(
       WHERE id = $1
         AND origin = 'AUTOMATED'
         AND status = 'PENDING_APPROVAL'
+        AND ($2 <> 'APPROVED' OR "closesAt" > NOW())
       RETURNING *`,
     [id, decision],
   );
@@ -397,6 +398,7 @@ export async function updateMarketProposalStatus(
          visibility = 'PRIVATE'
      WHERE id = $1
        AND status = 'PENDING_APPROVAL'
+       AND ($2 <> 'APPROVED' OR "closesAt" > NOW())
      RETURNING *`,
     [id, status],
   );

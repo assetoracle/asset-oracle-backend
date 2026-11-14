@@ -67,6 +67,7 @@ test("approving an automated proposal keeps it private until verified on-chain p
 
   const result = await decideAutomatedMarketProposal(proposalRow.id as string, "APPROVED");
   assert.match(capturedSql, /visibility = 'PRIVATE'/);
+  assert.match(capturedSql, /\$2 <> 'APPROVED' OR "closesAt" > NOW\(\)/);
   assert.doesNotMatch(capturedSql, /THEN 'PUBLIC'/);
   assert.equal(result?.status, "APPROVED");
   assert.equal(result?.visibility, "PRIVATE");
@@ -213,4 +214,15 @@ test("updates attempt state and retains the recorded transaction hash", async ()
     marketId: "12",
   });
   assert.deepEqual(capturedValues, [5, "PUBLISHED", publication.txHash, "12", null]);
+});
+
+test("an expired automated proposal cannot be approved", async () => {
+  let capturedSql = "";
+  db.query = async (sql) => {
+    capturedSql = sql;
+    return { rows: [] };
+  };
+  const result = await decideAutomatedMarketProposal(proposalRow.id as string, "APPROVED");
+  assert.equal(result, undefined);
+  assert.match(capturedSql, /\$2 <> 'APPROVED' OR "closesAt" > NOW\(\)/);
 });

@@ -298,8 +298,8 @@ export async function decideMarketProposalAtomically(input: {
   const client = await database.connect();
   try {
     await client.query("BEGIN");
-    const proposalResult = await client.query<{ id: string; status: string }>(
-      "SELECT id, status FROM market_proposals WHERE id = $1 AND origin = 'MANUAL' FOR UPDATE",
+    const proposalResult = await client.query<{ id: string; status: string; closesAt: string | Date }>(
+      'SELECT id, status, "closesAt" FROM market_proposals WHERE id = $1 AND origin = \'MANUAL\' FOR UPDATE',
       [input.proposalId],
     );
     const proposal = proposalResult.rows[0];
@@ -307,7 +307,8 @@ export async function decideMarketProposalAtomically(input: {
       await client.query("ROLLBACK");
       return "NOT_FOUND";
     }
-    if (proposal.status !== "PENDING_APPROVAL") {
+    if (proposal.status !== "PENDING_APPROVAL" ||
+        (input.decision === "APPROVED" && new Date(proposal.closesAt).getTime() <= Date.now())) {
       await client.query("ROLLBACK");
       return "CONFLICT";
     }
@@ -323,7 +324,7 @@ export async function decideMarketProposalAtomically(input: {
     }
 
     const proposalUpdate = await client.query(
-      "UPDATE market_proposals SET status = $2 WHERE id = $1 AND origin = 'MANUAL' AND status = 'PENDING_APPROVAL' RETURNING id",
+      'UPDATE market_proposals SET status = $2 WHERE id = $1 AND origin = \'MANUAL\' AND status = \'PENDING_APPROVAL\' AND ($2 <> \'APPROVED\' OR "closesAt" > NOW()) RETURNING id',
       [input.proposalId, input.decision],
     );
     if ((proposalUpdate.rowCount ?? proposalUpdate.rows.length) !== 1) {

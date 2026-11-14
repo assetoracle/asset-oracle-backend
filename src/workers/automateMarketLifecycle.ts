@@ -38,6 +38,7 @@ import {
   isMarketFinalizable,
   isUnresolvedRefundDue,
   normalizePayoutStartIndex,
+  isProposalExpiredForNewPublication,
 } from "./marketLifecyclePolicy.js";
 
 const chain = defineChain({
@@ -203,10 +204,6 @@ async function main(): Promise<void> {
     // is embedded in resolutionRules so a retry can reconcile an on-chain success safely.
     for (const proposal of proposals.filter((item) => item.status === "APPROVED" && !item.onchainTxHash && !item.onchainMarketId)) {
       const closeTime = BigInt(Math.floor(Date.parse(proposal.closesAt) / 1000));
-      if (closeTime <= BigInt(Math.floor(Date.now() / 1000))) {
-        console.warn(`Skipping expired approved proposal ${proposal.id}; it needs an updated close time.`);
-        continue;
-      }
       const rules = JSON.stringify({
         ...proposal.resolutionRule,
         resolvesAt: proposal.resolvesAt,
@@ -280,6 +277,13 @@ async function main(): Promise<void> {
         } else {
           throw new Error(`Publication attempt ${attempt.id} for proposal ${proposal.id} has no transaction hash and no matching market. Manual reconciliation is required; refusing to submit a duplicate.`);
         }
+      }
+
+      // Reconcile any prior attempt (including a legacy seed) before applying the
+      // expiry guard. Expiry must never hide a market that was already broadcast.
+      if (isProposalExpiredForNewPublication(proposal.closesAt)) {
+        console.warn(`Skipping new publication for expired approved proposal ${proposal.id}; existing attempts were reconciled first.`);
+        continue;
       }
 
       const publicationAttempt = attempt ?? await createMarketPublicationAttempt({
