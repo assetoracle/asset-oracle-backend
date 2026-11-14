@@ -33,6 +33,8 @@ import { getPaidProposalEscrowContext } from "../services/paidProposalEscrowCont
 import { verifyEscrowDecision } from "../services/verifyEscrowDecision.js";
 import { verifyPaidProposalEscrowConfig } from "../services/verifyPaidProposalEscrowConfig.js";
 import { CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS } from "../config/assetOracle.js";
+import { listAcceptedFootballTeamIdentity } from "../services/marketEvidenceStore.js";
+import { getMarketAssetIdentity } from "../services/marketAssetIdentity.js";
 
 const marketsRouter = Router();
 
@@ -589,13 +591,22 @@ marketsRouter.get("/public", async (_req, res, next) => {
     }
 
     const lifecycleNames = ["OPEN", "CLOSED", "DISPUTED", "SETTLED", "REFUNDABLE", "CANCELLED", "ARBITRATION"] as const;
+    const acceptedTeamIdentity = await listAcceptedFootballTeamIdentity(markets.map((market) => market.id));
     const marketsWithLifecycle = await Promise.all(markets.map(async (market) => {
+      const rule = market.resolutionRule as typeof market.resolutionRule & {
+        query?: { coinId?: string; protocol?: string };
+      };
+      const assetIdentity = await getMarketAssetIdentity({
+        sourceId: rule.sourceId,
+        coinId: rule.query?.coinId,
+        protocol: rule.query?.protocol,
+      });
       // Keep publication approval separate from the live contract lifecycle.
       // If an individual read fails, return null rather than guessing a status.
       if (!market.onchainMarketId || !market.onchainManagerAddress ||
           !isAddress(market.onchainManagerAddress) ||
           getAddress(market.onchainManagerAddress) !== getAddress(CURRENT_ASSET_ORACLE_MARKET_MANAGER_ADDRESS)) {
-        return { ...market, onchainLifecycleStatus: null };
+        return { ...market, onchainLifecycleStatus: null, teamIdentity: acceptedTeamIdentity.get(market.id) ?? null, assetIdentity };
       }
       try {
         const onchain = await client.readContract({
@@ -607,9 +618,11 @@ marketsRouter.get("/public", async (_req, res, next) => {
         return {
           ...market,
           onchainLifecycleStatus: lifecycleNames[Number(onchain.status)] ?? "UNKNOWN",
+          teamIdentity: acceptedTeamIdentity.get(market.id) ?? null,
+          assetIdentity,
         };
       } catch {
-        return { ...market, onchainLifecycleStatus: null };
+        return { ...market, onchainLifecycleStatus: null, teamIdentity: acceptedTeamIdentity.get(market.id) ?? null };
       }
     }));
 
